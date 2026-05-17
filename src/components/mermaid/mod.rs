@@ -3,7 +3,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, anyhow};
 use directories::ProjectDirs;
@@ -126,8 +126,19 @@ pub(crate) fn render_mermaid_svg_for_display(
     available_width: f32,
     viewport_width: f32,
 ) -> anyhow::Result<MermaidSvgRender> {
-    let svg = render_mermaid_to_svg(&source.body)?;
-    let intrinsic = mermaid_svg_intrinsic_size(&svg)?;
+    render_mermaid_svg_for_display_with(source, available_width, viewport_width, render_mermaid_raw)
+}
+
+fn render_mermaid_svg_for_display_with(
+    source: &MermaidSource,
+    available_width: f32,
+    viewport_width: f32,
+    renderer: MermaidRenderer,
+) -> anyhow::Result<MermaidSvgRender> {
+    let base_key = mermaid_cache_key(&source.body);
+    let base_path = mermaid_base_cache_path(&base_key)?;
+    let base_svg = render_mermaid_to_svg_cached_with(&source.body, &base_path, renderer)?;
+    let intrinsic = mermaid_svg_intrinsic_size(&base_svg)?;
     let scale = mermaid_display_scale(
         &source.body,
         intrinsic.width,
@@ -135,19 +146,35 @@ pub(crate) fn render_mermaid_svg_for_display(
         available_width,
         viewport_width,
     );
-    let (svg, size) = scale_mermaid_svg_for_display(&svg, scale)?;
-    let key = mermaid_display_cache_key(&source.body, scale);
-    let path = mermaid_cache_dir()?.join(format!("{key}.svg"));
-    if !path.exists() {
-        fs::write(&path, &svg).with_context(|| {
+
+    let display_key = mermaid_display_cache_key(&source.body, scale);
+    let display_path = mermaid_display_cache_path(&display_key)?;
+    if display_path.exists() {
+        let svg = fs::read_to_string(&display_path).with_context(|| {
             format!(
-                "failed to write Mermaid display SVG cache '{}'",
-                path.display()
+                "failed to read Mermaid display SVG cache '{}'",
+                display_path.display()
             )
         })?;
+        let size = mermaid_svg_intrinsic_size(&svg)?;
+        return Ok(MermaidSvgRender {
+            path: display_path,
+            svg,
+            display_width: size.width,
+            display_height: size.height,
+            display_scale: scale,
+        });
     }
+
+    let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
+    fs::write(&display_path, &svg).with_context(|| {
+        format!(
+            "failed to write Mermaid display SVG cache '{}'",
+            display_path.display()
+        )
+    })?;
     Ok(MermaidSvgRender {
-        path,
+        path: display_path,
         svg,
         display_width: size.width,
         display_height: size.height,
@@ -155,8 +182,37 @@ pub(crate) fn render_mermaid_svg_for_display(
     })
 }
 
-/// Render a Mermaid diagram body into SVG text.
+/// Render a Mermaid diagram body into cached SVG text.
 pub(crate) fn render_mermaid_to_svg(source: &str) -> anyhow::Result<String> {
+    let key = mermaid_cache_key(source);
+    let path = mermaid_base_cache_path(&key)?;
+    render_mermaid_to_svg_cached_with(source, &path, render_mermaid_raw)
+}
+
+type MermaidRenderer = fn(&str) -> anyhow::Result<String>;
+
+fn render_mermaid_to_svg_cached_with(
+    source: &str,
+    path: &Path,
+    renderer: MermaidRenderer,
+) -> anyhow::Result<String> {
+    if path.exists() {
+        return fs::read_to_string(path).with_context(|| {
+            format!("failed to read Mermaid base SVG cache '{}'", path.display())
+        });
+    }
+
+    let svg = renderer(source)?;
+    fs::write(path, &svg).with_context(|| {
+        format!(
+            "failed to write Mermaid base SVG cache '{}'",
+            path.display()
+        )
+    })?;
+    Ok(svg)
+}
+
+fn render_mermaid_raw(source: &str) -> anyhow::Result<String> {
     if !looks_like_supported_mermaid_source(source) {
         return Err(anyhow::anyhow!("unsupported Mermaid diagram"));
     }
@@ -454,6 +510,25 @@ fn mermaid_cache_dir() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
+fn mermaid_base_cache_path(key: &str) -> anyhow::Result<PathBuf> {
+    mermaid_cache_file_path("base", key)
+}
+
+fn mermaid_display_cache_path(key: &str) -> anyhow::Result<PathBuf> {
+    mermaid_cache_file_path("display", key)
+}
+
+fn mermaid_cache_file_path(kind: &str, key: &str) -> anyhow::Result<PathBuf> {
+    let dir = mermaid_cache_dir()?.join(kind);
+    fs::create_dir_all(&dir).with_context(|| {
+        format!(
+            "failed to create Mermaid {kind} SVG cache '{}'",
+            dir.display()
+        )
+    })?;
+    Ok(dir.join(format!("{key}.svg")))
+}
+
 fn looks_like_supported_mermaid_source(source: &str) -> bool {
     let mut in_frontmatter = false;
     for line in source.lines() {
@@ -505,6 +580,50 @@ fn looks_like_supported_mermaid_source(source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static TEST_RENDERER_CALLS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+
+    fn test_renderer(source: &str) -> anyhow::Result<String> {
+        let calls = TEST_RENDERER_CALLS.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut calls = calls.lock().expect("renderer calls mutex poisoned");
+        *calls.entry(source.to_string()).or_default() += 1;
+        drop(calls);
+        render_mermaid_raw(source)
+    }
+
+    fn reset_renderer_calls(source: &str) {
+        let calls = TEST_RENDERER_CALLS.get_or_init(|| Mutex::new(HashMap::new()));
+        calls
+            .lock()
+            .expect("renderer calls mutex poisoned")
+            .remove(source);
+    }
+
+    fn renderer_calls(source: &str) -> usize {
+        let calls = TEST_RENDERER_CALLS.get_or_init(|| Mutex::new(HashMap::new()));
+        calls
+            .lock()
+            .expect("renderer calls mutex poisoned")
+            .get(source)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn unique_mermaid_source(label: &str) -> MermaidSource {
+        MermaidSource {
+            raw: format!("```mermaid\nflowchart LR\nA[{}] --> B\n```", label),
+            body: format!("flowchart LR\nA[{}] --> B", label),
+            info: "mermaid".to_string(),
+        }
+    }
+
+    fn remove_cache_file(path: &Path) {
+        if path.exists() {
+            fs::remove_file(path).expect("remove cache file");
+        }
+    }
 
     #[test]
     fn detects_mermaid_info_string() {
@@ -656,5 +775,75 @@ mod tests {
     #[test]
     fn invalid_mermaid_returns_error() {
         assert!(render_mermaid_to_svg("not a real mermaid diagram ::::").is_err());
+    }
+
+    #[test]
+    fn display_cache_hit_does_not_call_renderer_again() {
+        let source = unique_mermaid_source("display-cache-hit-does-not-call-renderer-again");
+        let base_key = mermaid_cache_key(&source.body);
+        let base_path = mermaid_base_cache_path(&base_key).expect("base path");
+        remove_cache_file(&base_path);
+
+        reset_renderer_calls(&source.body);
+        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+            .expect("first render");
+        assert_eq!(renderer_calls(&source.body), 1);
+        let display_path = first.path.clone();
+
+        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+            .expect("cached render");
+        assert_eq!(renderer_calls(&source.body), 1);
+        assert_eq!(second.path, display_path);
+        assert_eq!(second.display_width, first.display_width);
+        assert_eq!(second.display_height, first.display_height);
+
+        remove_cache_file(&display_path);
+        remove_cache_file(&base_path);
+    }
+
+    #[test]
+    fn display_cache_miss_reuses_base_cache() {
+        let source = unique_mermaid_source("display-cache-miss-reuses-base-cache");
+        let base_key = mermaid_cache_key(&source.body);
+        let base_path = mermaid_base_cache_path(&base_key).expect("base path");
+        remove_cache_file(&base_path);
+
+        reset_renderer_calls(&source.body);
+        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+            .expect("first render");
+        assert_eq!(renderer_calls(&source.body), 1);
+        remove_cache_file(&first.path);
+
+        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+            .expect("display rebuild");
+        assert_eq!(renderer_calls(&source.body), 1);
+        assert!(second.path.exists());
+        assert_eq!(second.display_width, first.display_width);
+        assert_eq!(second.display_height, first.display_height);
+
+        remove_cache_file(&second.path);
+        remove_cache_file(&base_path);
+    }
+
+    #[test]
+    fn display_scale_change_reuses_base_cache_with_new_display_file() {
+        let source = unique_mermaid_source("display-scale-change-reuses-base-cache");
+        let base_key = mermaid_cache_key(&source.body);
+        let base_path = mermaid_base_cache_path(&base_key).expect("base path");
+        remove_cache_file(&base_path);
+
+        reset_renderer_calls(&source.body);
+        let narrow = render_mermaid_svg_for_display_with(&source, 240.0, 320.0, test_renderer)
+            .expect("narrow render");
+        assert_eq!(renderer_calls(&source.body), 1);
+
+        let wide = render_mermaid_svg_for_display_with(&source, 900.0, 1200.0, test_renderer)
+            .expect("wide render");
+        assert_eq!(renderer_calls(&source.body), 1);
+        assert!(wide.path.exists());
+
+        remove_cache_file(&narrow.path);
+        remove_cache_file(&wide.path);
+        remove_cache_file(&base_path);
     }
 }

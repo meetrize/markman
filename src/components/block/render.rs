@@ -2234,7 +2234,7 @@ impl Render for Block {
                                 )
                                 .on_mouse_up_out(
                                     MouseButton::Left,
-                                    cx.listener(Self::on_code_language_mouse_up),
+                                    cx.listener(Self::on_code_language_mouse_up_out),
                                 )
                                 .on_mouse_move(cx.listener(Self::on_code_language_mouse_move))
                                 .w(px(d.code_language_input_width))

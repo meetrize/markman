@@ -2049,6 +2049,56 @@ async fn toggle_view_mode_preserves_paragraph_caret_position(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+async fn toggle_view_mode_ends_stale_code_block_pointer_selection(cx: &mut TestAppContext) {
+    let editor =
+        cx.new(|cx| Editor::from_markdown(cx, "```rust\nfn main() {}\n```".to_string(), None));
+
+    editor.update(cx, |editor, cx| {
+        let target = editor.document.visible_blocks()[0].entity.clone();
+        target.update(cx, |block, _cx| {
+            block.selected_range = 3..7;
+            block.is_selecting = true;
+            block.code_language_is_selecting = true;
+        });
+        editor.active_entity_id = Some(target.entity_id());
+
+        editor.toggle_view_mode(cx);
+
+        assert!(matches!(editor.view_mode, ViewMode::Source));
+        target.read_with(cx, |block, _cx| {
+            assert!(!block.is_selecting);
+            assert!(!block.code_language_is_selecting);
+            assert_eq!(block.selected_range, 3..7);
+        });
+    });
+}
+
+#[gpui::test]
+async fn ending_editor_pointer_selection_sessions_keeps_normal_selection(cx: &mut TestAppContext) {
+    let editor =
+        cx.new(|cx| Editor::from_markdown(cx, "```rust\nfn main() {}\n```".to_string(), None));
+
+    editor.update(cx, |editor, cx| {
+        let target = editor.document.visible_blocks()[0].entity.clone();
+        target.update(cx, |block, _cx| {
+            block.selected_range = 3..7;
+            block.marked_range = Some(4..6);
+            block.is_selecting = true;
+        });
+        editor.active_entity_id = Some(target.entity_id());
+
+        assert!(editor.end_block_pointer_selection_sessions(cx));
+        target.read_with(cx, |block, _cx| {
+            assert!(!block.is_selecting);
+            assert_eq!(block.selected_range, 3..7);
+            assert_eq!(block.marked_range, Some(4..6));
+        });
+
+        assert!(!editor.end_block_pointer_selection_sessions(cx));
+    });
+}
+
+#[gpui::test]
 async fn toggle_view_mode_preserves_table_cell_position(cx: &mut TestAppContext) {
     let markdown = ["| Name | Value |", "| --- | --- |", "| alpha | beta |"].join("\n");
     let editor = cx.new(|cx| Editor::from_markdown(cx, markdown, None));

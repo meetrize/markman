@@ -1074,7 +1074,7 @@ impl Block {
     }
 
     /// Detect Markdown shortcut prefixes in the edited title and convert the
-    /// block's kind accordingly (e.g. `"- "` 鈫?`BulletedListItem`).
+    /// block's kind accordingly (e.g. `"- " -> BulletedListItem`).
     ///
     /// Only triggers when the current kind is [`BlockKind::Paragraph`].
     /// Returns the potentially updated kind, the title with prefix stripped,
@@ -1901,7 +1901,7 @@ impl Block {
     }
 
     /// Cosine-based smooth blink: fully opaque for 0.5s, then oscillates
-    /// with a period of ~1s (33ms 脳 30 ticks 鈮?1s).
+    /// with a period of ~1s (33ms x 30 ticks ~= 1s).
     pub fn cursor_opacity(&self) -> f32 {
         let elapsed = self.cursor_blink_epoch.elapsed().as_secs_f32();
         if elapsed < 0.5 {
@@ -1917,6 +1917,13 @@ impl Block {
         } else {
             self.selected_range.end
         }
+    }
+
+    pub(crate) fn end_pointer_selection_session(&mut self) -> bool {
+        let changed = self.is_selecting || self.code_language_is_selecting;
+        self.is_selecting = false;
+        self.code_language_is_selecting = false;
+        changed
     }
 
     fn selection_anchor_focus(&self) -> (usize, usize) {

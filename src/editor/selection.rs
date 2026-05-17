@@ -117,9 +117,10 @@ impl Editor {
         &mut self,
         _event: &MouseUpEvent,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         self.cross_block_drag = None;
+        self.end_block_pointer_selection_sessions(cx);
     }
 
     pub(super) fn on_copy_capture(

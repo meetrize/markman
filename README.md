@@ -111,15 +111,14 @@ The editor uses a native block tree as its runtime model. During import, stable 
 
 ## Contributing
 
-This repository is moving quickly. When reporting a parsing or rendering issue, please include:
+This repository is still moving fast. When reporting parsing or rendering issues, please fill out the issue template so the problem can be reproduced and handled efficiently.
 
-- the minimal Markdown input,
-- the expected rendered or serialized result,
-- the actual result,
-- the editing mode where it happens.
-
-For code changes, prefer small patches that extend the existing parser/runtime model instead of replacing the current implementation wholesale.
+For code changes, we recommend developing on the `dev` branch first and keeping patches small. Please extend the existing parser/runtime model instead of replacing the current implementation wholesale.
 
 ## License
 
 Velotype is licensed under the [Apache License 2.0](LICENSE).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=manyougz/velotype&type=date&legend=top-left)](https://api.star-history.com/chart?repos=manyougz/velotype&type=date&legend=top-left)

@@ -18,6 +18,41 @@ impl Editor {
             .and_then(|entity_id| self.focusable_entity_by_id(entity_id))
     }
 
+    fn end_block_pointer_selection_sessions_inner(
+        &mut self,
+        cx: &mut Context<Self>,
+        notify: bool,
+    ) -> bool {
+        let mut changed = false;
+
+        if let Some(target) = self.current_edit_target_from_state(cx) {
+            target.update(cx, |block, _cx| {
+                changed |= block.end_pointer_selection_session();
+            });
+        }
+
+        for visible in self.document.visible_blocks().to_vec() {
+            visible.entity.update(cx, |block, _cx| {
+                changed |= block.end_pointer_selection_session();
+            });
+        }
+
+        for binding in self.table_cells.values().cloned().collect::<Vec<_>>() {
+            binding.cell.update(cx, |block, _cx| {
+                changed |= block.end_pointer_selection_session();
+            });
+        }
+
+        if changed && notify {
+            cx.notify();
+        }
+        changed
+    }
+
+    pub(super) fn end_block_pointer_selection_sessions(&mut self, cx: &mut Context<Self>) -> bool {
+        self.end_block_pointer_selection_sessions_inner(cx, true)
+    }
+
     /// Creates a new block entity and subscribes this editor to its
     /// [`BlockEvent`](crate::components::BlockEvent) stream.
     pub(super) fn new_block(cx: &mut Context<Self>, record: BlockRecord) -> Entity<Block> {
