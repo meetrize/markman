@@ -72,10 +72,8 @@ Velotype already supports almost all basic Markdown syntax and most commonly use
 
 Syntax support will continue to improve. Planned work includes:
 
-- [x] ~~Mind-map drawing and rendering support~~
-- [x] ~~LaTeX math syntax and rendering support~~
-- [ ] Optimize the parsing and rendering capabilities for extremely large Markdown documents
-- [ ] Workspace Mode and Outline Parsing
+- [x] ~~Optimize the parsing and rendering capabilities for extremely large Markdown documents~~
+- [x] ~~Workspace Mode and Outline Parsing~~
 - [ ] Built-in image hosting
 - [ ] More complete IME behavior
 
