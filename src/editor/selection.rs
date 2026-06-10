@@ -474,7 +474,7 @@ impl Editor {
         )
     }
 
-    fn endpoint_for_source_offset(
+    pub(super) fn endpoint_for_source_offset(
         &self,
         offset: usize,
         mappings: &[SourceTargetMapping],
@@ -504,7 +504,8 @@ impl Editor {
         let mut changed = had_source_range;
         for visible in self.document.visible_blocks().to_vec() {
             visible.entity.update(cx, |block, cx| {
-                if block.search_highlight_range.take().is_some() {
+                if !block.search_highlight_ranges.is_empty() {
+                    block.search_highlight_ranges.clear();
                     changed = true;
                     cx.notify();
                 }
@@ -545,9 +546,10 @@ impl Editor {
                 Some(start.offset.min(end.offset)..start.offset.max(end.offset))
             });
 
+            let next_ranges = next_range.map(|range| vec![range]).unwrap_or_default();
             visible.entity.update(cx, |block, cx| {
-                if block.search_highlight_range != next_range {
-                    block.search_highlight_range = next_range;
+                if block.search_highlight_ranges != next_ranges {
+                    block.search_highlight_ranges = next_ranges;
                     cx.notify();
                 }
             });

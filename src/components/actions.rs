@@ -68,6 +68,9 @@ actions!(
         ToggleViewMode,
         ToggleWorkspace,
         ToggleApplicationVisibility,
+        ToggleDocumentSearch,
+        FindNextInDocument,
+        FindPreviousInDocument,
     ]
 );
 
@@ -153,6 +156,8 @@ pub(crate) enum ShortcutCommand {
     DismissTransientUi,
     ToggleViewMode,
     ToggleWorkspace,
+    FindNextInDocument,
+    FindPreviousInDocument,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -473,6 +478,20 @@ const SHORTCUT_DEFINITIONS: &[ShortcutDefinition] = &[
         default_keys: &["ctrl-w"],
         context: None,
     },
+    ShortcutDefinition {
+        command: ShortcutCommand::FindNextInDocument,
+        id: "find_next_in_document",
+        category: ShortcutCategory::Navigation,
+        default_keys: &["f3"],
+        context: None,
+    },
+    ShortcutDefinition {
+        command: ShortcutCommand::FindPreviousInDocument,
+        id: "find_previous_in_document",
+        category: ShortcutCategory::Navigation,
+        default_keys: &["shift-f3"],
+        context: None,
+    },
 ];
 
 pub(crate) fn shortcut_definitions() -> &'static [ShortcutDefinition] {
@@ -650,6 +669,10 @@ fn key_binding_for(
         ShortcutCommand::DismissTransientUi => KeyBinding::new(key, DismissTransientUi, context),
         ShortcutCommand::ToggleViewMode => KeyBinding::new(key, ToggleViewMode, context),
         ShortcutCommand::ToggleWorkspace => KeyBinding::new(key, ToggleWorkspace, context),
+        ShortcutCommand::FindNextInDocument => KeyBinding::new(key, FindNextInDocument, context),
+        ShortcutCommand::FindPreviousInDocument => {
+            KeyBinding::new(key, FindPreviousInDocument, context)
+        }
     }
 }
 

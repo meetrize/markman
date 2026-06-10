@@ -23,6 +23,7 @@ const ICON_TABLE: &str = "icon/toolbar/table.svg";
 const ICON_VIEW_SOURCE: &str = "icon/toolbar/view-source.svg";
 const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
 const ICON_AUTO_SAVE: &str = "icon/toolbar/auto-save.svg";
+const ICON_SEARCH: &str = "icon/toolbar/search.svg";
 
 enum FormatToolbarItem {
     Action(MarkdownToolbarAction),
@@ -143,6 +144,17 @@ impl Editor {
         } else {
             c.dialog_secondary_button_hover
         };
+        let document_search_open = self.document_search.open;
+        let document_search_bg = if document_search_open {
+            c.selection.opacity(0.35)
+        } else {
+            c.dialog_surface
+        };
+        let document_search_hover_bg = if document_search_open {
+            c.selection.opacity(0.5)
+        } else {
+            c.dialog_secondary_button_hover
+        };
 
         div()
             .id("markdown-format-toolbar")
@@ -209,6 +221,28 @@ impl Editor {
                     .flex()
                     .items_center()
                     .gap(px(d.format_toolbar_gap))
+                    .child(
+                        div()
+                            .id("document-search-toggle")
+                            .w(px(d.format_toolbar_button_height))
+                            .h(px(d.format_toolbar_button_height))
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(d.format_toolbar_button_radius))
+                            .bg(document_search_bg)
+                            .hover(|this| this.bg(document_search_hover_bg))
+                            .active(|this| this.opacity(0.92))
+                            .cursor_pointer()
+                            .child(
+                                svg()
+                                    .path(ICON_SEARCH)
+                                    .size(icon_size)
+                                    .text_color(icon_color),
+                            )
+                            .on_click(cx.listener(Self::on_toggle_document_search_click)),
+                    )
                     .child(
                         div()
                             .id("auto-save-toggle")

@@ -1638,6 +1638,7 @@ impl Render for Editor {
             .bg(theme.colors.editor_background)
             .relative()
             .child(self.render_markdown_format_toolbar(&theme, cx))
+            .children(self.render_document_search_bar(&theme, cx))
             .child(
                 div()
                     .id("editor-scroll-viewport")
@@ -1739,6 +1740,9 @@ impl Render for Editor {
             .on_action(cx.listener(Self::on_close_window))
             .on_action(cx.listener(Self::on_toggle_view_mode_action))
             .on_action(cx.listener(Self::on_toggle_workspace_action))
+            .on_action(cx.listener(Self::on_toggle_document_search))
+            .on_action(cx.listener(Self::on_find_next_in_document))
+            .on_action(cx.listener(Self::on_find_previous_in_document))
             .on_action(cx.listener(Self::on_dismiss_transient_ui))
             .on_action(cx.listener(Self::on_install_cli_tool))
             .on_action(cx.listener(Self::on_uninstall_cli_tool));

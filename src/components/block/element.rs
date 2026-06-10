@@ -52,6 +52,19 @@ fn source_line_number_tops(lines: &[WrappedLine], line_height: Pixels) -> Vec<Pi
     tops
 }
 
+fn push_search_highlight_boundaries(boundaries: &mut Vec<usize>, ranges: &[Range<usize>]) {
+    for range in ranges {
+        boundaries.push(range.start);
+        boundaries.push(range.end);
+    }
+}
+
+fn segment_in_search_highlight(start: usize, end: usize, ranges: &[Range<usize>]) -> bool {
+    ranges
+        .iter()
+        .any(|range| start < range.end && range.start < end)
+}
+
 fn build_text_runs(
     input: &Block,
     display_text: &SharedString,
@@ -72,15 +85,12 @@ fn build_text_runs(
         boundaries.push(marked_range.start);
         boundaries.push(marked_range.end);
     }
-    if let Some(search_range) = input.search_highlight_range.as_ref() {
-        boundaries.push(search_range.start);
-        boundaries.push(search_range.end);
-    }
+    push_search_highlight_boundaries(&mut boundaries, &input.search_highlight_ranges);
     boundaries.sort_unstable();
     boundaries.dedup();
 
     let marked_range = input.marked_range.as_ref();
-    let search_highlight_range = input.search_highlight_range.as_ref();
+    let search_highlight_ranges = &input.search_highlight_ranges;
     let mut runs = Vec::new();
     let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
@@ -106,9 +116,8 @@ fn build_text_runs(
         let is_marked = marked_range
             .map(|range| start < range.end && range.start < end)
             .unwrap_or(false);
-        let is_search_highlight = search_highlight_range
-            .map(|range| start < range.end && range.start < end)
-            .unwrap_or(false);
+        let is_search_highlight =
+            segment_in_search_highlight(start, end, search_highlight_ranges);
 
         let mut font = base_run.font.clone();
         if inline_style.bold && font.weight < FontWeight::BOLD {
@@ -204,15 +213,12 @@ fn build_code_text_runs(
         boundaries.push(marked_range.start);
         boundaries.push(marked_range.end);
     }
-    if let Some(search_range) = input.search_highlight_range.as_ref() {
-        boundaries.push(search_range.start);
-        boundaries.push(search_range.end);
-    }
+    push_search_highlight_boundaries(&mut boundaries, &input.search_highlight_ranges);
     boundaries.sort_unstable();
     boundaries.dedup();
 
     let marked_range = input.marked_range.as_ref();
-    let search_highlight_range = input.search_highlight_range.as_ref();
+    let search_highlight_ranges = &input.search_highlight_ranges;
     let mut runs = Vec::new();
     let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
@@ -225,9 +231,8 @@ fn build_code_text_runs(
         let is_marked = marked_range
             .map(|range| start < range.end && range.start < end)
             .unwrap_or(false);
-        let is_search_highlight = search_highlight_range
-            .map(|range| start < range.end && range.start < end)
-            .unwrap_or(false);
+        let is_search_highlight =
+            segment_in_search_highlight(start, end, search_highlight_ranges);
         while span_idx < highlight_spans.len() && highlight_spans[span_idx].range.end <= start {
             span_idx += 1;
         }

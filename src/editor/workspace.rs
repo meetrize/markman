@@ -10,6 +10,10 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use super::{BlockKind, Editor, PendingWorkspaceSearchJump};
+use super::document_search::{
+    document_search_offset_to_utf16, document_search_range_from_utf16,
+    document_search_range_to_utf16,
+};
 use super::workspace_search_input::WorkspaceSearchInputElement;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste, SelectAll, SelectEnd,
@@ -2119,6 +2123,13 @@ impl EntityInputHandler for Editor {
             return Some(text[range].to_string());
         }
 
+        if self.document_search_input_active(window) {
+            let text = self.document_search.query.clone();
+            let range = document_search_range_from_utf16(&text, &range_utf16);
+            actual_range.replace(document_search_range_to_utf16(&text, &range));
+            return Some(text[range].to_string());
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2143,6 +2154,14 @@ impl EntityInputHandler for Editor {
             });
         }
 
+        if self.document_search_input_active(window) {
+            let text = &self.document_search.query;
+            return Some(UTF16Selection {
+                range: document_search_range_to_utf16(text, &self.document_search.selected_range),
+                reversed: self.document_search.selection_reversed,
+            });
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2163,6 +2182,14 @@ impl EntityInputHandler for Editor {
                 .map(|range| workspace_search_range_to_utf16(&dialog.name, range));
         }
 
+        if self.document_search_input_active(window) {
+            return self
+                .document_search
+                .marked_range
+                .as_ref()
+                .map(|range| document_search_range_to_utf16(&self.document_search.query, range));
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2178,6 +2205,11 @@ impl EntityInputHandler for Editor {
             if let Some(dialog) = self.workspace_name_dialog.as_mut() {
                 dialog.marked_range = None;
             }
+            return;
+        }
+
+        if self.document_search_input_active(window) {
+            self.document_search.marked_range = None;
             return;
         }
 
@@ -2204,6 +2236,18 @@ impl EntityInputHandler for Editor {
                 .or_else(|| dialog.marked_range.clone())
                 .unwrap_or_else(|| dialog.selected_range.clone());
             self.replace_workspace_name_dialog_text(range, new_text, false, None, cx);
+            return;
+        }
+
+        if self.document_search_input_active(window) {
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| {
+                    document_search_range_from_utf16(&self.document_search.query, range_utf16)
+                })
+                .or_else(|| self.document_search.marked_range.clone())
+                .unwrap_or_else(|| self.document_search.selected_range.clone());
+            self.replace_document_search_text(range, new_text, false, None, cx);
             return;
         }
 
@@ -2246,6 +2290,22 @@ impl EntityInputHandler for Editor {
             return;
         }
 
+        if self.document_search_input_active(window) {
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| {
+                    document_search_range_from_utf16(&self.document_search.query, range_utf16)
+                })
+                .or_else(|| self.document_search.marked_range.clone())
+                .unwrap_or_else(|| self.document_search.selected_range.clone());
+            let selected = new_selected_range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(new_text, range_utf16))
+                .map(|relative| relative.start + range.start..relative.end + range.start);
+            self.replace_document_search_text(range, new_text, true, selected, cx);
+            return;
+        }
+
         if !self.workspace_search_input_active(window) {
             return;
         }
@@ -2280,6 +2340,16 @@ impl EntityInputHandler for Editor {
             ));
         }
 
+        if self.document_search_input_active(window) {
+            let line = self.document_search.last_layout.as_ref()?;
+            let text = &self.document_search.query;
+            let range = document_search_range_from_utf16(text, &range_utf16);
+            return Some(Bounds::from_corners(
+                point(bounds.left() + line.x_for_index(range.start), bounds.top()),
+                point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
+            ));
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2306,6 +2376,18 @@ impl EntityInputHandler for Editor {
             let utf8_index = line.index_for_x(local.x - bounds.left())?;
             return Some(workspace_search_offset_to_utf16(
                 &text,
+                utf8_index.min(text.len()),
+            ));
+        }
+
+        if self.document_search_input_active(window) {
+            let bounds = self.document_search.last_bounds?;
+            let line = self.document_search.last_layout.as_ref()?;
+            let text = &self.document_search.query;
+            let local = bounds.localize(&point)?;
+            let utf8_index = line.index_for_x(local.x - bounds.left())?;
+            return Some(document_search_offset_to_utf16(
+                text,
                 utf8_index.min(text.len()),
             ));
         }

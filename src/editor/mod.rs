@@ -34,6 +34,8 @@ mod history;
 mod persistence;
 mod render;
 mod runtime_context;
+mod document_search;
+mod document_search_input;
 mod search_match;
 mod selection;
 mod source_mapping;
@@ -92,6 +94,8 @@ pub struct Editor {
     pending_open_link: Option<PendingOpenLink>,
     pending_workspace_search_jump: Option<PendingWorkspaceSearchJump>,
     search_match_source_range: Option<std::ops::Range<usize>>,
+    document_search: document_search::DocumentSearchState,
+    document_search_focus: FocusHandle,
     pending_window_edited: bool,
     pending_window_title_refresh: bool,
     document_dirty: bool,
@@ -295,6 +299,8 @@ impl Editor {
             pending_open_link: None,
             pending_workspace_search_jump: None,
             search_match_source_range: None,
+            document_search: document_search::DocumentSearchState::default(),
+            document_search_focus: cx.focus_handle(),
             pending_window_edited: false,
             pending_window_title_refresh: false,
             document_dirty: false,

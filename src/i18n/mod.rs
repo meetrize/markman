@@ -218,6 +218,8 @@ pub struct I18nStrings {
     pub preferences_shortcut_dismiss_transient_ui: String,
     pub preferences_shortcut_toggle_view_mode: String,
     pub preferences_shortcut_toggle_workspace: String,
+    pub preferences_shortcut_find_next_in_document: String,
+    pub preferences_shortcut_find_previous_in_document: String,
     /// Workspace drawer Files tab.
     pub workspace_tab_files: String,
     /// Workspace drawer Outline tab.
@@ -298,6 +300,14 @@ pub struct I18nStrings {
     pub format_toolbar_link: String,
     /// Markdown toolbar button label for blockquote formatting.
     pub format_toolbar_quote: String,
+    /// Placeholder for the in-document search field.
+    pub document_search_placeholder: String,
+    /// Status text when document search is active: "{current}/{total}".
+    pub document_search_status: String,
+    /// Status text when document search finds no matches.
+    pub document_search_no_matches: String,
+    /// Status text before a document search query is entered.
+    pub document_search_status_empty: String,
     /// Root context-menu insert label.
     pub context_menu_insert: String,
     /// Insert submenu item for tables.
@@ -471,6 +481,8 @@ struct I18nStringsDe {
     preferences_shortcut_dismiss_transient_ui: Option<String>,
     preferences_shortcut_toggle_view_mode: Option<String>,
     preferences_shortcut_toggle_workspace: Option<String>,
+    preferences_shortcut_find_next_in_document: Option<String>,
+    preferences_shortcut_find_previous_in_document: Option<String>,
     workspace_tab_files: Option<String>,
     workspace_tab_outline: Option<String>,
     workspace_search_placeholder: Option<String>,
@@ -511,6 +523,10 @@ struct I18nStringsDe {
     format_toolbar_code: Option<String>,
     format_toolbar_link: Option<String>,
     format_toolbar_quote: Option<String>,
+    document_search_placeholder: Option<String>,
+    document_search_status: Option<String>,
+    document_search_no_matches: Option<String>,
+    document_search_status_empty: Option<String>,
     context_menu_insert: Option<String>,
     context_menu_table: Option<String>,
     table_axis_align_column_left: Option<String>,
@@ -661,6 +677,8 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_dismiss_transient_ui",
     "preferences_shortcut_toggle_view_mode",
     "preferences_shortcut_toggle_workspace",
+    "preferences_shortcut_find_next_in_document",
+    "preferences_shortcut_find_previous_in_document",
     "workspace_tab_files",
     "workspace_tab_outline",
     "workspace_search_placeholder",
@@ -701,6 +719,10 @@ const I18N_STRING_KEYS: &[&str] = &[
     "format_toolbar_code",
     "format_toolbar_link",
     "format_toolbar_quote",
+    "document_search_placeholder",
+    "document_search_status",
+    "document_search_no_matches",
+    "document_search_status_empty",
     "context_menu_insert",
     "context_menu_table",
     "table_axis_align_column_left",
@@ -1061,6 +1083,12 @@ impl I18nStringsDe {
             preferences_shortcut_toggle_workspace: self
                 .preferences_shortcut_toggle_workspace
                 .unwrap_or(defaults.preferences_shortcut_toggle_workspace),
+            preferences_shortcut_find_next_in_document: self
+                .preferences_shortcut_find_next_in_document
+                .unwrap_or(defaults.preferences_shortcut_find_next_in_document),
+            preferences_shortcut_find_previous_in_document: self
+                .preferences_shortcut_find_previous_in_document
+                .unwrap_or(defaults.preferences_shortcut_find_previous_in_document),
             workspace_tab_files: self
                 .workspace_tab_files
                 .unwrap_or(defaults.workspace_tab_files),
@@ -1173,6 +1201,18 @@ impl I18nStringsDe {
             format_toolbar_quote: self
                 .format_toolbar_quote
                 .unwrap_or(defaults.format_toolbar_quote),
+            document_search_placeholder: self
+                .document_search_placeholder
+                .unwrap_or(defaults.document_search_placeholder),
+            document_search_status: self
+                .document_search_status
+                .unwrap_or(defaults.document_search_status),
+            document_search_no_matches: self
+                .document_search_no_matches
+                .unwrap_or(defaults.document_search_no_matches),
+            document_search_status_empty: self
+                .document_search_status_empty
+                .unwrap_or(defaults.document_search_status_empty),
             context_menu_insert: self
                 .context_menu_insert
                 .unwrap_or(defaults.context_menu_insert),
@@ -1382,6 +1422,8 @@ impl I18nStrings {
             preferences_shortcut_dismiss_transient_ui: "关闭临时界面".into(),
             preferences_shortcut_toggle_view_mode: "切换视图模式".into(),
             preferences_shortcut_toggle_workspace: "切换工作区".into(),
+            preferences_shortcut_find_next_in_document: "查找下一个".into(),
+            preferences_shortcut_find_previous_in_document: "查找上一个".into(),
             workspace_tab_files: "文件".into(),
             workspace_tab_outline: "大纲".into(),
             workspace_search_placeholder: "搜索文件名或内容…".into(),
@@ -1423,6 +1465,10 @@ impl I18nStrings {
             format_toolbar_code: "`".into(),
             format_toolbar_link: "[]".into(),
             format_toolbar_quote: ">".into(),
+            document_search_placeholder: "搜索本文档…".into(),
+            document_search_status: "{current}/{total}".into(),
+            document_search_no_matches: "无匹配".into(),
+            document_search_status_empty: "输入关键词".into(),
             context_menu_insert: "插入".into(),
             context_menu_table: "表格".into(),
             table_axis_align_column_left: "左对齐此列".into(),
@@ -1588,6 +1634,8 @@ impl I18nStrings {
             preferences_shortcut_dismiss_transient_ui: "Dismiss Temporary UI".into(),
             preferences_shortcut_toggle_view_mode: "Toggle View Mode".into(),
             preferences_shortcut_toggle_workspace: "Toggle Workspace".into(),
+            preferences_shortcut_find_next_in_document: "Find Next".into(),
+            preferences_shortcut_find_previous_in_document: "Find Previous".into(),
             workspace_tab_files: "Files".into(),
             workspace_tab_outline: "Outline".into(),
             workspace_search_placeholder: "Search file names or content…".into(),
@@ -1630,6 +1678,10 @@ impl I18nStrings {
             format_toolbar_code: "`".into(),
             format_toolbar_link: "[]".into(),
             format_toolbar_quote: ">".into(),
+            document_search_placeholder: "Search this document…".into(),
+            document_search_status: "{current}/{total}".into(),
+            document_search_no_matches: "No matches".into(),
+            document_search_status_empty: "Type to search".into(),
             context_menu_insert: "Insert".into(),
             context_menu_table: "Table".into(),
             table_axis_align_column_left: "Align Column Left".into(),

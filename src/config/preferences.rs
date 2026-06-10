@@ -818,6 +818,12 @@ impl PreferencesWindow {
             ShortcutCommand::ToggleWorkspace => {
                 strings.preferences_shortcut_toggle_workspace.clone()
             }
+            ShortcutCommand::FindNextInDocument => {
+                strings.preferences_shortcut_find_next_in_document.clone()
+            }
+            ShortcutCommand::FindPreviousInDocument => {
+                strings.preferences_shortcut_find_previous_in_document.clone()
+            }
         }
     }
 
