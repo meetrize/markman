@@ -12,6 +12,7 @@ pub(super) struct WorkspaceSearchInputElement {
 
 pub(super) struct WorkspaceSearchInputPrepaintState {
     line: Option<ShapedLine>,
+    selection: Option<PaintQuad>,
     cursor: Option<PaintQuad>,
     marked: Option<PaintQuad>,
     hitbox: Option<Hitbox>,
@@ -140,7 +141,31 @@ impl Element for WorkspaceSearchInputElement {
                 )
             });
 
-        let cursor = if focused && editor.workspace_search_marked_range().is_none() {
+        let selection = if focused && !is_placeholder {
+            let selected_range = editor.workspace_search_selected_range();
+            (!selected_range.is_empty()).then(|| {
+                fill(
+                    Bounds::from_corners(
+                        point(
+                            bounds.left() + line.x_for_index(selected_range.start),
+                            bounds.top(),
+                        ),
+                        point(
+                            bounds.left() + line.x_for_index(selected_range.end),
+                            bounds.bottom(),
+                        ),
+                    ),
+                    theme.colors.selection.opacity(0.35),
+                )
+            })
+        } else {
+            None
+        };
+
+        let cursor = if focused
+            && editor.workspace_search_marked_range().is_none()
+            && editor.workspace_search_selected_range().is_empty()
+        {
             let cursor_offset = editor.workspace_search_cursor_offset();
             let mut cursor_color = theme.colors.cursor;
             cursor_color.a *= 0.85;
@@ -165,6 +190,7 @@ impl Element for WorkspaceSearchInputElement {
 
         WorkspaceSearchInputPrepaintState {
             line: Some(line),
+            selection,
             cursor,
             marked,
             hitbox,
@@ -198,6 +224,10 @@ impl Element for WorkspaceSearchInputElement {
 
         if let Some(marked) = prepaint.marked.take() {
             window.paint_quad(marked);
+        }
+
+        if let Some(selection) = prepaint.selection.take() {
+            window.paint_quad(selection);
         }
 
         if let Some(line) = prepaint.line.take() {

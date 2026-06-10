@@ -10,7 +10,10 @@ use gpui::*;
 
 use super::{BlockKind, Editor};
 use super::workspace_search_input::WorkspaceSearchInputElement;
-use crate::components::{Delete, DeleteBack};
+use crate::components::{
+    Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste, SelectAll, SelectEnd,
+    SelectHome, SelectLeft, SelectRight,
+};
 use crate::i18n::I18nStrings;
 use crate::theme::Theme;
 use unicode_segmentation::GraphemeCursor;
@@ -85,6 +88,8 @@ pub(super) struct WorkspaceState {
     search_results: Vec<WorkspaceSearchResult>,
     search_marked_range: Option<Range<usize>>,
     search_selected_range: Range<usize>,
+    search_selection_reversed: bool,
+    search_is_selecting: bool,
     search_last_layout: Option<ShapedLine>,
     search_last_bounds: Option<Bounds<Pixels>>,
 }
@@ -108,6 +113,8 @@ impl Default for WorkspaceState {
             search_results: Vec::new(),
             search_marked_range: None,
             search_selected_range: 0..0,
+            search_selection_reversed: false,
+            search_is_selecting: false,
             search_last_layout: None,
             search_last_bounds: None,
         }
@@ -249,6 +256,8 @@ impl Editor {
         let len = self.workspace.search_query.len();
         self.workspace.search_selected_range = len..len;
         self.workspace.search_marked_range = None;
+        self.workspace.search_selection_reversed = false;
+        self.workspace.search_is_selecting = false;
     }
 
     pub(super) fn workspace_search_input_active(&self, window: &Window) -> bool {
@@ -271,8 +280,43 @@ impl Editor {
         self.workspace.search_marked_range.clone()
     }
 
+    pub(super) fn workspace_search_selected_range(&self) -> Range<usize> {
+        self.workspace.search_selected_range.clone()
+    }
+
+    pub(super) fn workspace_search_index_for_mouse_position(
+        &self,
+        position: Point<Pixels>,
+    ) -> usize {
+        let query = &self.workspace.search_query;
+        if query.is_empty() {
+            return 0;
+        }
+
+        let (Some(bounds), Some(line)) = (
+            self.workspace.search_last_bounds.as_ref(),
+            self.workspace.search_last_layout.as_ref(),
+        ) else {
+            return query.len();
+        };
+
+        if position.x <= bounds.left() {
+            return 0;
+        }
+        if position.x >= bounds.right() {
+            return query.len();
+        }
+
+        line.closest_index_for_x(position.x - bounds.left())
+            .min(query.len())
+    }
+
     pub(super) fn workspace_search_cursor_offset(&self) -> usize {
-        self.workspace.search_selected_range.end
+        if self.workspace.search_selection_reversed {
+            self.workspace.search_selected_range.start
+        } else {
+            self.workspace.search_selected_range.end
+        }
     }
 
     pub(super) fn workspace_search_focus_handle(&self) -> FocusHandle {
@@ -312,6 +356,7 @@ impl Editor {
             let cursor = start + sanitized.len();
             cursor..cursor
         });
+        self.workspace.search_selection_reversed = false;
         self.run_workspace_search();
         cx.notify();
     }
@@ -328,6 +373,7 @@ impl Editor {
             self.workspace.search_results.clear();
             self.workspace.search_marked_range = None;
             self.workspace.search_selected_range = 0..0;
+            self.workspace.search_selection_reversed = false;
         }
         cx.notify();
     }
@@ -339,6 +385,7 @@ impl Editor {
             self.workspace.search_results.clear();
             self.workspace.search_marked_range = None;
             self.workspace.search_selected_range = 0..0;
+            self.workspace.search_selection_reversed = false;
             cx.notify();
         }
     }
@@ -372,6 +419,33 @@ impl Editor {
             return;
         }
 
+        let modifiers = &event.keystroke.modifiers;
+        if workspace_search_primary_shortcut_modifiers(modifiers) {
+            match event.keystroke.key.as_str() {
+                "v" => {
+                    self.workspace_search_paste_from_clipboard(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "c" => {
+                    self.workspace_search_copy_to_clipboard(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "x" => {
+                    self.workspace_search_cut_to_clipboard(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "a" => {
+                    self.workspace_search_select_all_text(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match event.keystroke.key.as_str() {
             "escape" => {
                 self.close_workspace_search(cx);
@@ -392,6 +466,50 @@ impl Editor {
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn on_workspace_search_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        self.focus_workspace_search(window, cx);
+        self.workspace.search_is_selecting = true;
+        let offset = self.workspace_search_index_for_mouse_position(event.position);
+        if event.modifiers.shift {
+            self.workspace_search_select_to(offset, cx);
+        } else {
+            self.workspace_search_move_to(offset, cx);
+        }
+    }
+
+    pub(crate) fn on_workspace_search_mouse_up(
+        &mut self,
+        _: &MouseUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace.search_is_selecting {
+            self.workspace.search_is_selecting = false;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn on_workspace_search_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace.search_is_selecting || !self.workspace_search_input_active(window) {
+            return;
+        }
+        self.workspace_search_select_to(
+            self.workspace_search_index_for_mouse_position(event.position),
+            cx,
+        );
     }
 
     pub(crate) fn on_workspace_search_delete_back(
@@ -477,6 +595,266 @@ impl Editor {
 
         let cursor = delete_range.start;
         self.replace_workspace_search_text(delete_range, "", false, Some(cursor..cursor), cx);
+    }
+
+    fn workspace_search_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let clamped = offset.min(self.workspace.search_query.len());
+        self.workspace.search_selected_range = clamped..clamped;
+        self.workspace.search_selection_reversed = false;
+        self.workspace.search_marked_range = None;
+        self.workspace.search_is_selecting = false;
+        cx.notify();
+    }
+
+    fn workspace_search_select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let clamped = offset.min(self.workspace.search_query.len());
+        if self.workspace.search_selection_reversed {
+            self.workspace.search_selected_range.start = clamped;
+        } else {
+            self.workspace.search_selected_range.end = clamped;
+        }
+        if self.workspace.search_selected_range.end < self.workspace.search_selected_range.start {
+            self.workspace.search_selection_reversed = !self.workspace.search_selection_reversed;
+            self.workspace.search_selected_range =
+                self.workspace.search_selected_range.end..self.workspace.search_selected_range.start;
+        }
+        self.workspace.search_marked_range = None;
+        cx.notify();
+    }
+
+    fn workspace_search_replace_selection(
+        &mut self,
+        new_text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let sanitized = new_text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+        self.replace_workspace_search_text(
+            self.workspace.search_selected_range.clone(),
+            &sanitized,
+            false,
+            None,
+            cx,
+        );
+    }
+
+    fn workspace_search_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.workspace_search_replace_selection(&text, cx);
+        }
+    }
+
+    fn workspace_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
+        if !self.workspace.search_selected_range.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(
+                self.workspace.search_query
+                    [self.workspace.search_selected_range.clone()]
+                    .to_string(),
+            ));
+        }
+    }
+
+    fn workspace_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
+        if !self.workspace.search_selected_range.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(
+                self.workspace.search_query
+                    [self.workspace.search_selected_range.clone()]
+                    .to_string(),
+            ));
+            self.workspace_search_replace_selection("", cx);
+        }
+    }
+
+    fn workspace_search_select_all_text(&mut self, cx: &mut Context<Self>) {
+        self.workspace_search_move_to(0, cx);
+        self.workspace_search_select_to(self.workspace.search_query.len(), cx);
+    }
+
+    pub(crate) fn on_workspace_search_paste(
+        &mut self,
+        _: &Paste,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_paste_from_clipboard(cx);
+    }
+
+    pub(crate) fn on_workspace_search_copy(
+        &mut self,
+        _: &Copy,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_copy_to_clipboard(cx);
+    }
+
+    pub(crate) fn on_workspace_search_cut(
+        &mut self,
+        _: &Cut,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_cut_to_clipboard(cx);
+    }
+
+    pub(crate) fn on_workspace_search_select_all(
+        &mut self,
+        _: &SelectAll,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_select_all_text(cx);
+    }
+
+    pub(crate) fn on_workspace_search_move_left(
+        &mut self,
+        _: &MoveLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        if self.workspace.search_selected_range.is_empty() {
+            let previous = workspace_search_grapheme_boundary(
+                &self.workspace.search_query,
+                self.workspace_search_cursor_offset(),
+                true,
+            );
+            self.workspace_search_move_to(previous, cx);
+        } else {
+            self.workspace_search_move_to(self.workspace.search_selected_range.start, cx);
+        }
+    }
+
+    pub(crate) fn on_workspace_search_move_right(
+        &mut self,
+        _: &MoveRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        if self.workspace.search_selected_range.is_empty() {
+            let next = workspace_search_grapheme_boundary(
+                &self.workspace.search_query,
+                self.workspace_search_cursor_offset(),
+                false,
+            );
+            self.workspace_search_move_to(next, cx);
+        } else {
+            self.workspace_search_move_to(self.workspace.search_selected_range.end, cx);
+        }
+    }
+
+    pub(crate) fn on_workspace_search_home(
+        &mut self,
+        _: &Home,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_move_to(0, cx);
+    }
+
+    pub(crate) fn on_workspace_search_end(
+        &mut self,
+        _: &End,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_move_to(self.workspace.search_query.len(), cx);
+    }
+
+    pub(crate) fn on_workspace_search_select_left(
+        &mut self,
+        _: &SelectLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_select_to(
+            workspace_search_grapheme_boundary(
+                &self.workspace.search_query,
+                self.workspace_search_cursor_offset(),
+                true,
+            ),
+            cx,
+        );
+    }
+
+    pub(crate) fn on_workspace_search_select_right(
+        &mut self,
+        _: &SelectRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_select_to(
+            workspace_search_grapheme_boundary(
+                &self.workspace.search_query,
+                self.workspace_search_cursor_offset(),
+                false,
+            ),
+            cx,
+        );
+    }
+
+    pub(crate) fn on_workspace_search_select_home(
+        &mut self,
+        _: &SelectHome,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_select_to(0, cx);
+    }
+
+    pub(crate) fn on_workspace_search_select_end(
+        &mut self,
+        _: &SelectEnd,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_select_to(self.workspace.search_query.len(), cx);
     }
 
     fn toggle_workspace_node(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -662,7 +1040,6 @@ impl Editor {
                     .child(
                         div()
                             .id("workspace-search-input")
-                            .key_context("BlockEditor")
                             .h(px(26.0))
                             .px(px(8.0))
                             .flex()
@@ -687,16 +1064,27 @@ impl Editor {
                                     .child(WorkspaceSearchInputElement::new(
                                         cx.entity(),
                                         placeholder,
-                                    )),
+                                    ))
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(Self::on_workspace_search_mouse_down),
+                                    )
+                                    .on_mouse_up(
+                                        MouseButton::Left,
+                                        cx.listener(Self::on_workspace_search_mouse_up),
+                                    )
+                                    .on_mouse_up_out(
+                                        MouseButton::Left,
+                                        cx.listener(Self::on_workspace_search_mouse_up),
+                                    )
+                                    .on_mouse_move(cx.listener(Self::on_workspace_search_mouse_move)),
                             )
                             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                                 cx.stop_propagation();
                                 let _ = search_bar_editor.update(cx, |editor, cx| {
                                     editor.focus_workspace_search(window, cx);
                                 });
-                            })
-                            .on_action(cx.listener(Self::on_workspace_search_delete_back))
-                            .on_action(cx.listener(Self::on_workspace_search_delete_forward)),
+                            }),
                     )
                     .into_any_element(),
             )
@@ -733,7 +1121,22 @@ impl Editor {
                         .flex()
                         .flex_col()
                         .track_focus(&search_focus)
+                        .key_context("BlockEditor")
                         .on_key_down(cx.listener(Self::on_workspace_search_key_down))
+                        .on_action(cx.listener(Self::on_workspace_search_delete_back))
+                        .on_action(cx.listener(Self::on_workspace_search_delete_forward))
+                        .on_action(cx.listener(Self::on_workspace_search_paste))
+                        .on_action(cx.listener(Self::on_workspace_search_copy))
+                        .on_action(cx.listener(Self::on_workspace_search_cut))
+                        .on_action(cx.listener(Self::on_workspace_search_select_all))
+                        .on_action(cx.listener(Self::on_workspace_search_move_left))
+                        .on_action(cx.listener(Self::on_workspace_search_move_right))
+                        .on_action(cx.listener(Self::on_workspace_search_home))
+                        .on_action(cx.listener(Self::on_workspace_search_end))
+                        .on_action(cx.listener(Self::on_workspace_search_select_left))
+                        .on_action(cx.listener(Self::on_workspace_search_select_right))
+                        .on_action(cx.listener(Self::on_workspace_search_select_home))
+                        .on_action(cx.listener(Self::on_workspace_search_select_end))
                         .bg(c.dialog_surface)
                         .border_r(px(d.dialog_border_width))
                         .border_color(c.dialog_border)
@@ -1423,6 +1826,12 @@ fn opening_fence(trimmed: &str) -> Option<(char, usize)> {
 fn is_closing_fence(trimmed: &str, marker: char, len: usize) -> bool {
     let count = trimmed.chars().take_while(|ch| *ch == marker).count();
     count >= len && trimmed[count..].trim().is_empty()
+}
+
+fn workspace_search_primary_shortcut_modifiers(modifiers: &Modifiers) -> bool {
+    (modifiers.platform || modifiers.control)
+        && !modifiers.alt
+        && !modifiers.function
 }
 
 fn workspace_search_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {
