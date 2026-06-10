@@ -451,6 +451,32 @@ pub struct ThemeDimensions {
     pub view_mode_toggle_border_width: f32,
     /// Text size of the view-mode toggle.
     pub view_mode_toggle_text_size: f32,
+    /// Vertical padding inside the Markdown format toolbar.
+    pub format_toolbar_padding_y: f32,
+    /// Horizontal padding inside the Markdown format toolbar.
+    pub format_toolbar_padding_x: f32,
+    /// Gap between Markdown format toolbar buttons.
+    pub format_toolbar_gap: f32,
+    /// Height of Markdown format toolbar buttons.
+    pub format_toolbar_button_height: f32,
+    /// Minimum width of Markdown format toolbar buttons.
+    pub format_toolbar_button_min_width: f32,
+    /// Horizontal padding inside Markdown format toolbar buttons.
+    pub format_toolbar_button_padding_x: f32,
+    /// Corner radius of Markdown format toolbar buttons.
+    pub format_toolbar_button_radius: f32,
+    /// Border width below the Markdown format toolbar.
+    pub format_toolbar_border_width: f32,
+    /// Text size of Markdown format toolbar buttons.
+    pub format_toolbar_text_size: f32,
+    /// Icon size inside Markdown format toolbar buttons.
+    pub format_toolbar_icon_size: f32,
+    /// Width of Markdown format toolbar separators.
+    pub format_toolbar_separator_width: f32,
+    /// Height of Markdown format toolbar separators.
+    pub format_toolbar_separator_height: f32,
+    /// Horizontal margin around Markdown format toolbar separators.
+    pub format_toolbar_separator_margin_x: f32,
 }
 
 /// All configurable typography settings (font sizes, weights, line heights).
@@ -910,6 +936,19 @@ struct ThemeDimensionsDe {
     view_mode_toggle_radius: Option<f32>,
     view_mode_toggle_border_width: Option<f32>,
     view_mode_toggle_text_size: Option<f32>,
+    format_toolbar_padding_y: Option<f32>,
+    format_toolbar_padding_x: Option<f32>,
+    format_toolbar_gap: Option<f32>,
+    format_toolbar_button_height: Option<f32>,
+    format_toolbar_button_min_width: Option<f32>,
+    format_toolbar_button_padding_x: Option<f32>,
+    format_toolbar_button_radius: Option<f32>,
+    format_toolbar_border_width: Option<f32>,
+    format_toolbar_text_size: Option<f32>,
+    format_toolbar_icon_size: Option<f32>,
+    format_toolbar_separator_width: Option<f32>,
+    format_toolbar_separator_height: Option<f32>,
+    format_toolbar_separator_margin_x: Option<f32>,
 }
 
 impl<'de> Deserialize<'de> for ThemeDimensions {
@@ -1033,6 +1072,19 @@ impl<'de> Deserialize<'de> for ThemeDimensions {
             view_mode_toggle_radius: raw.view_mode_toggle_radius.unwrap_or(999.0),
             view_mode_toggle_border_width: raw.view_mode_toggle_border_width.unwrap_or(1.0),
             view_mode_toggle_text_size: raw.view_mode_toggle_text_size.unwrap_or(11.0),
+            format_toolbar_padding_y: raw.format_toolbar_padding_y.unwrap_or(4.0),
+            format_toolbar_padding_x: raw.format_toolbar_padding_x.unwrap_or(12.0),
+            format_toolbar_gap: raw.format_toolbar_gap.unwrap_or(4.0),
+            format_toolbar_button_height: raw.format_toolbar_button_height.unwrap_or(28.0),
+            format_toolbar_button_min_width: raw.format_toolbar_button_min_width.unwrap_or(32.0),
+            format_toolbar_button_padding_x: raw.format_toolbar_button_padding_x.unwrap_or(8.0),
+            format_toolbar_button_radius: raw.format_toolbar_button_radius.unwrap_or(5.0),
+            format_toolbar_border_width: raw.format_toolbar_border_width.unwrap_or(1.0),
+            format_toolbar_text_size: raw.format_toolbar_text_size.unwrap_or(13.0),
+            format_toolbar_icon_size: raw.format_toolbar_icon_size.unwrap_or(16.0),
+            format_toolbar_separator_width: raw.format_toolbar_separator_width.unwrap_or(1.0),
+            format_toolbar_separator_height: raw.format_toolbar_separator_height.unwrap_or(18.0),
+            format_toolbar_separator_margin_x: raw.format_toolbar_separator_margin_x.unwrap_or(2.0),
         })
     }
 }
@@ -1252,6 +1304,19 @@ impl Theme {
                 view_mode_toggle_radius: 999.0,
                 view_mode_toggle_border_width: 1.0,
                 view_mode_toggle_text_size: 11.0,
+                format_toolbar_padding_y: 4.0,
+                format_toolbar_padding_x: 12.0,
+                format_toolbar_gap: 4.0,
+                format_toolbar_button_height: 28.0,
+                format_toolbar_button_min_width: 32.0,
+                format_toolbar_button_padding_x: 8.0,
+                format_toolbar_button_radius: 5.0,
+                format_toolbar_border_width: 1.0,
+                format_toolbar_text_size: 13.0,
+                format_toolbar_icon_size: 16.0,
+                format_toolbar_separator_width: 1.0,
+                format_toolbar_separator_height: 18.0,
+                format_toolbar_separator_margin_x: 2.0,
             },
             typography: ThemeTypography {
                 text_size: 17.0,

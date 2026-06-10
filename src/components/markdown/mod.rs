@@ -7,4 +7,5 @@ pub(crate) mod image;
 pub mod inline;
 pub(crate) mod link;
 pub(crate) mod paste;
+pub(crate) mod source_format;
 pub mod table;

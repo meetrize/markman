@@ -49,6 +49,39 @@ impl AssetSource for VelotypeAssets {
             "icon/titlebar/chrome-restore.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/titlebar/chrome-restore.svg"
             )))),
+            "icon/toolbar/bold.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/bold.svg"
+            )))),
+            "icon/toolbar/italic.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/italic.svg"
+            )))),
+            "icon/toolbar/heading-1.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/heading-1.svg"
+            )))),
+            "icon/toolbar/heading-2.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/heading-2.svg"
+            )))),
+            "icon/toolbar/heading-3.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/heading-3.svg"
+            )))),
+            "icon/toolbar/list-ordered.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/list-ordered.svg"
+            )))),
+            "icon/toolbar/list-bullet.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/list-bullet.svg"
+            )))),
+            "icon/toolbar/code.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/code.svg"
+            )))),
+            "icon/toolbar/link.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/link.svg"
+            )))),
+            "icon/toolbar/quote.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/quote.svg"
+            )))),
+            "icon/toolbar/table.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/table.svg"
+            )))),
             _ => Ok(None),
         }
     }

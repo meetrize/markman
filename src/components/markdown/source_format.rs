@@ -1,0 +1,405 @@
+//! Standard Markdown formatting helpers for source-mode toolbar actions.
+
+use std::ops::Range;
+
+/// Toolbar actions that insert or toggle standard Markdown syntax.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MarkdownToolbarAction {
+    Bold,
+    Italic,
+    Heading1,
+    Heading2,
+    Heading3,
+    OrderedList,
+    UnorderedList,
+    Code,
+    Link,
+    Quote,
+    Table,
+}
+
+/// Applies a toolbar action to `text` at `selection`, returning the updated
+/// document and a new UTF-8 byte selection range.
+pub(crate) fn apply_markdown_toolbar_action(
+    text: &str,
+    selection: Range<usize>,
+    action: MarkdownToolbarAction,
+) -> (String, Range<usize>) {
+    match action {
+        MarkdownToolbarAction::Bold => toggle_inline_wrap(text, selection, "**", "**"),
+        MarkdownToolbarAction::Italic => toggle_inline_wrap(text, selection, "*", "*"),
+        MarkdownToolbarAction::Code => toggle_inline_wrap(text, selection, "`", "`"),
+        MarkdownToolbarAction::Link => apply_link_format(text, selection),
+        MarkdownToolbarAction::Heading1 => toggle_line_prefix(text, selection, "# "),
+        MarkdownToolbarAction::Heading2 => toggle_line_prefix(text, selection, "## "),
+        MarkdownToolbarAction::Heading3 => toggle_line_prefix(text, selection, "### "),
+        MarkdownToolbarAction::OrderedList => toggle_line_prefix(text, selection, "1. "),
+        MarkdownToolbarAction::UnorderedList => toggle_line_prefix(text, selection, "- "),
+        MarkdownToolbarAction::Quote => toggle_line_prefix(text, selection, "> "),
+        MarkdownToolbarAction::Table => insert_markdown_table(text, selection),
+    }
+}
+
+fn clamp_range(text: &str, range: Range<usize>) -> Range<usize> {
+    let len = text.len();
+    range.start.min(len)..range.end.min(len)
+}
+
+fn toggle_inline_wrap(
+    text: &str,
+    selection: Range<usize>,
+    prefix: &str,
+    suffix: &str,
+) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+
+    if selection.is_empty() {
+        let mut next = text.to_string();
+        next.insert_str(selection.start, &format!("{prefix}{suffix}"));
+        let cursor = selection.start + prefix.len();
+        return (next, cursor..cursor);
+    }
+
+    let before_start = selection.start.saturating_sub(prefix.len());
+    let after_end = (selection.end + suffix.len()).min(text.len());
+    if text.get(before_start..selection.start) == Some(prefix)
+        && text.get(selection.end..after_end) == Some(suffix)
+    {
+        let mut next = String::with_capacity(text.len() - prefix.len() - suffix.len());
+        next.push_str(&text[..before_start]);
+        next.push_str(&text[selection.clone()]);
+        next.push_str(&text[after_end..]);
+        let start = before_start;
+        let end = start + selection.len();
+        return (next, start..end);
+    }
+
+    let mut next = String::with_capacity(text.len() + prefix.len() + suffix.len());
+    next.push_str(&text[..selection.start]);
+    next.push_str(prefix);
+    next.push_str(&text[selection.clone()]);
+    next.push_str(suffix);
+    next.push_str(&text[selection.end..]);
+    let start = selection.start + prefix.len();
+    let end = start + selection.len();
+    (next, start..end)
+}
+
+fn apply_link_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let link_text = if selection.is_empty() {
+        "link text".to_string()
+    } else {
+        text[selection.clone()].to_string()
+    };
+    let url = "https://example.com";
+    let replacement = format!("[{link_text}]({url})");
+
+    let mut next = String::with_capacity(text.len() + replacement.len() - selection.len());
+    next.push_str(&text[..selection.start]);
+    next.push_str(&replacement);
+    next.push_str(&text[selection.end..]);
+
+    let url_start = selection.start + link_text.len() + 3;
+    let url_end = url_start + url.len();
+    (next, url_start..url_end)
+}
+
+fn line_range_for_selection(text: &str, selection: &Range<usize>) -> Range<usize> {
+    let start = text[..selection.start]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let end = text[selection.end..]
+        .find('\n')
+        .map(|index| selection.end + index)
+        .unwrap_or(text.len());
+    start..end
+}
+
+fn toggle_line_prefix(text: &str, selection: Range<usize>, prefix: &str) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let line_range = line_range_for_selection(text, &selection);
+    let line = &text[line_range.clone()];
+
+    let (updated_line, line_delta) = if prefix == "# "
+        || prefix == "## "
+        || prefix == "### "
+    {
+        toggle_heading_line_at_level(line, prefix)
+    } else if prefix == "1. " {
+        toggle_numbered_list_line(line)
+    } else if prefix == "- " {
+        toggle_unordered_list_line(line)
+    } else if prefix == "> " {
+        toggle_quote_line(line)
+    } else {
+        (format!("{prefix}{line}"), prefix.len() as isize)
+    };
+
+    let mut next = String::with_capacity(text.len() + updated_line.len().saturating_sub(line.len()));
+    next.push_str(&text[..line_range.start]);
+    next.push_str(&updated_line);
+    next.push_str(&text[line_range.end..]);
+
+    let selection_shift = if line_delta >= 0 {
+        line_delta as usize
+    } else {
+        0
+    };
+    let selection_shrink = if line_delta < 0 {
+        (-line_delta) as usize
+    } else {
+        0
+    };
+
+    let new_start = selection
+        .start
+        .saturating_add(selection_shift)
+        .saturating_sub(if selection.start > line_range.start {
+            selection_shrink
+        } else {
+            0
+        });
+    let new_end = selection
+        .end
+        .saturating_add(selection_shift)
+        .saturating_sub(if selection.end > line_range.start {
+            selection_shrink
+        } else {
+            0
+        });
+    (next, new_start.min(new_end)..new_start.max(new_end))
+}
+
+fn toggle_heading_line_at_level(line: &str, prefix: &str) -> (String, isize) {
+    let trimmed = line.trim_start();
+    let leading = line.len() - trimmed.len();
+    let leading_spaces = &line[..leading];
+    let content = strip_atx_heading_content(trimmed);
+
+    if trimmed.starts_with(prefix) {
+        let new_line = format!("{leading_spaces}{content}");
+        let delta = new_line.len() as isize - line.len() as isize;
+        return (new_line, delta);
+    }
+
+    let new_line = format!("{leading_spaces}{prefix}{content}");
+    let delta = new_line.len() as isize - line.len() as isize;
+    (new_line, delta)
+}
+
+fn strip_atx_heading_content(line: &str) -> &str {
+    let hash_count = line.chars().take_while(|ch| *ch == '#').count();
+    if (1..=6).contains(&hash_count) {
+        return line[hash_count..].strip_prefix(' ').unwrap_or(&line[hash_count..]);
+    }
+    line
+}
+
+fn insert_markdown_table(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+    use crate::components::markdown::table::{TableData, serialize_table_markdown_lines};
+
+    let selection = clamp_range(text, selection);
+    let table_text = serialize_table_markdown_lines(&TableData::new_empty(2, 2)).join("\n");
+    let prefix = if selection.start == 0 {
+        String::new()
+    } else if text[..selection.start].ends_with("\n\n") {
+        String::new()
+    } else if text[..selection.start].ends_with('\n') {
+        "\n".to_string()
+    } else {
+        "\n\n".to_string()
+    };
+    let suffix = if selection.end == text.len() || text[selection.end..].starts_with('\n') {
+        "\n".to_string()
+    } else {
+        "\n\n".to_string()
+    };
+    let insertion = format!("{prefix}{table_text}{suffix}");
+    let insert_at = selection.start;
+
+    let mut next = String::with_capacity(text.len() + insertion.len());
+    next.push_str(&text[..insert_at]);
+    next.push_str(&insertion);
+    next.push_str(&text[selection.end..]);
+
+    let cursor = insert_at + prefix.len() + 2;
+    (next, cursor..cursor)
+}
+
+fn toggle_numbered_list_line(line: &str) -> (String, isize) {
+    let trimmed = line.trim_start();
+    let leading = line.len() - trimmed.len();
+    let leading_spaces = &line[..leading];
+
+    if let Some(rest) = strip_ordered_list_prefix(trimmed) {
+        let removed = (trimmed.len() - rest.len()) as isize;
+        return (
+            format!("{leading_spaces}{rest}"),
+            -removed,
+        );
+    }
+
+    (
+        format!("{leading_spaces}1. {trimmed}"),
+        3,
+    )
+}
+
+fn strip_ordered_list_prefix(value: &str) -> Option<&str> {
+    let mut digits = 0usize;
+    for ch in value.chars() {
+        if ch.is_ascii_digit() {
+            digits += 1;
+            if digits > 9 {
+                return None;
+            }
+            continue;
+        }
+        if ch == '.' && digits > 0 {
+            return value[digits + 1..].strip_prefix(' ');
+        }
+        return None;
+    }
+    None
+}
+
+fn toggle_unordered_list_line(line: &str) -> (String, isize) {
+    let trimmed = line.trim_start();
+    let leading = line.len() - trimmed.len();
+    let leading_spaces = &line[..leading];
+
+    if let Some(rest) = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix("+ "))
+    {
+        return (
+            format!("{leading_spaces}{rest}"),
+            -2,
+        );
+    }
+
+    (
+        format!("{leading_spaces}- {trimmed}"),
+        2,
+    )
+}
+
+fn toggle_quote_line(line: &str) -> (String, isize) {
+    let trimmed = line.trim_start();
+    let leading = line.len() - trimmed.len();
+    let leading_spaces = &line[..leading];
+
+    if let Some(rest) = trimmed.strip_prefix("> ") {
+        return (
+            format!("{leading_spaces}{rest}"),
+            -2,
+        );
+    }
+
+    if trimmed == ">" {
+        return (leading_spaces.to_string(), -1);
+    }
+
+    (
+        format!("{leading_spaces}> {trimmed}"),
+        2,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bold_wraps_selection() {
+        let (text, range) =
+            apply_markdown_toolbar_action("hello world", 6..11, MarkdownToolbarAction::Bold);
+        assert_eq!(text, "hello **world**");
+        assert_eq!(range, 8..13);
+    }
+
+    #[test]
+    fn bold_unwraps_existing_markers() {
+        let (text, range) =
+            apply_markdown_toolbar_action("hello **world**", 8..13, MarkdownToolbarAction::Bold);
+        assert_eq!(text, "hello world");
+        assert_eq!(range, 6..11);
+    }
+
+    #[test]
+    fn bold_inserts_empty_markers_at_cursor() {
+        let (text, range) =
+            apply_markdown_toolbar_action("hello", 5..5, MarkdownToolbarAction::Bold);
+        assert_eq!(text, "hello****");
+        assert_eq!(range, 7..7);
+    }
+
+    #[test]
+    fn heading_prefixes_current_line() {
+        let (text, range) =
+            apply_markdown_toolbar_action("Title\nBody", 0..5, MarkdownToolbarAction::Heading1);
+        assert_eq!(text, "# Title\nBody");
+        assert_eq!(range, 2..7);
+    }
+
+    #[test]
+    fn heading2_prefixes_current_line() {
+        let (text, _) =
+            apply_markdown_toolbar_action("Title", 0..5, MarkdownToolbarAction::Heading2);
+        assert_eq!(text, "## Title");
+    }
+
+    #[test]
+    fn heading_toggles_off_existing_prefix() {
+        let (text, range) = apply_markdown_toolbar_action(
+            "# Title\nBody",
+            2..7,
+            MarkdownToolbarAction::Heading1,
+        );
+        assert_eq!(text, "Title\nBody");
+        assert_eq!(range, 0..5);
+    }
+
+    #[test]
+    fn heading3_switches_existing_level() {
+        let (text, _) = apply_markdown_toolbar_action(
+            "## Title",
+            0..8,
+            MarkdownToolbarAction::Heading3,
+        );
+        assert_eq!(text, "### Title");
+    }
+
+    #[test]
+    fn unordered_list_prefixes_line() {
+        let (text, _) =
+            apply_markdown_toolbar_action("item", 0..4, MarkdownToolbarAction::UnorderedList);
+        assert_eq!(text, "- item");
+    }
+
+    #[test]
+    fn link_wraps_selection_with_placeholder_url() {
+        let (text, range) =
+            apply_markdown_toolbar_action("click here", 0..10, MarkdownToolbarAction::Link);
+        assert_eq!(text, "[click here](https://example.com)");
+        assert_eq!(range, 13..32);
+    }
+
+    #[test]
+    fn table_inserts_pipe_table_template() {
+        let (text, _) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::Table);
+        assert!(text.contains("| --- | --- |"));
+        assert!(text.starts_with("Hello\n\n|"));
+    }
+
+    #[test]
+    fn quote_prefixes_line() {
+        let (text, _) =
+            apply_markdown_toolbar_action("quoted", 0..6, MarkdownToolbarAction::Quote);
+        assert_eq!(text, "> quoted");
+    }
+}

@@ -29,6 +29,7 @@ mod document;
 mod events;
 mod export;
 mod file_drop;
+mod format_toolbar;
 mod history;
 mod persistence;
 mod render;

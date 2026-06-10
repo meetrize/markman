@@ -1644,9 +1644,21 @@ impl Render for Editor {
             .h_full()
             .flex_1()
             .min_w(px(0.0))
+            .min_h(px(0.0))
+            .flex()
+            .flex_col()
             .bg(theme.colors.editor_background)
             .relative()
-            .child(scroll_content);
+            .child(self.render_markdown_format_toolbar(&theme, cx))
+            .child(
+                div()
+                    .id("editor-scroll-viewport")
+                    .w_full()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .relative()
+                    .child(scroll_content),
+            );
 
         let content_area = if show_custom_scrollbar {
             let scrollbar_editor = editor.clone();

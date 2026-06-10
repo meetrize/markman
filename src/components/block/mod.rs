@@ -6,6 +6,7 @@
 //! structure and cross-block mutations.
 
 mod element;
+mod format_toolbar;
 mod input;
 mod interactions;
 mod render;

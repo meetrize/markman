@@ -266,6 +266,30 @@ impl Editor {
         self.set_context_menu_hover_state(*hovered, true, cx);
     }
 
+    pub(super) fn open_table_insert_from_toolbar(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.view_mode != ViewMode::Rendered {
+            return;
+        }
+
+        self.close_menu_bar(cx);
+        self.context_menu = None;
+        self.context_menu_submenu_close_task = None;
+        let target = self
+            .focused_edit_target_entity_id(window, cx)
+            .map(TableInsertTarget::After)
+            .unwrap_or(TableInsertTarget::Append);
+        self.table_insert_dialog = Some(TableInsertDialogState {
+            target,
+            body_rows: 2,
+            columns: 2,
+        });
+        cx.notify();
+    }
+
     pub(super) fn on_open_table_insert_dialog(
         &mut self,
         _event: &ClickEvent,

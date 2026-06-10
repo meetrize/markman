@@ -242,6 +242,22 @@ pub struct I18nStrings {
     pub view_mode_rendered: String,
     /// Hover label shown when source mode can switch to rendered mode.
     pub view_mode_switch_to_rendered: String,
+    /// Markdown toolbar button label for bold formatting.
+    pub format_toolbar_bold: String,
+    /// Markdown toolbar button label for italic formatting.
+    pub format_toolbar_italic: String,
+    /// Markdown toolbar button label for heading formatting.
+    pub format_toolbar_heading: String,
+    /// Markdown toolbar button label for ordered-list formatting.
+    pub format_toolbar_ordered_list: String,
+    /// Markdown toolbar button label for unordered-list formatting.
+    pub format_toolbar_unordered_list: String,
+    /// Markdown toolbar button label for inline-code formatting.
+    pub format_toolbar_code: String,
+    /// Markdown toolbar button label for link formatting.
+    pub format_toolbar_link: String,
+    /// Markdown toolbar button label for blockquote formatting.
+    pub format_toolbar_quote: String,
     /// Root context-menu insert label.
     pub context_menu_insert: String,
     /// Insert submenu item for tables.
@@ -427,6 +443,14 @@ struct I18nStringsDe {
     view_mode_switch_to_source: Option<String>,
     view_mode_rendered: Option<String>,
     view_mode_switch_to_rendered: Option<String>,
+    format_toolbar_bold: Option<String>,
+    format_toolbar_italic: Option<String>,
+    format_toolbar_heading: Option<String>,
+    format_toolbar_ordered_list: Option<String>,
+    format_toolbar_unordered_list: Option<String>,
+    format_toolbar_code: Option<String>,
+    format_toolbar_link: Option<String>,
+    format_toolbar_quote: Option<String>,
     context_menu_insert: Option<String>,
     context_menu_table: Option<String>,
     table_axis_align_column_left: Option<String>,
@@ -589,6 +613,14 @@ const I18N_STRING_KEYS: &[&str] = &[
     "view_mode_switch_to_source",
     "view_mode_rendered",
     "view_mode_switch_to_rendered",
+    "format_toolbar_bold",
+    "format_toolbar_italic",
+    "format_toolbar_heading",
+    "format_toolbar_ordered_list",
+    "format_toolbar_unordered_list",
+    "format_toolbar_code",
+    "format_toolbar_link",
+    "format_toolbar_quote",
     "context_menu_insert",
     "context_menu_table",
     "table_axis_align_column_left",
@@ -977,6 +1009,30 @@ impl I18nStringsDe {
             view_mode_switch_to_rendered: self
                 .view_mode_switch_to_rendered
                 .unwrap_or(defaults.view_mode_switch_to_rendered),
+            format_toolbar_bold: self
+                .format_toolbar_bold
+                .unwrap_or(defaults.format_toolbar_bold),
+            format_toolbar_italic: self
+                .format_toolbar_italic
+                .unwrap_or(defaults.format_toolbar_italic),
+            format_toolbar_heading: self
+                .format_toolbar_heading
+                .unwrap_or(defaults.format_toolbar_heading),
+            format_toolbar_ordered_list: self
+                .format_toolbar_ordered_list
+                .unwrap_or(defaults.format_toolbar_ordered_list),
+            format_toolbar_unordered_list: self
+                .format_toolbar_unordered_list
+                .unwrap_or(defaults.format_toolbar_unordered_list),
+            format_toolbar_code: self
+                .format_toolbar_code
+                .unwrap_or(defaults.format_toolbar_code),
+            format_toolbar_link: self
+                .format_toolbar_link
+                .unwrap_or(defaults.format_toolbar_link),
+            format_toolbar_quote: self
+                .format_toolbar_quote
+                .unwrap_or(defaults.format_toolbar_quote),
             context_menu_insert: self
                 .context_menu_insert
                 .unwrap_or(defaults.context_menu_insert),
@@ -1199,6 +1255,14 @@ impl I18nStrings {
             view_mode_switch_to_source: "切换到源码".into(),
             view_mode_rendered: "渲染".into(),
             view_mode_switch_to_rendered: "切换到渲染".into(),
+            format_toolbar_bold: "B".into(),
+            format_toolbar_italic: "I".into(),
+            format_toolbar_heading: "H".into(),
+            format_toolbar_ordered_list: "1.".into(),
+            format_toolbar_unordered_list: "•".into(),
+            format_toolbar_code: "`".into(),
+            format_toolbar_link: "[]".into(),
+            format_toolbar_quote: ">".into(),
             context_menu_insert: "插入".into(),
             context_menu_table: "表格".into(),
             table_axis_align_column_left: "左对齐此列".into(),
@@ -1377,6 +1441,14 @@ impl I18nStrings {
             view_mode_switch_to_source: "Switch to Source".into(),
             view_mode_rendered: "Rendered".into(),
             view_mode_switch_to_rendered: "Switch to Rendered".into(),
+            format_toolbar_bold: "B".into(),
+            format_toolbar_italic: "I".into(),
+            format_toolbar_heading: "H".into(),
+            format_toolbar_ordered_list: "1.".into(),
+            format_toolbar_unordered_list: "•".into(),
+            format_toolbar_code: "`".into(),
+            format_toolbar_link: "[]".into(),
+            format_toolbar_quote: ">".into(),
             context_menu_insert: "Insert".into(),
             context_menu_table: "Table".into(),
             table_axis_align_column_left: "Align Column Left".into(),
