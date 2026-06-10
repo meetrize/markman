@@ -94,6 +94,7 @@ pub struct Editor {
     /// True while an online update check is running in the background.
     update_check_in_progress: bool,
     workspace: WorkspaceState,
+    workspace_search_focus: FocusHandle,
     context_menu: Option<ContextMenuState>,
     table_insert_dialog: Option<TableInsertDialogState>,
     context_menu_submenu_close_task: Option<Task<()>>,
@@ -283,6 +284,7 @@ impl Editor {
             info_dialog: None,
             update_check_in_progress: false,
             workspace: WorkspaceState::default(),
+            workspace_search_focus: cx.focus_handle(),
             context_menu: None,
             table_insert_dialog: None,
             context_menu_submenu_close_task: None,

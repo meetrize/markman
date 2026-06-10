@@ -15,6 +15,9 @@ const FOLDER_ICON: &str = "icon/workspace/folder.svg";
 const MARKDOWN_ICON: &str = "icon/workspace/markdown.svg";
 const CHEVRON_RIGHT_ICON: &str = "icon/workspace/chevron-right.svg";
 const CHEVRON_DOWN_ICON: &str = "icon/workspace/chevron-down.svg";
+const FILES_TAB_ICON: &str = "icon/workspace/files.svg";
+const OUTLINE_TAB_ICON: &str = "icon/workspace/list-tree.svg";
+const SEARCH_ICON: &str = "icon/workspace/search.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
 const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
 const WORKSPACE_PANEL_MAX_WIDTH: f32 = 360.0;
@@ -23,7 +26,15 @@ const WORKSPACE_NODE_HEIGHT: f32 = 22.0;
 const WORKSPACE_NODE_INDENT: f32 = 12.0;
 const WORKSPACE_CHEVRON_SIZE: f32 = 12.0;
 const WORKSPACE_ICON_SIZE: f32 = 14.0;
+const WORKSPACE_TAB_ICON_SIZE: f32 = 12.0;
 const WORKSPACE_RESIZE_HANDLE_WIDTH: f32 = 5.0;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WorkspaceSearchResult {
+    path: PathBuf,
+    line: Option<usize>,
+    preview: String,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum WorkspaceTab {
@@ -65,6 +76,9 @@ pub(super) struct WorkspaceState {
     outline_source: Option<String>,
     expanded: HashSet<String>,
     selected: Option<WorkspaceSelection>,
+    search_open: bool,
+    search_query: String,
+    search_results: Vec<WorkspaceSearchResult>,
 }
 
 impl Default for WorkspaceState {
@@ -81,6 +95,9 @@ impl Default for WorkspaceState {
             outline_source: None,
             expanded: HashSet::new(),
             selected: None,
+            search_open: false,
+            search_query: String::new(),
+            search_results: Vec::new(),
         }
     }
 }
@@ -210,8 +227,89 @@ impl Editor {
     fn set_workspace_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
         if self.workspace.active_tab != tab {
             self.workspace.active_tab = tab;
+            self.workspace.search_open = false;
             self.sync_workspace_models(cx);
             cx.notify();
+        }
+    }
+
+    fn toggle_workspace_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.search_open = !self.workspace.search_open;
+        if self.workspace.search_open {
+            self.workspace.active_tab = WorkspaceTab::Files;
+            window.focus(&self.workspace_search_focus);
+            self.run_workspace_search();
+        } else {
+            self.workspace.search_query.clear();
+            self.workspace.search_results.clear();
+        }
+        cx.notify();
+    }
+
+    fn close_workspace_search(&mut self, cx: &mut Context<Self>) {
+        if self.workspace.search_open {
+            self.workspace.search_open = false;
+            self.workspace.search_query.clear();
+            self.workspace.search_results.clear();
+            cx.notify();
+        }
+    }
+
+    fn focus_workspace_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.workspace.search_open {
+            self.workspace.search_open = true;
+            self.workspace.active_tab = WorkspaceTab::Files;
+        }
+        window.focus(&self.workspace_search_focus);
+        cx.notify();
+    }
+
+    fn run_workspace_search(&mut self) {
+        let Some(root) = self.effective_workspace_root() else {
+            self.workspace.search_results.clear();
+            return;
+        };
+
+        self.workspace.search_results = search_markdown_files(&root, &self.workspace.search_query);
+    }
+
+    pub(crate) fn on_workspace_search_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace.search_open || !self.workspace_search_focus.is_focused(window) {
+            return;
+        }
+
+        let key = event.keystroke.key.as_str();
+        if key == "escape" {
+            self.close_workspace_search(cx);
+            cx.stop_propagation();
+            return;
+        }
+        if key == "enter" {
+            self.run_workspace_search();
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+        if key == "backspace" {
+            self.workspace.search_query.pop();
+            self.run_workspace_search();
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+
+        if let Some(text) = event.keystroke.key_char.as_ref() {
+            if text.chars().all(|ch| !ch.is_control()) {
+                self.workspace.search_query.push_str(text);
+                self.run_workspace_search();
+                cx.stop_propagation();
+                cx.notify();
+            }
         }
     }
 
@@ -289,22 +387,33 @@ impl Editor {
         let d = &theme.dimensions;
         let t = &theme.typography;
 
-        let tab = |label: String, tab: WorkspaceTab, active: bool| {
+        let tab_icon_color = |active: bool| {
+            if active {
+                c.text_default
+            } else {
+                c.dialog_muted
+            }
+        };
+
+        let tab = |label: String, icon: &'static str, tab: WorkspaceTab, active: bool| {
             let tab_editor = editor.clone();
             let tab_id = match tab {
                 WorkspaceTab::Files => "workspace-tab-files",
                 WorkspaceTab::Outline => "workspace-tab-outline",
             };
+            let icon_color = tab_icon_color(active);
             div()
                 .id(tab_id)
                 .h(px(24.0))
-                .px(px(10.0))
+                .px(px(8.0))
                 .flex()
                 .flex_1()
+                .min_w(px(0.0))
                 .items_center()
                 .justify_center()
+                .gap(px(4.0))
                 .rounded(px(4.0))
-                .bg(if active {
+                .bg(if active && !self.workspace.search_open {
                     c.selection
                 } else {
                     hsla(0.0, 0.0, 0.0, 0.0)
@@ -312,12 +421,20 @@ impl Editor {
                 .hover(|this| this.bg(c.dialog_secondary_button_hover))
                 .cursor_pointer()
                 .text_size(px(t.text_size * 0.82))
-                .text_color(if active {
-                    c.text_default
-                } else {
-                    c.dialog_muted
-                })
-                .child(label)
+                .text_color(icon_color)
+                .child(
+                    svg()
+                        .path(icon)
+                        .size(px(WORKSPACE_TAB_ICON_SIZE))
+                        .flex_shrink_0()
+                        .text_color(icon_color),
+                )
+                .child(
+                    div()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .child(label),
+                )
                 .on_click(move |_event, _window, cx| {
                     let _ = tab_editor.update(cx, |editor, cx| {
                         editor.set_workspace_tab(tab, cx);
@@ -325,9 +442,112 @@ impl Editor {
                 })
         };
 
-        let body = match self.workspace.active_tab {
-            WorkspaceTab::Files => self.render_workspace_files_tree(theme, strings, &editor),
-            WorkspaceTab::Outline => self.render_workspace_outline_tree(theme, strings, &editor),
+        let search_active = self.workspace.search_open;
+        let search_button_editor = editor.clone();
+        let search_focus = self.workspace_search_focus.clone();
+        let search_button = {
+            let search_focus_for_click = search_focus.clone();
+            div()
+                .id("workspace-tab-search")
+                .w(px(24.0))
+                .h(px(24.0))
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.0))
+                .bg(if search_active {
+                    c.selection
+                } else {
+                    hsla(0.0, 0.0, 0.0, 0.0)
+                })
+                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                .cursor_pointer()
+                .child(
+                    svg()
+                        .path(SEARCH_ICON)
+                        .size(px(WORKSPACE_TAB_ICON_SIZE))
+                        .text_color(if search_active {
+                            c.text_default
+                        } else {
+                            c.dialog_muted
+                        }),
+                )
+                .on_click(move |_event, window, cx| {
+                    let _ = search_button_editor.update(cx, |editor, cx| {
+                        editor.toggle_workspace_search(window, cx);
+                    });
+                })
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    cx.stop_propagation();
+                    window.focus(&search_focus_for_click);
+                })
+        };
+
+        let search_bar = if search_active {
+            let query = if self.workspace.search_query.is_empty() {
+                strings.workspace_search_placeholder.clone()
+            } else {
+                self.workspace.search_query.clone()
+            };
+            let query_is_placeholder = self.workspace.search_query.is_empty();
+            let search_bar_editor = editor.clone();
+            Some(
+                div()
+                    .id("workspace-search-input")
+                    .mx(px(8.0))
+                    .mb(px(4.0))
+                    .h(px(24.0))
+                    .px(px(8.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .rounded(px(4.0))
+                    .border(px(1.0))
+                    .border_color(c.dialog_border.opacity(0.75))
+                    .bg(c.editor_background)
+                    .cursor(CursorStyle::IBeam)
+                    .child(
+                        svg()
+                            .path(SEARCH_ICON)
+                            .size(px(WORKSPACE_TAB_ICON_SIZE))
+                            .flex_shrink_0()
+                            .text_color(c.dialog_muted),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .truncate()
+                            .text_size(px(t.text_size * 0.82))
+                            .text_color(if query_is_placeholder {
+                                c.dialog_muted
+                            } else {
+                                c.text_default
+                            })
+                            .child(query),
+                    )
+                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        cx.stop_propagation();
+                        let _ = search_bar_editor.update(cx, |editor, cx| {
+                            editor.focus_workspace_search(window, cx);
+                        });
+                    })
+                    .into_any_element(),
+            )
+        } else {
+            None
+        };
+
+        let body = if self.workspace.search_open {
+            self.render_workspace_search_results(theme, strings, &editor)
+        } else {
+            match self.workspace.active_tab {
+                WorkspaceTab::Files => self.render_workspace_files_tree(theme, strings, &editor),
+                WorkspaceTab::Outline => {
+                    self.render_workspace_outline_tree(theme, strings, &editor)
+                }
+            }
         };
 
         let resize_editor = editor.clone();
@@ -347,6 +567,8 @@ impl Editor {
                         .size_full()
                         .flex()
                         .flex_col()
+                        .track_focus(&search_focus)
+                        .on_key_down(cx.listener(Self::on_workspace_search_key_down))
                         .bg(c.dialog_surface)
                         .border_r(px(d.dialog_border_width))
                         .border_color(c.dialog_border)
@@ -356,20 +578,25 @@ impl Editor {
                                 .pt(px(8.0))
                                 .pb(px(6.0))
                                 .flex()
+                                .items_center()
                                 .gap(px(4.0))
                                 .border_b(px(d.dialog_border_width))
                                 .border_color(c.dialog_border)
                                 .child(tab(
                                     strings.workspace_tab_files.clone(),
+                                    FILES_TAB_ICON,
                                     WorkspaceTab::Files,
                                     self.workspace.active_tab == WorkspaceTab::Files,
                                 ))
                                 .child(tab(
                                     strings.workspace_tab_outline.clone(),
+                                    OUTLINE_TAB_ICON,
                                     WorkspaceTab::Outline,
                                     self.workspace.active_tab == WorkspaceTab::Outline,
-                                )),
+                                ))
+                                .child(search_button),
                         )
+                        .children(search_bar)
                         .child(
                             div()
                                 .id("workspace-panel-scroll")
@@ -490,6 +717,93 @@ impl Editor {
             .flex()
             .flex_col()
             .children(self.render_workspace_nodes(&self.workspace.outline_tree, 0, theme, editor))
+            .into_any_element()
+    }
+
+    fn render_workspace_search_results(
+        &self,
+        theme: &Theme,
+        strings: &I18nStrings,
+        editor: &WeakEntity<Editor>,
+    ) -> AnyElement {
+        if self.effective_workspace_root().is_none() {
+            return self.render_workspace_empty_state(
+                "",
+                &strings.workspace_search_no_root,
+                theme,
+            );
+        }
+
+        if self.workspace.search_query.trim().is_empty() {
+            return self.render_workspace_empty_state(
+                "",
+                &strings.workspace_search_placeholder,
+                theme,
+            );
+        }
+
+        if self.workspace.search_results.is_empty() {
+            return self.render_workspace_empty_state(
+                "",
+                &strings.workspace_search_no_results,
+                theme,
+            );
+        }
+
+        let root = self.effective_workspace_root();
+        let c = &theme.colors;
+        let t = &theme.typography;
+        let mut rows = Vec::new();
+        for (index, result) in self.workspace.search_results.iter().enumerate() {
+            let label = workspace_search_result_label(root.as_deref(), result);
+            let detail = workspace_search_result_detail(result);
+            let path = result.path.clone();
+            let open_editor = editor.clone();
+            rows.push(
+                div()
+                    .id(("workspace-search-result", index))
+                    .w_full()
+                    .px(px(6.0))
+                    .py(px(5.0))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .rounded(px(4.0))
+                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                    .cursor_pointer()
+                    .on_click(move |_event, window, cx| {
+                        let open_path = path.clone();
+                        let _ = open_editor.update(cx, |editor, cx| {
+                            editor.open_workspace_file(open_path, window, cx);
+                        });
+                    })
+                    .child(
+                        div()
+                            .w_full()
+                            .truncate()
+                            .text_size(px(t.text_size * 0.82))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c.text_default)
+                            .child(label),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .truncate()
+                            .text_size(px(t.text_size * 0.78))
+                            .text_color(c.dialog_muted)
+                            .child(detail),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .children(rows)
             .into_any_element()
     }
 
@@ -671,6 +985,89 @@ impl Editor {
             })
             .into_any_element()
     }
+}
+
+fn collect_markdown_files(root: &Path, files: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_markdown_files(&path, files);
+        } else if is_markdown_file(&path) {
+            files.push(path);
+        }
+    }
+}
+
+fn search_markdown_files(root: &Path, query: &str) -> Vec<WorkspaceSearchResult> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let query_lower = query.to_lowercase();
+    let mut files = Vec::new();
+    collect_markdown_files(root, &mut files);
+    files.sort();
+
+    let mut results = Vec::new();
+    for path in files {
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if file_name.to_lowercase().contains(&query_lower) {
+            results.push(WorkspaceSearchResult {
+                path: path.clone(),
+                line: None,
+                preview: String::new(),
+            });
+        }
+
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (index, line) in content.lines().enumerate() {
+            if line.to_lowercase().contains(&query_lower) {
+                results.push(WorkspaceSearchResult {
+                    path: path.clone(),
+                    line: Some(index + 1),
+                    preview: line.trim().to_string(),
+                });
+            }
+        }
+    }
+
+    results
+}
+
+fn workspace_search_result_label(root: Option<&Path>, result: &WorkspaceSearchResult) -> String {
+    let path_label = root
+        .and_then(|root| result.path.strip_prefix(root).ok())
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| result.path.to_string_lossy().into_owned());
+    match result.line {
+        Some(line) => format!("{path_label}:{line}"),
+        None => path_label,
+    }
+}
+
+fn workspace_search_result_detail(result: &WorkspaceSearchResult) -> String {
+    if let Some(line) = result.line {
+        if result.preview.is_empty() {
+            return format!("Line {line}");
+        }
+        return result.preview.clone();
+    }
+    result
+        .path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 fn is_markdown_file(path: &Path) -> bool {
@@ -867,7 +1264,8 @@ fn is_closing_fence(trimmed: &str, marker: char, len: usize) -> bool {
 mod tests {
     use super::{
         WorkspaceSelection, WorkspaceState, WorkspaceTreeKind, build_outline_tree,
-        prune_outline_state, scan_workspace_dir, workspace_panel_width_for_viewport,
+        prune_outline_state, scan_workspace_dir, search_markdown_files,
+        workspace_panel_width_for_viewport,
     };
     use std::fs;
 
@@ -933,6 +1331,26 @@ mod tests {
         assert!(existing.expanded.contains("workspace-dir:C:/docs"));
         assert!(!existing.expanded.contains("outline:999"));
         assert_eq!(existing.selected, None);
+    }
+
+    #[test]
+    fn workspace_search_finds_filename_and_content_matches_recursively() {
+        let root =
+            std::env::temp_dir().join(format!("velotype-workspace-search-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("nested")).expect("create dirs");
+        fs::write(root.join("notes.md"), "# Alpha\nbeta keyword here\n").expect("write root md");
+        fs::write(root.join("nested").join("deep.md"), "gamma DELTA\n").expect("write nested md");
+
+        let results = search_markdown_files(&root, "keyword");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].line, Some(2));
+        assert!(results[0].preview.contains("keyword"));
+
+        let filename_results = search_markdown_files(&root, "deep");
+        assert_eq!(filename_results.len(), 1);
+        assert!(filename_results[0].line.is_none());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

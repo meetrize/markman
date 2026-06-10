@@ -222,6 +222,12 @@ pub struct I18nStrings {
     pub workspace_tab_files: String,
     /// Workspace drawer Outline tab.
     pub workspace_tab_outline: String,
+    /// Workspace search input placeholder.
+    pub workspace_search_placeholder: String,
+    /// Message shown when workspace search finds no matches.
+    pub workspace_search_no_results: String,
+    /// Message shown when workspace search has no root directory.
+    pub workspace_search_no_root: String,
     /// Title shown when no Markdown file path is available for workspace mode.
     pub workspace_no_file_title: String,
     /// Message shown when no Markdown file path is available for workspace mode.
@@ -437,6 +443,9 @@ struct I18nStringsDe {
     preferences_shortcut_toggle_workspace: Option<String>,
     workspace_tab_files: Option<String>,
     workspace_tab_outline: Option<String>,
+    workspace_search_placeholder: Option<String>,
+    workspace_search_no_results: Option<String>,
+    workspace_search_no_root: Option<String>,
     workspace_no_file_title: Option<String>,
     workspace_no_file_message: Option<String>,
     workspace_empty_files: Option<String>,
@@ -609,6 +618,9 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_toggle_workspace",
     "workspace_tab_files",
     "workspace_tab_outline",
+    "workspace_search_placeholder",
+    "workspace_search_no_results",
+    "workspace_search_no_root",
     "workspace_no_file_title",
     "workspace_no_file_message",
     "workspace_empty_files",
@@ -995,6 +1007,15 @@ impl I18nStringsDe {
             workspace_tab_outline: self
                 .workspace_tab_outline
                 .unwrap_or(defaults.workspace_tab_outline),
+            workspace_search_placeholder: self
+                .workspace_search_placeholder
+                .unwrap_or(defaults.workspace_search_placeholder),
+            workspace_search_no_results: self
+                .workspace_search_no_results
+                .unwrap_or(defaults.workspace_search_no_results),
+            workspace_search_no_root: self
+                .workspace_search_no_root
+                .unwrap_or(defaults.workspace_search_no_root),
             workspace_no_file_title: self
                 .workspace_no_file_title
                 .unwrap_or(defaults.workspace_no_file_title),
@@ -1258,6 +1279,9 @@ impl I18nStrings {
             preferences_shortcut_toggle_workspace: "切换工作区".into(),
             workspace_tab_files: "文件".into(),
             workspace_tab_outline: "大纲".into(),
+            workspace_search_placeholder: "搜索文件名或内容…".into(),
+            workspace_search_no_results: "未找到匹配项".into(),
+            workspace_search_no_root: "请先打开文件夹或 Markdown 文件".into(),
             workspace_no_file_title: "未打开 Markdown 文件".into(),
             workspace_no_file_message: "打开或保存一个 .md 文件后，工作区会使用该文件所在目录。"
                 .into(),
@@ -1446,6 +1470,9 @@ impl I18nStrings {
             preferences_shortcut_toggle_workspace: "Toggle Workspace".into(),
             workspace_tab_files: "Files".into(),
             workspace_tab_outline: "Outline".into(),
+            workspace_search_placeholder: "Search file names or content…".into(),
+            workspace_search_no_results: "No matches found".into(),
+            workspace_search_no_root: "Open a folder or Markdown file first".into(),
             workspace_no_file_title: "No Markdown File Open".into(),
             workspace_no_file_message:
                 "Open or save a .md file to use its folder as the workspace.".into(),
