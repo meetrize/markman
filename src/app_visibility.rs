@@ -1,7 +1,5 @@
 //! Global show/hide hotkey and application visibility toggling.
 
-use std::time::Duration;
-
 use gpui::*;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -18,7 +16,7 @@ struct AppVisibilityState {
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl Global for AppVisibilityState {}
 
-/// Register the global ⌘⇧⌥7 hotkey and start polling for press events.
+/// Register the global ⌘⇧⌥7 hotkey and dispatch visibility toggles immediately.
 pub(crate) fn init(cx: &mut App) {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     register_visibility_hotkey(cx);
@@ -50,14 +48,18 @@ fn register_visibility_hotkey(cx: &mut App) {
 
     cx.spawn(async move |cx| {
         loop {
-            while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-                if event.id == hotkey_id && event.state == HotKeyState::Pressed {
-                    let _ = cx.update(toggle_application_visibility);
-                }
-            }
-            cx.background_executor()
-                .timer(Duration::from_millis(50))
+            let event = cx
+                .background_executor()
+                .spawn(async { GlobalHotKeyEvent::receiver().recv().ok() })
                 .await;
+
+            let Some(event) = event else {
+                break;
+            };
+            if event.id != hotkey_id || event.state != HotKeyState::Pressed {
+                continue;
+            }
+            let _ = cx.update(toggle_application_visibility);
         }
     })
     .detach();
