@@ -116,12 +116,40 @@ impl Editor {
 
     pub(super) fn on_editor_mouse_up(
         &mut self,
-        _event: &MouseUpEvent,
+        event: &MouseUpEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.view_mode == ViewMode::Rendered && event.click_count >= 2 {
+            self.apply_rendered_word_or_line_selection(event, cx);
+        }
         self.cross_block_drag = None;
         self.end_block_pointer_selection_sessions(cx);
+    }
+
+    fn apply_rendered_word_or_line_selection(
+        &mut self,
+        event: &MouseUpEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(endpoint) = self.cross_block_endpoint_for_point(event.position, cx) else {
+            return;
+        };
+        let Some(entity) = self.document.block_entity_by_id(endpoint.entity_id) else {
+            return;
+        };
+
+        let handled = entity.update(cx, |block, cx| {
+            block.try_select_word_or_line_at_click(event, cx)
+        });
+        if !handled {
+            return;
+        }
+
+        self.cross_block_selection = None;
+        self.sync_cross_block_selection_visuals(cx);
+        self.focus_block(endpoint.entity_id);
+        cx.notify();
     }
 
     pub(super) fn on_copy_capture(

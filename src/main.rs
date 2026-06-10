@@ -107,6 +107,9 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/auto-save.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/auto-save.svg"
             )))),
+            "icon/toolbar/copy.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/copy.svg"
+            )))),
             _ => Ok(None),
         }
     }

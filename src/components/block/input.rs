@@ -185,14 +185,7 @@ impl EntityInputHandler for Block {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         if self.code_language_focus_handle.is_focused(_window) {
-            let line = self.code_language_last_layout.as_ref()?;
-            let range = self.code_language_range_from_utf16(&range_utf16);
-            let start_x = line.x_for_index(range.start);
-            let end_x = line.x_for_index(range.end);
-            return Some(Bounds::from_corners(
-                point(bounds.left() + start_x, bounds.top()),
-                point(bounds.left() + end_x, bounds.bottom()),
-            ));
+            return None;
         }
 
         let lines = self.last_layout.as_ref()?;
@@ -209,8 +202,7 @@ impl EntityInputHandler for Block {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         if self.code_language_focus_handle.is_focused(_window) {
-            let index = self.code_language_index_for_mouse_position(pt);
-            return Some(Self::utf8_to_utf16_in(self.code_language_text(), index));
+            return None;
         }
 
         let bounds = self.last_bounds?;

@@ -6,7 +6,7 @@
 
 use gpui::*;
 
-use super::element::{BlockTextElement, CodeLanguageInputElement};
+use super::element::BlockTextElement;
 use super::{Block, BlockEvent, BlockKind, ImageResolvedSource, ImageRuntime};
 use crate::components::{
     Editor, HtmlCssColor, HtmlDocument, HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight,
@@ -24,6 +24,7 @@ const BULLET_FILLED: &str = "\u{2022}";
 const BULLET_HOLLOW: &str = "\u{25E6}";
 const BULLET_SQUARE: &str = "\u{25A1}";
 const TASK_CHECKMARK: &str = "\u{2713}";
+const ICON_CODE_BLOCK_COPY: &str = "icon/toolbar/copy.svg";
 
 fn bulleted_list_marker(depth: usize) -> &'static str {
     match depth {
@@ -1559,11 +1560,8 @@ impl Render for Block {
 
         if input_active && self.cursor_blink_task.is_none() {
             self.start_cursor_blink(cx);
-        } else if !input_active && self.cursor_blink_task.is_some() {
+        } else         if !input_active && self.cursor_blink_task.is_some() {
             self.cursor_blink_task = None;
-        }
-        if !input_active {
-            self.reset_code_language_input_layout();
         }
 
         let block_id = ElementId::Name(format!("block-{}", self.record.id).into());
@@ -2220,11 +2218,84 @@ impl Render for Block {
                     header.into_any_element()
                 }
             }
-            BlockKind::CodeBlock { .. } => {
-                let show_language_input = focused || code_language_focused;
-                let language_placeholder =
-                    SharedString::from(strings.code_language_placeholder.clone());
-                let code_panel = focused_base
+            BlockKind::CodeBlock { language } => {
+                let language_label = language
+                    .as_ref()
+                    .map(|value| SharedString::from(value.to_string()))
+                    .unwrap_or_else(|| SharedString::from(strings.code_language_placeholder.clone()));
+                let badge_height = d.code_language_input_height
+                    + d.code_language_input_padding_y * 2.0
+                    + d.code_language_input_border_width * 2.0;
+                let icon_size = px((t.code_size - 1.0).max(10.0));
+                let mut code_content = div().min_w(px(0.0)).w_full();
+
+                if focused {
+                    let block = cx.entity().downgrade();
+                    code_content = code_content.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_end()
+                            .gap(px(d.code_language_input_gap))
+                            .mb(px(d.code_language_input_gap))
+                            .child(
+                                div()
+                                    .h(px(badge_height))
+                                    .flex()
+                                    .items_center()
+                                    .px(px(d.code_language_input_padding_x))
+                                    .rounded(px(d.code_language_input_radius))
+                                    .border(px(d.code_language_input_border_width))
+                                    .border_color(c.code_language_input_border.opacity(0.65))
+                                    .bg(c.code_language_input_bg.opacity(0.92))
+                                    .text_size(icon_size)
+                                    .text_color(c.code_language_input_text)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(language_label),
+                            )
+                            .child(
+                                div()
+                                    .id("code-block-copy")
+                                    .w(px(badge_height))
+                                    .h(px(badge_height))
+                                    .flex()
+                                    .flex_shrink_0()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(d.code_language_input_radius))
+                                    .border(px(d.code_language_input_border_width))
+                                    .border_color(c.code_language_input_border.opacity(0.65))
+                                    .bg(c.code_language_input_bg.opacity(0.92))
+                                    .hover(|this| this.bg(c.code_language_input_border.opacity(0.35)))
+                                    .active(|this| this.opacity(0.92))
+                                    .cursor_pointer()
+                                    .child(
+                                        svg()
+                                            .path(ICON_CODE_BLOCK_COPY)
+                                            .size(icon_size)
+                                            .text_color(c.code_language_input_text),
+                                    )
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        move |_, _window, cx| {
+                                            cx.stop_propagation();
+                                            let _ = block.update(cx, |block, cx| {
+                                                block.on_code_block_copy_click(cx);
+                                            });
+                                        },
+                                    ),
+                            ),
+                    );
+                }
+
+                code_content = code_content.child(
+                    div()
+                        .min_w(px(0.0))
+                        .w_full()
+                        .child(BlockTextElement::new(cx.entity(), is_placeholder)),
+                );
+
+                focused_base
                     .bg(c.code_bg)
                     .rounded_sm()
                     .pl(px(d.code_block_padding_x))
@@ -2233,80 +2304,8 @@ impl Render for Block {
                     .text_size(px(t.code_size))
                     .text_color(c.code_text)
                     .line_height(rems(t.text_line_height))
-                    .child(
-                        div()
-                            .min_w(px(0.0))
-                            .w_full()
-                            .child(BlockTextElement::new(cx.entity(), is_placeholder)),
-                    );
-
-                if show_language_input {
-                    let input_height = d.code_language_input_height
-                        + d.code_language_input_padding_y * 2.0
-                        + d.code_language_input_border_width * 2.0;
-                    div()
-                        .w_full()
-                        .relative()
-                        .pb(px(input_height + d.code_language_input_gap))
-                        .child(code_panel)
-                        .child(
-                            div()
-                                .absolute()
-                                .right(px(d.code_language_input_gap))
-                                .bottom(px(0.0))
-                                .occlude()
-                                .key_context("BlockEditor")
-                                .track_focus(&self.code_language_focus_handle)
-                                .on_action(cx.listener(Self::on_code_language_newline))
-                                .on_action(cx.listener(Self::on_code_language_dismiss))
-                                .on_action(cx.listener(Self::on_code_language_delete_back))
-                                .on_action(cx.listener(Self::on_code_language_delete))
-                                .on_action(cx.listener(Self::on_code_language_focus_content))
-                                .on_action(cx.listener(Self::on_code_language_focus_next))
-                                .on_action(cx.listener(Self::on_code_language_move_left))
-                                .on_action(cx.listener(Self::on_code_language_move_right))
-                                .on_action(cx.listener(Self::on_code_language_home))
-                                .on_action(cx.listener(Self::on_code_language_end))
-                                .on_action(cx.listener(Self::on_code_language_select_left))
-                                .on_action(cx.listener(Self::on_code_language_select_right))
-                                .on_action(cx.listener(Self::on_code_language_select_all))
-                                .on_action(cx.listener(Self::on_code_language_copy))
-                                .on_action(cx.listener(Self::on_code_language_cut))
-                                .on_action(cx.listener(Self::on_code_language_paste))
-                                .on_action(cx.listener(Self::on_code_language_indent))
-                                .on_action(cx.listener(Self::on_code_language_outdent))
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_code_language_mouse_down),
-                                )
-                                .on_mouse_up(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_code_language_mouse_up),
-                                )
-                                .on_mouse_up_out(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_code_language_mouse_up_out),
-                                )
-                                .on_mouse_move(cx.listener(Self::on_code_language_mouse_move))
-                                .w(px(d.code_language_input_width))
-                                .px(px(d.code_language_input_padding_x))
-                                .py(px(d.code_language_input_padding_y))
-                                .rounded(px(d.code_language_input_radius))
-                                .border(px(d.code_language_input_border_width))
-                                .border_color(c.code_language_input_border)
-                                .bg(c.code_language_input_bg)
-                                .text_size(px((t.code_size - 1.0).max(10.0)))
-                                .text_color(c.code_language_input_text)
-                                .cursor(CursorStyle::IBeam)
-                                .child(CodeLanguageInputElement::new(
-                                    cx.entity(),
-                                    language_placeholder,
-                                )),
-                        )
-                        .into_any_element()
-                } else {
-                    code_panel.into_any_element()
-                }
+                    .child(code_content)
+                    .into_any_element()
             }
             BlockKind::Table => {
                 let Some(runtime) = self.table_runtime.clone() else {
@@ -2795,7 +2794,7 @@ mod tests {
     use crate::components::{TableAxisKind, TableAxisMarker};
     use crate::i18n::I18nManager;
     use crate::theme::{Theme, ThemeManager};
-    use gpui::{Hsla, Rgba, TestAppContext, px};
+    use gpui::{Hsla, Rgba, TestAppContext};
 
     #[test]
     fn top_gutter_only_appears_for_column_axis_state() {
@@ -2875,7 +2874,7 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn code_language_input_docks_to_right_edge(cx: &mut TestAppContext) {
+    async fn focused_code_block_renders_with_language_badge(cx: &mut TestAppContext) {
         cx.update(|cx| {
             I18nManager::init(cx);
             ThemeManager::init(cx);
@@ -2900,21 +2899,9 @@ mod tests {
         });
         cx.run_until_parked();
 
-        let (text_bounds, language_bounds) = block.read_with(cx, |block, _cx| {
-            (
-                block.last_bounds.expect("code text should render"),
-                block
-                    .code_language_last_bounds
-                    .expect("language input should render"),
-            )
+        block.read_with(cx, |block, _cx| {
+            assert!(block.last_bounds.is_some());
+            assert_eq!(block.code_language_text(), "rust");
         });
-        assert!(language_bounds.left() > text_bounds.left());
-        assert!(language_bounds.top() > text_bounds.bottom());
-        let right_gap = f32::from(language_bounds.right() - text_bounds.right());
-        assert!(
-            right_gap.abs() <= 12.0,
-            "expected language input to sit near the code block right edge; right_gap={right_gap}, text_bounds={text_bounds:?}, language_bounds={language_bounds:?}"
-        );
-        assert!(language_bounds.size.width <= px(156.0));
     }
 }

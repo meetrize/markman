@@ -33,14 +33,6 @@ impl Block {
         }
     }
 
-    pub(crate) fn code_language_cursor_offset(&self) -> usize {
-        if self.code_language_selection_reversed {
-            self.code_language_selected_range.start
-        } else {
-            self.code_language_selected_range.end
-        }
-    }
-
     pub(crate) fn code_language_range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
         Self::utf8_range_to_utf16_in(self.code_language_text(), range)
     }
@@ -50,46 +42,6 @@ impl Block {
         range_utf16: &Range<usize>,
     ) -> Range<usize> {
         Self::utf16_range_to_utf8_in(self.code_language_text(), range_utf16)
-    }
-
-    pub(crate) fn previous_code_language_boundary(&self, offset: usize) -> usize {
-        self.code_language_text()
-            .grapheme_indices(true)
-            .rev()
-            .find_map(|(idx, _)| (idx < offset).then_some(idx))
-            .unwrap_or(0)
-    }
-
-    pub(crate) fn next_code_language_boundary(&self, offset: usize) -> usize {
-        self.code_language_text()
-            .grapheme_indices(true)
-            .find_map(|(idx, _)| (idx > offset).then_some(idx))
-            .unwrap_or(self.code_language_text().len())
-    }
-
-    pub(crate) fn move_code_language_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let clamped = offset.min(self.code_language_text().len());
-        self.code_language_selected_range = clamped..clamped;
-        self.code_language_selection_reversed = false;
-        self.code_language_marked_range = None;
-        self.cursor_blink_epoch = Instant::now();
-        cx.notify();
-    }
-
-    pub(crate) fn select_code_language_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let clamped = offset.min(self.code_language_text().len());
-        if self.code_language_selection_reversed {
-            self.code_language_selected_range.start = clamped;
-        } else {
-            self.code_language_selected_range.end = clamped;
-        }
-        if self.code_language_selected_range.end < self.code_language_selected_range.start {
-            self.code_language_selection_reversed = !self.code_language_selection_reversed;
-            self.code_language_selected_range =
-                self.code_language_selected_range.end..self.code_language_selected_range.start;
-        }
-        self.cursor_blink_epoch = Instant::now();
-        cx.notify();
     }
 
     pub(crate) fn replace_code_language_text_in_range(
@@ -172,32 +124,5 @@ impl Block {
             cx.emit(BlockEvent::Changed);
         }
         cx.notify();
-    }
-
-    pub(crate) fn code_language_index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
-        let text = self.code_language_text();
-        if text.is_empty() {
-            return 0;
-        }
-
-        let (Some(bounds), Some(line)) = (
-            self.code_language_last_bounds.as_ref(),
-            self.code_language_last_layout.as_ref(),
-        ) else {
-            return 0;
-        };
-        if position.x <= bounds.left() {
-            return 0;
-        }
-        if position.x >= bounds.right() {
-            return text.len();
-        }
-        line.closest_index_for_x(position.x - bounds.left())
-    }
-
-    pub(crate) fn reset_code_language_input_layout(&mut self) {
-        self.code_language_last_layout = None;
-        self.code_language_last_bounds = None;
-        self.code_language_is_selecting = false;
     }
 }

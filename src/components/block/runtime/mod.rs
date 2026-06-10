@@ -108,9 +108,6 @@ pub struct Block {
     pub(crate) code_language_selected_range: Range<usize>,
     pub(crate) code_language_selection_reversed: bool,
     pub(crate) code_language_marked_range: Option<Range<usize>>,
-    pub(crate) code_language_last_layout: Option<ShapedLine>,
-    pub(crate) code_language_last_bounds: Option<Bounds<Pixels>>,
-    pub(crate) code_language_is_selecting: bool,
     pub selected_range: Range<usize>,
     pub selection_reversed: bool,
     pub(crate) editor_selection_range: Option<Range<usize>>,
@@ -216,9 +213,6 @@ impl Block {
             code_language_selected_range: 0..0,
             code_language_selection_reversed: false,
             code_language_marked_range: None,
-            code_language_last_layout: None,
-            code_language_last_bounds: None,
-            code_language_is_selecting: false,
             selected_range: 0..0,
             selection_reversed: false,
             editor_selection_range: None,
@@ -852,7 +846,6 @@ impl Block {
         {
             return;
         }
-        let (clean_anchor, clean_focus) = self.clean_selection_anchor_focus();
         let collapsed_affinity = self.current_collapsed_caret_affinity();
         self.rebuild_inline_projection(clean_selected.clone(), clean_marked.clone());
         if let Some(snapshot) = projected_link_selection
@@ -881,7 +874,7 @@ impl Block {
             );
             self.assign_collapsed_selection_offset(offset, collapsed_affinity, None);
         } else {
-            self.set_selection_from_clean_anchor_focus(clean_anchor, clean_focus);
+            self.selected_range = self.clean_to_current_range(clean_selected.clone());
             self.collapsed_caret_affinity = CollapsedCaretAffinity::Default;
         }
         self.marked_range = clean_marked.map(|range| self.clean_to_current_range(range));
@@ -1004,22 +997,68 @@ impl Block {
             .unwrap_or_else(|| self.clean_to_current_cursor_offset(clean))
     }
 
-    fn clean_to_current_range_start(&self, clean: usize) -> usize {
-        self.clean_to_current_cursor_offset(clean)
-    }
-
-    fn clean_to_current_range_end(&self, clean: usize) -> usize {
-        self.clean_to_current_cursor_offset(clean)
-    }
-
     pub(crate) fn clean_to_current_range(&self, range: Range<usize>) -> Range<usize> {
         if range.is_empty() {
             let offset = self.clean_to_current_cursor_offset(range.start);
-            offset..offset
-        } else {
-            self.clean_to_current_range_start(range.start)
-                ..self.clean_to_current_range_end(range.end)
+            return offset..offset;
         }
+
+        let Some(projection) = &self.projection else {
+            let len = self.visible_len();
+            return range.start.min(len)..range.end.min(len);
+        };
+
+        use self::projection::ExpandedInlineSegmentKind;
+
+        let mut display_start = None;
+        let mut display_end = 0usize;
+        for segment in &projection.segments {
+            if !matches!(
+                segment.kind,
+                ExpandedInlineSegmentKind::PlainText
+                    | ExpandedInlineSegmentKind::StyledText
+                    | ExpandedInlineSegmentKind::LinkTargetText
+                    | ExpandedInlineSegmentKind::FootnoteIdText
+            ) {
+                continue;
+            }
+            if segment.clean_range.end <= range.start || segment.clean_range.start >= range.end {
+                continue;
+            }
+            let overlap_start = range.start.max(segment.clean_range.start);
+            let overlap_end = range.end.min(segment.clean_range.end);
+            let seg_display_start = segment.display_range.start
+                + overlap_start.saturating_sub(segment.clean_range.start);
+            let seg_display_end = segment.display_range.start
+                + overlap_end.saturating_sub(segment.clean_range.start);
+            if display_start.is_none() {
+                display_start = Some(seg_display_start);
+            }
+            display_end = display_end.max(seg_display_end);
+        }
+
+        let len = self.visible_len();
+        if let Some(start) = display_start {
+            return start.min(len)..display_end.max(start).min(len);
+        }
+
+        let clean_start = range.start;
+        let clean_end = range.end;
+        let mut fallback_start = None;
+        let mut fallback_end = 0usize;
+        for (display_idx, &clean_idx) in projection.display_to_clean.iter().enumerate() {
+            if fallback_start.is_none() && clean_idx >= clean_start {
+                fallback_start = Some(display_idx);
+            }
+            if clean_idx < clean_end {
+                fallback_end = display_idx + 1;
+            }
+        }
+        let start = fallback_start
+            .unwrap_or_else(|| self.clean_to_current_cursor_offset(clean_start))
+            .min(len);
+        let end = fallback_end.max(start).min(len);
+        start..end
     }
 
     pub(crate) fn current_to_clean_range(&self, range: Range<usize>) -> Range<usize> {
@@ -2097,9 +2136,8 @@ impl Block {
     }
 
     pub(crate) fn end_pointer_selection_session(&mut self) -> bool {
-        let changed = self.is_selecting || self.code_language_is_selecting;
+        let changed = self.is_selecting;
         self.is_selecting = false;
-        self.code_language_is_selecting = false;
         changed
     }
 
@@ -2200,6 +2238,44 @@ impl Block {
             .unwrap_or(text.len())
     }
 
+    /// Select the word at `offset` (VS Code–style, bounded by spaces/punctuation).
+    pub fn select_word_at_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let clamped = offset.min(self.visible_len());
+        let range = if self.edit_mode.supports_inline_projection() {
+            let clean_offset = self.current_to_clean_offset(clamped);
+            let clean_text = self.render_cache.visible_text();
+            let clean_word = word_range_in_text(clean_text, clean_offset);
+            self.clean_to_current_range(clean_word)
+        } else {
+            word_range_in_text(self.display_text(), clamped)
+        };
+        self.selected_range = range;
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.cursor_blink_epoch = Instant::now();
+        self.clear_vertical_motion();
+        cx.notify();
+    }
+
+    /// Select the hard line (up to `\n`) containing `offset`.
+    pub fn select_line_at_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let clamped = offset.min(self.visible_len());
+        let range = if self.edit_mode.supports_inline_projection() {
+            let clean_offset = self.current_to_clean_offset(clamped);
+            let clean_text = self.render_cache.visible_text();
+            let clean_line = line_range_in_text(clean_text, clean_offset);
+            self.clean_to_current_range(clean_line)
+        } else {
+            line_range_in_text(self.display_text(), clamped)
+        };
+        self.selected_range = range;
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.cursor_blink_epoch = Instant::now();
+        self.clear_vertical_motion();
+        cx.notify();
+    }
+
     /// Reverse of `display_offset`: maps an expanded display offset
     /// back to the clean tree offset.
     fn unexpand_offset(&self, expanded: usize) -> usize {
@@ -2281,6 +2357,87 @@ impl Block {
             self.text_align(),
         )
     }
+}
+
+/// VS Code–style word character: ASCII letters, digits, and underscore.
+fn is_word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Non-ASCII letters (e.g. CJK) are treated as one character per word segment.
+fn is_single_char_word(c: char) -> bool {
+    c.is_alphabetic() && !c.is_ascii_alphabetic()
+}
+
+/// Byte ranges of consecutive character-class segments within one line (no `\n`).
+pub(super) fn segment_ranges_in_line(line: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut chars = line.char_indices().peekable();
+    while let Some((start, ch)) = chars.next() {
+        let mut end = start + ch.len_utf8();
+        if is_word_char(ch) {
+            while let Some(&(next_start, next_ch)) = chars.peek() {
+                if !is_word_char(next_ch) {
+                    break;
+                }
+                end = next_start + next_ch.len_utf8();
+                chars.next();
+            }
+        } else if is_single_char_word(ch) {
+            // one ideograph per segment
+        } else {
+            while let Some(&(next_start, next_ch)) = chars.peek() {
+                if is_word_char(next_ch) || is_single_char_word(next_ch) {
+                    break;
+                }
+                end = next_start + next_ch.len_utf8();
+                chars.next();
+            }
+        }
+        ranges.push(start..end);
+    }
+    ranges
+}
+
+pub(super) fn word_range_in_line(line: &str, offset: usize) -> Range<usize> {
+    let offset = offset.min(line.len());
+    if line.is_empty() {
+        return 0..0;
+    }
+    let segments = segment_ranges_in_line(line);
+    for range in &segments {
+        if offset >= range.start && offset < range.end {
+            return range.clone();
+        }
+        if offset == range.end && range.end == line.len() {
+            return range.clone();
+        }
+    }
+    for range in &segments {
+        if range.end == offset && offset > 0 {
+            return range.clone();
+        }
+    }
+    segments.last().cloned().unwrap_or(0..0)
+}
+
+pub(super) fn word_range_in_text(text: &str, offset: usize) -> Range<usize> {
+    let offset = offset.min(text.len());
+    if text.is_empty() {
+        return 0..0;
+    }
+    let line_ranges = super::element::hard_line_ranges(text);
+    let (line_idx, _) = super::element::line_index_for_offset(&line_ranges, offset);
+    let line = &line_ranges[line_idx];
+    let local = word_range_in_line(&text[line.clone()], offset - line.start);
+    line.start + local.start..line.start + local.end
+}
+
+pub(super) fn line_range_in_text(text: &str, offset: usize) -> Range<usize> {
+    let offset = offset.min(text.len());
+    let line_ranges = super::element::hard_line_ranges(text);
+    let (line_idx, _) = super::element::line_index_for_offset(&line_ranges, offset);
+    line_ranges[line_idx].clone()
 }
 
 #[cfg(test)]
