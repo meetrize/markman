@@ -1,0 +1,39 @@
+# Git 提交消息（Cursor SCM ✨ 自动生成）
+
+在 Source Control 面板点击「Generate Commit Message」或 Agent 代为提交时，**必须生成简体中文**提交消息，即使最近 git 历史为英文也不例外。
+
+## 格式
+
+```
+<type>(<scope>): <简短中文描述>
+```
+
+可选正文：空一行后写 1–3 句，说明改动原因与影响。
+
+## type
+
+| type | 含义 |
+|------|------|
+| feat | 新功能 |
+| fix | 修复 bug |
+| docs | 文档 |
+| style | 格式（不改变逻辑） |
+| refactor | 重构 |
+| test | 测试 |
+| chore | 构建、依赖、工具链 |
+
+## 要求
+
+- 标题一行，尽量 ≤ 50 字，动词开头，不用句号结尾
+- 聚焦「为什么改」，不要只罗列文件名
+- scope 用模块名（如 toolbar、editor、i18n），可省略
+- 全文使用简体中文，专有名词（Markdown、GPUI 等）可保留英文
+
+## 示例
+
+```
+feat(toolbar): 添加 Markdown 格式工具栏与 Lucide 图标
+fix(editor): 修复加粗标记内连续输入时光标跳出 span 的问题
+docs: 补充本地开发与构建说明
+chore(release): 升级版本号并更新仓库字段
+```
