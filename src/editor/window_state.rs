@@ -234,6 +234,7 @@ impl Editor {
         }
 
         self.apply_selection_snapshot_in_current_mode(&selection_snapshot, cx);
+        self.refresh_search_match_highlights(cx);
         self.pending_scroll_active_block_into_view = true;
         self.pending_scroll_recheck_after_layout = true;
         self.last_scroll_viewport_size = None;

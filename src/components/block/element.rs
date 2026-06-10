@@ -59,6 +59,7 @@ fn build_text_runs(
     underline_thickness: Pixels,
     link_color: Hsla,
     code_bg: Hsla,
+    search_highlight_bg: Hsla,
     show_inline_code_backgrounds: bool,
 ) -> Vec<TextRun> {
     let spans = input.inline_spans();
@@ -71,10 +72,15 @@ fn build_text_runs(
         boundaries.push(marked_range.start);
         boundaries.push(marked_range.end);
     }
+    if let Some(search_range) = input.search_highlight_range.as_ref() {
+        boundaries.push(search_range.start);
+        boundaries.push(search_range.end);
+    }
     boundaries.sort_unstable();
     boundaries.dedup();
 
     let marked_range = input.marked_range.as_ref();
+    let search_highlight_range = input.search_highlight_range.as_ref();
     let mut runs = Vec::new();
     let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
@@ -98,6 +104,9 @@ fn build_text_runs(
         let is_link = active_span.map(|s| s.link.is_some()).unwrap_or(false);
         let is_footnote = active_span.map(|s| s.footnote.is_some()).unwrap_or(false);
         let is_marked = marked_range
+            .map(|range| start < range.end && range.start < end)
+            .unwrap_or(false);
+        let is_search_highlight = search_highlight_range
             .map(|range| start < range.end && range.start < end)
             .unwrap_or(false);
 
@@ -136,6 +145,9 @@ fn build_text_runs(
         } else {
             base_run.background_color
         };
+        if is_search_highlight {
+            background_color = Some(search_highlight_bg);
+        }
         if let Some(style) = html_style
             && let Some(color) = style.background_color
         {
@@ -177,6 +189,7 @@ fn build_code_text_runs(
     base_run: &TextRun,
     underline_thickness: Pixels,
     colors: &ThemeColors,
+    search_highlight_bg: Hsla,
 ) -> Vec<TextRun> {
     let highlight_spans = input
         .code_highlight_result()
@@ -191,10 +204,15 @@ fn build_code_text_runs(
         boundaries.push(marked_range.start);
         boundaries.push(marked_range.end);
     }
+    if let Some(search_range) = input.search_highlight_range.as_ref() {
+        boundaries.push(search_range.start);
+        boundaries.push(search_range.end);
+    }
     boundaries.sort_unstable();
     boundaries.dedup();
 
     let marked_range = input.marked_range.as_ref();
+    let search_highlight_range = input.search_highlight_range.as_ref();
     let mut runs = Vec::new();
     let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
@@ -205,6 +223,9 @@ fn build_code_text_runs(
         }
 
         let is_marked = marked_range
+            .map(|range| start < range.end && range.start < end)
+            .unwrap_or(false);
+        let is_search_highlight = search_highlight_range
             .map(|range| start < range.end && range.start < end)
             .unwrap_or(false);
         while span_idx < highlight_spans.len() && highlight_spans[span_idx].range.end <= start {
@@ -220,7 +241,11 @@ fn build_code_text_runs(
             len: end - start,
             font: base_run.font.clone(),
             color: run_color,
-            background_color: base_run.background_color,
+            background_color: if is_search_highlight {
+                Some(search_highlight_bg)
+            } else {
+                base_run.background_color
+            },
             underline: is_marked.then_some(UnderlineStyle {
                 color: Some(run_color),
                 thickness: underline_thickness,
@@ -910,6 +935,8 @@ impl Element for BlockTextElement {
             strikethrough: None,
         };
 
+        let search_highlight_bg = theme.colors.table_axis_preview_bg;
+
         let runs: Vec<TextRun> = if !is_placeholder {
             if input.kind().is_code_block() {
                 build_code_text_runs(
@@ -918,6 +945,7 @@ impl Element for BlockTextElement {
                     &run,
                     px(theme.dimensions.underline_thickness),
                     &theme.colors,
+                    search_highlight_bg,
                 )
             } else {
                 build_text_runs(
@@ -927,6 +955,7 @@ impl Element for BlockTextElement {
                     px(theme.dimensions.underline_thickness),
                     theme.colors.text_link,
                     theme.colors.code_bg,
+                    search_highlight_bg,
                     show_inline_code_backgrounds,
                 )
             }
@@ -1453,6 +1482,7 @@ mod tests {
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0x111111ff)),
+                Hsla::from(rgba(0xffff0033)),
                 true,
             );
             let marked_run = runs.last().expect("styled text should create a final run");

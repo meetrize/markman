@@ -41,6 +41,8 @@ struct WorkspaceSearchResult {
     path: PathBuf,
     line: Option<usize>,
     preview: String,
+    match_start_byte: Option<usize>,
+    raw_file_len: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -387,6 +389,7 @@ impl Editor {
             self.workspace.search_marked_range = None;
             self.workspace.search_selected_range = 0..0;
             self.workspace.search_selection_reversed = false;
+            self.clear_search_match_highlight(cx);
             cx.notify();
         }
     }
@@ -871,13 +874,16 @@ impl Editor {
     }
 
     fn open_workspace_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_workspace_search_result(path, None, window, cx);
+        self.open_workspace_search_result(path, None, String::new(), None, None, window, cx);
     }
 
     fn open_workspace_search_result(
         &mut self,
         path: PathBuf,
         line: Option<usize>,
+        preview: String,
+        match_start_byte: Option<usize>,
+        raw_file_len: Option<usize>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -887,9 +893,13 @@ impl Editor {
             self.pending_workspace_search_jump = Some(PendingWorkspaceSearchJump {
                 line,
                 query: self.workspace.search_query.clone(),
+                preview,
+                match_start_byte,
+                raw_file_len,
             });
         } else {
             self.pending_workspace_search_jump = None;
+            self.clear_search_match_highlight(cx);
         }
 
         if line.is_some()
@@ -906,11 +916,19 @@ impl Editor {
     }
 
     pub(super) fn apply_pending_workspace_search_jump(&mut self, cx: &mut Context<Self>) {
-        let Some(jump) = self.pending_workspace_search_jump.take() else {
+        let Some(jump) = self.pending_workspace_search_jump.clone() else {
             return;
         };
 
-        if self.jump_to_source_line_with_query(jump.line, &jump.query, cx) {
+        if self.jump_to_source_line_with_query(
+            jump.line,
+            &jump.query,
+            &jump.preview,
+            jump.match_start_byte,
+            jump.raw_file_len,
+            cx,
+        ) {
+            self.pending_workspace_search_jump = None;
             self.pending_scroll_active_block_into_view = true;
             self.pending_scroll_recheck_after_layout = true;
         }
@@ -1372,6 +1390,9 @@ impl Editor {
             let detail = workspace_search_result_detail(result);
             let path = result.path.clone();
             let line = result.line;
+            let preview = result.preview.clone();
+            let match_start_byte = result.match_start_byte;
+            let raw_file_len = result.raw_file_len;
             let open_editor = editor.clone();
             rows.push(
                 div()
@@ -1387,8 +1408,17 @@ impl Editor {
                     .cursor_pointer()
                     .on_click(move |_event, window, cx| {
                         let open_path = path.clone();
+                        let open_preview = preview.clone();
                         let _ = open_editor.update(cx, |editor, cx| {
-                            editor.open_workspace_search_result(open_path, line, window, cx);
+                            editor.open_workspace_search_result(
+                                open_path,
+                                line,
+                                open_preview,
+                                match_start_byte,
+                                raw_file_len,
+                                window,
+                                cx,
+                            );
                         });
                     })
                     .child(
@@ -1617,6 +1647,10 @@ fn collect_markdown_files(root: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
+fn keyword_byte_offset_in_line(line: &str, query: &str) -> usize {
+    super::search_match::find_case_insensitive_start(line, query)
+}
+
 fn search_markdown_files(root: &Path, query: &str) -> Vec<WorkspaceSearchResult> {
     let query = query.trim();
     if query.is_empty() {
@@ -1639,24 +1673,47 @@ fn search_markdown_files(root: &Path, query: &str) -> Vec<WorkspaceSearchResult>
                 path: path.clone(),
                 line: None,
                 preview: String::new(),
+                match_start_byte: None,
+                raw_file_len: None,
             });
         }
 
         let Ok(content) = fs::read_to_string(&path) else {
             continue;
         };
-        for (index, line) in content.lines().enumerate() {
-            if line.to_lowercase().contains(&query_lower) {
-                results.push(WorkspaceSearchResult {
-                    path: path.clone(),
-                    line: Some(index + 1),
-                    preview: line.trim().to_string(),
-                });
+        let raw_file_len = content.len();
+        for (line_number, line_start, line) in markdown_line_ranges(&content) {
+            if !line.to_lowercase().contains(&query_lower) {
+                continue;
             }
+            let keyword_offset = keyword_byte_offset_in_line(line, query);
+            results.push(WorkspaceSearchResult {
+                path: path.clone(),
+                line: Some(line_number),
+                preview: line.trim().to_string(),
+                match_start_byte: Some(line_start + keyword_offset),
+                raw_file_len: Some(raw_file_len),
+            });
         }
     }
 
     results
+}
+
+fn markdown_line_ranges(content: &str) -> impl Iterator<Item = (usize, usize, &str)> + '_ {
+    let mut line_number = 1usize;
+    let mut line_start = 0usize;
+    content
+        .split_inclusive('\n')
+        .map(move |segment| {
+            let line_end = line_start + segment.len();
+            let line = segment.strip_suffix('\n').unwrap_or(segment);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            let current = (line_number, line_start, line);
+            line_start = line_end;
+            line_number += 1;
+            current
+        })
 }
 
 fn workspace_search_result_label(root: Option<&Path>, result: &WorkspaceSearchResult) -> String {

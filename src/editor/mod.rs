@@ -34,6 +34,7 @@ mod history;
 mod persistence;
 mod render;
 mod runtime_context;
+mod search_match;
 mod selection;
 mod source_mapping;
 mod table_edit;
@@ -59,6 +60,9 @@ pub(crate) struct PendingOpenLink {
 pub(crate) struct PendingWorkspaceSearchJump {
     pub(crate) line: usize,
     pub(crate) query: String,
+    pub(crate) preview: String,
+    pub(crate) match_start_byte: Option<usize>,
+    pub(crate) raw_file_len: Option<usize>,
 }
 
 /// Top-level controller that owns editor-wide state and delegates tree
@@ -82,6 +86,7 @@ pub struct Editor {
     pending_save_as: bool,
     pending_open_link: Option<PendingOpenLink>,
     pending_workspace_search_jump: Option<PendingWorkspaceSearchJump>,
+    search_match_source_range: Option<std::ops::Range<usize>>,
     pending_window_edited: bool,
     pending_window_title_refresh: bool,
     document_dirty: bool,
@@ -277,6 +282,7 @@ impl Editor {
             pending_save_as: false,
             pending_open_link: None,
             pending_workspace_search_jump: None,
+            search_match_source_range: None,
             pending_window_edited: false,
             pending_window_title_refresh: false,
             document_dirty: false,

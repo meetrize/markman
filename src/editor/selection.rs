@@ -420,10 +420,68 @@ impl Editor {
         })
     }
 
+    pub(super) fn clear_search_match_highlight(&mut self, cx: &mut Context<Self>) {
+        let had_source_range = self.search_match_source_range.take().is_some();
+        let mut changed = had_source_range;
+        for visible in self.document.visible_blocks().to_vec() {
+            visible.entity.update(cx, |block, cx| {
+                if block.search_highlight_range.take().is_some() {
+                    changed = true;
+                    cx.notify();
+                }
+            });
+        }
+        if changed {
+            cx.notify();
+        }
+    }
+
+    pub(super) fn refresh_search_match_highlights(&mut self, cx: &mut Context<Self>) {
+        if self.search_match_source_range.is_some() {
+            self.sync_search_match_highlights(cx);
+            cx.notify();
+        }
+    }
+
+    fn sync_search_match_highlights(&mut self, cx: &mut Context<Self>) {
+        let source_range = self.search_match_source_range.clone();
+        let mappings = self.build_source_target_mappings(cx);
+        let visible_blocks = self.document.visible_blocks().to_vec();
+        for visible in visible_blocks {
+            let entity_id = visible.entity.entity_id();
+            let next_range = source_range.as_ref().and_then(|range| {
+                let mapping = mappings
+                    .iter()
+                    .find(|mapping| mapping.entity.entity_id() == entity_id)?;
+                let overlap_start = range.start.max(mapping.full_source_range.start);
+                let overlap_end = range.end.min(mapping.full_source_range.end);
+                if overlap_start >= overlap_end {
+                    return None;
+                }
+                let start = self.endpoint_for_source_offset(overlap_start, &mappings, cx)?;
+                let end = self.endpoint_for_source_offset(overlap_end, &mappings, cx)?;
+                if start.entity_id != entity_id || end.entity_id != entity_id {
+                    return None;
+                }
+                Some(start.offset.min(end.offset)..start.offset.max(end.offset))
+            });
+
+            visible.entity.update(cx, |block, cx| {
+                if block.search_highlight_range != next_range {
+                    block.search_highlight_range = next_range;
+                    cx.notify();
+                }
+            });
+        }
+    }
+
     pub(super) fn jump_to_source_line_with_query(
         &mut self,
         line: usize,
         query: &str,
+        preview: &str,
+        match_start_byte: Option<usize>,
+        raw_file_len: Option<usize>,
         cx: &mut Context<Self>,
     ) -> bool {
         if line == 0 {
@@ -431,34 +489,57 @@ impl Editor {
         }
 
         let source = self.last_stable_source_text.as_str();
-        let Some(line_start) = source_line_start_offset(source, line) else {
+        let Some(source_range) = resolve_search_match_in_source(
+            source,
+            query,
+            line,
+            preview,
+            match_start_byte,
+            raw_file_len,
+        ) else {
             return false;
         };
-        let line_end = source[line_start..]
-            .find('\n')
-            .map(|index| line_start + index)
-            .unwrap_or(source.len());
-        let keyword_offset =
-            keyword_byte_offset_in_line(&source[line_start..line_end], query);
-        let target_offset = (line_start + keyword_offset).min(line_end);
 
         let mappings = self.build_source_target_mappings(cx);
-        let Some(endpoint) = self.endpoint_for_source_offset(target_offset, &mappings, cx) else {
+        let Some(start) = self.endpoint_for_source_offset(source_range.start, &mappings, cx) else {
             return false;
         };
-        let Some(block) = self.focusable_entity_by_id(endpoint.entity_id) else {
+        let Some(end) = self.endpoint_for_source_offset(source_range.end, &mappings, cx) else {
             return false;
         };
 
-        block.update(cx, |block, cx| {
-            block.selected_range = endpoint.offset..endpoint.offset;
-            block.selection_reversed = false;
-            block.marked_range = None;
-            block.vertical_motion_x = None;
-            block.cursor_blink_epoch = Instant::now();
-            cx.notify();
-        });
-        self.focus_block(endpoint.entity_id);
+        if start.entity_id == end.entity_id {
+            let Some(block) = self.focusable_entity_by_id(start.entity_id) else {
+                return false;
+            };
+            let selection = start.offset.min(end.offset)..start.offset.max(end.offset);
+            block.update(cx, |block, cx| {
+                block.selected_range = selection.clone();
+                block.selection_reversed = false;
+                block.marked_range = None;
+                block.vertical_motion_x = None;
+                block.cursor_blink_epoch = Instant::now();
+                cx.notify();
+            });
+            self.focus_block(start.entity_id);
+        } else {
+            let Some(block) = self.focusable_entity_by_id(start.entity_id) else {
+                return false;
+            };
+            block.update(cx, |block, cx| {
+                block.selected_range = start.offset..start.offset;
+                block.selection_reversed = false;
+                block.marked_range = None;
+                block.vertical_motion_x = None;
+                block.cursor_blink_epoch = Instant::now();
+                cx.notify();
+            });
+            self.focus_block(start.entity_id);
+        }
+
+        self.search_match_source_range = Some(source_range);
+        self.sync_search_match_highlights(cx);
+        cx.notify();
         true
     }
 
@@ -738,15 +819,73 @@ fn source_line_start_offset(source: &str, line: usize) -> Option<usize> {
     (current_line == line).then_some(source.len())
 }
 
-fn keyword_byte_offset_in_line(line: &str, query: &str) -> usize {
+fn source_line_number_at(source: &str, offset: usize) -> usize {
+    source[..offset.min(source.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
+}
+
+fn all_query_matches_in_source(source: &str, query: &str) -> Vec<Range<usize>> {
+    super::search_match::find_case_insensitive_ranges(source, query)
+}
+
+fn resolve_search_match_in_source(
+    source: &str,
+    query: &str,
+    target_line: usize,
+    preview: &str,
+    match_start_byte: Option<usize>,
+    raw_file_len: Option<usize>,
+) -> Option<Range<usize>> {
     let query = query.trim();
     if query.is_empty() {
-        return 0;
+        return None;
     }
 
-    let line_lower = line.to_lowercase();
-    let query_lower = query.to_lowercase();
-    line_lower.find(&query_lower).unwrap_or(0)
+    let matches = all_query_matches_in_source(source, query);
+    if matches.is_empty() {
+        return None;
+    }
+    if matches.len() == 1 {
+        return Some(matches[0].clone());
+    }
+
+    let byte_hint = match (match_start_byte, raw_file_len) {
+        (Some(byte), Some(len)) if len > 0 => Some(byte * source.len() / len),
+        _ => None,
+    };
+
+    matches
+        .into_iter()
+        .min_by_key(|range| {
+            let line = source_line_number_at(source, range.start);
+            let line_dist = line.abs_diff(target_line);
+            let byte_dist = byte_hint
+                .map(|hint| range.start.abs_diff(hint))
+                .unwrap_or(usize::MAX / 4);
+            let preview_dist = if preview.is_empty() {
+                0
+            } else {
+                let line_start = source_line_start_offset(source, line).unwrap_or(0);
+                let line_end = source[line_start..]
+                    .find('\n')
+                    .map(|index| line_start + index)
+                    .unwrap_or(source.len());
+                let line_text = &source[line_start..line_end];
+                if line_text.to_lowercase().contains(&preview.to_lowercase()) {
+                    0
+                } else {
+                    1
+                }
+            };
+            (line_dist, preview_dist, byte_dist)
+        })
+        .map(|range| {
+            let end = range.end;
+            range.start..end
+        })
 }
 
 #[cfg(test)]
