@@ -817,14 +817,20 @@ impl Element for BlockTextElement {
     ) -> Self::PrepaintState {
         let theme = cx.global::<ThemeManager>().current_arc();
         let input = self.input.read(cx);
+        let show_selection_highlight = input.shows_text_selection_highlight();
         let editor_selection_range = input
             .editor_selection_range
             .as_ref()
             .filter(|range| !range.is_empty())
+            .filter(|_| show_selection_highlight)
             .cloned();
-        let selected_range = editor_selection_range
-            .clone()
-            .unwrap_or_else(|| input.selected_range.clone());
+        let selected_range = if show_selection_highlight {
+            editor_selection_range
+                .clone()
+                .unwrap_or_else(|| input.selected_range.clone())
+        } else {
+            input.selected_range.clone()
+        };
         let cursor = input.cursor_offset();
         let line_height = window.line_height();
         let focused = input.focus_handle.is_focused(window);
@@ -892,8 +898,8 @@ impl Element for BlockTextElement {
                             cursor_color,
                         )),
                     )
-                } else if selected_range.is_empty() {
-                    // No selection: just draw the cursor
+                } else if selected_range.is_empty() || !show_selection_highlight {
+                    // No selection overlay (headings) or collapsed caret.
                     let text = input.display_text();
                     (
                         vec![],

@@ -433,6 +433,7 @@ impl Editor {
             });
 
             visible.entity.update(cx, |block, cx| {
+                let next_range = next_range.filter(|_| block.shows_text_selection_highlight());
                 if block.editor_selection_range != next_range {
                     block.editor_selection_range = next_range.clone();
                     cx.notify();

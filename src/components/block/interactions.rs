@@ -956,8 +956,11 @@ impl Block {
         {
             self.sync_inline_projection_for_focus(true);
         }
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && self.shows_text_selection_highlight() {
             self.editor_selection_range = Some(self.selected_range.clone());
+            cx.notify();
+        } else if !self.shows_text_selection_highlight() && self.editor_selection_range.is_some() {
+            self.editor_selection_range = None;
             cx.notify();
         }
     }
