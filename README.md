@@ -96,6 +96,8 @@ cargo build --release
 
 If everything works, the build artifact will be stored under `target/release`. You can use the executable directly.
 
+For day-to-day development, testing, and packaging, see the [Development & Build guide](docs/development.md).
+
 ## Roadmap
 
 Velotype already supports almost all basic Markdown syntax and most commonly used extended Markdown syntax, including headings, paragraphs, lists, task lists, quotes, callouts, tables, code blocks, inline formatting, links, reference-style links and images, footnotes, standalone images, comment blocks, and safe native HTML handling.

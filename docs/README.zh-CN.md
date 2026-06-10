@@ -94,7 +94,9 @@ git clone https://github.com/manyougz/velotype.git
 cargo build --release
 ```
 
-如果一切正常，构建产物将在 `target/release` 下储存，取出可执行文件即可使用
+如果一切正常，构建产物将在 `target/release` 下储存，取出可执行文件即可使用。
+
+日常开发、测试与打包的详细说明见 [开发与构建指南](development.zh-CN.md)。
 
 ## Roadmap
 
