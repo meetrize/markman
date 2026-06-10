@@ -13,6 +13,8 @@ use crate::theme::{Theme, ThemeDimensions};
 const TITLEBAR_MIN_HEIGHT: f32 = 32.0;
 const TITLEBAR_BUTTON_WIDTH: f32 = 46.0;
 const TITLEBAR_ICON_SIZE: f32 = 12.0;
+const MACOS_TRAFFIC_LIGHT_LEFT: f32 = 14.0;
+const MACOS_TRAFFIC_LIGHT_TOP: f32 = 10.0;
 const MAC_TRAFFIC_LIGHT_RESERVED_WIDTH: f32 = 84.0;
 const TITLEBAR_CLOSE_ICON: &str = "icon/titlebar/chrome-close.svg";
 const TITLEBAR_MAXIMIZE_ICON: &str = "icon/titlebar/chrome-maximize.svg";
@@ -48,7 +50,7 @@ pub(crate) fn titlebar_options_for_target_os(
         title: Some(title),
         appears_transparent: matches!(target_os, "macos" | "windows"),
         traffic_light_position: if target_os == "macos" {
-            Some(point(px(14.0), px(16.0)))
+            Some(point(px(MACOS_TRAFFIC_LIGHT_LEFT), px(MACOS_TRAFFIC_LIGHT_TOP)))
         } else {
             None
         },
