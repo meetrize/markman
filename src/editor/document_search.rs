@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::time::Instant;
 
 use gpui::*;
 use unicode_segmentation::UnicodeSegmentation;
@@ -10,11 +9,23 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::document_search_input::DocumentSearchInputElement;
 use super::search_match::find_case_insensitive_ranges;
 use super::Editor;
-use crate::components::{FindNextInDocument, FindPreviousInDocument, ToggleDocumentSearch};
+use super::ViewMode;
+use crate::components::{
+    Copy, Cut, Delete, DeleteBack, End, FindNextInDocument, FindPreviousInDocument, Home,
+    MoveLeft, MoveRight, Paste, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight,
+    ToggleDocumentSearch,
+};
 use crate::i18n::I18nManager;
 use crate::theme::Theme;
 
 const ICON_SEARCH: &str = "icon/toolbar/search.svg";
+const ICON_CHEVRON_DOWN: &str = "icon/workspace/chevron-down.svg";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DocumentSearchMatch {
+    entity_id: EntityId,
+    range: Range<usize>,
+}
 
 #[derive(Default)]
 pub(super) struct DocumentSearchState {
@@ -26,8 +37,9 @@ pub(super) struct DocumentSearchState {
     pub is_selecting: bool,
     pub last_layout: Option<ShapedLine>,
     pub last_bounds: Option<Bounds<Pixels>>,
-    pub matches: Vec<Range<usize>>,
+    pub matches: Vec<DocumentSearchMatch>,
     pub match_index: Option<usize>,
+    pub scroll_entity_id: Option<EntityId>,
 }
 
 impl Editor {
@@ -135,6 +147,7 @@ impl Editor {
         self.document_search.selected_range = 0..0;
         self.document_search.matches.clear();
         self.document_search.match_index = None;
+        self.document_search.scroll_entity_id = None;
         self.clear_document_search_highlights(cx);
         cx.notify();
     }
@@ -155,19 +168,19 @@ impl Editor {
             return;
         }
 
-        let source = self.current_document_source(cx);
-        self.document_search.matches = find_case_insensitive_ranges(&source, query);
+        self.search_match_source_range = None;
+        self.collect_document_search_matches(cx);
         self.document_search.match_index = if self.document_search.matches.is_empty() {
             None
         } else {
             Some(0)
         };
-        self.search_match_source_range = None;
-        self.sync_document_search_highlights(cx);
+        self.apply_document_search_highlights(cx);
         if self.document_search.match_index.is_some() {
             self.jump_to_document_search_match(self.document_search.match_index, cx);
+        } else {
+            cx.notify();
         }
-        cx.notify();
     }
 
     pub(super) fn find_next_document_match(&mut self, cx: &mut Context<Self>) {
@@ -207,61 +220,78 @@ impl Editor {
         let Some(index) = index else {
             return;
         };
-        let Some(source_range) = self.document_search.matches.get(index).cloned() else {
-            return;
-        };
-
-        let mappings = self.build_source_target_mappings(cx);
-        let Some(start) = self.endpoint_for_source_offset(source_range.start, &mappings, cx) else {
-            return;
-        };
-        let Some(end) = self.endpoint_for_source_offset(source_range.end, &mappings, cx) else {
+        let Some(match_record) = self.document_search.matches.get(index).cloned() else {
             return;
         };
 
         self.document_search.match_index = Some(index);
+        self.apply_document_search_highlights(cx);
+        self.scroll_document_search_match_into_view(match_record.entity_id, cx);
+        cx.notify();
+    }
 
-        if start.entity_id == end.entity_id {
-            let Some(block) = self.focusable_entity_by_id(start.entity_id) else {
-                return;
-            };
-            let selection = start.offset.min(end.offset)..start.offset.max(end.offset);
-            block.update(cx, |block, cx| {
-                block.selected_range = selection.clone();
-                block.selection_reversed = false;
-                block.marked_range = None;
-                block.vertical_motion_x = None;
-                block.cursor_blink_epoch = Instant::now();
-                cx.notify();
-            });
-            self.focus_block(start.entity_id);
-        } else {
-            let Some(block) = self.focusable_entity_by_id(start.entity_id) else {
-                return;
-            };
-            block.update(cx, |block, cx| {
-                block.selected_range = start.offset..start.offset;
-                block.selection_reversed = false;
-                block.marked_range = None;
-                block.vertical_motion_x = None;
-                block.cursor_blink_epoch = Instant::now();
-                cx.notify();
-            });
-            self.focus_block(start.entity_id);
+    fn scroll_document_search_match_into_view(
+        &mut self,
+        entity_id: EntityId,
+        cx: &App,
+    ) {
+        if self.view_mode != ViewMode::Source {
+            if let Some(idx) = self.document.visible_index_for_entity_id(entity_id) {
+                self.scroll_handle.scroll_to_item(idx);
+            }
         }
 
-        self.search_match_source_range = Some(source_range);
-        self.pending_scroll_active_block_into_view = true;
-        self.pending_scroll_recheck_after_layout = true;
-        cx.notify();
+        let Some(block_entity) = self.document.block_entity_by_id(entity_id) else {
+            self.document_search.scroll_entity_id = Some(entity_id);
+            self.pending_scroll_recheck_after_layout = true;
+            return;
+        };
+
+        let Some(bounds) = block_entity.read_with(cx, |block, _| block.last_bounds) else {
+            self.document_search.scroll_entity_id = Some(entity_id);
+            self.pending_scroll_recheck_after_layout = true;
+            return;
+        };
+
+        self.document_search.scroll_entity_id = None;
+        let viewport = self.scroll_handle.bounds();
+        let padding = px(20.0);
+        let top_limit = viewport.top() + padding;
+        let bottom_limit = viewport.bottom() - padding;
+        let mut offset = self.scroll_handle.offset();
+        let mut changed = false;
+
+        if bounds.top() < top_limit {
+            offset.y += top_limit - bounds.top();
+            changed = true;
+        } else if bounds.bottom() > bottom_limit {
+            offset.y -= bounds.bottom() - bottom_limit;
+            changed = true;
+        }
+
+        if changed {
+            let max_offset_y = self.scroll_handle.max_offset().height.max(px(0.0));
+            offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
+            self.scroll_handle.set_offset(offset);
+        }
+    }
+
+    pub(super) fn retry_document_search_scroll(&mut self, cx: &App) {
+        let Some(entity_id) = self.document_search.scroll_entity_id else {
+            return;
+        };
+        self.scroll_document_search_match_into_view(entity_id, cx);
     }
 
     pub(super) fn clear_document_search_highlights(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
         for visible in self.document.visible_blocks().to_vec() {
             visible.entity.update(cx, |block, cx| {
-                if !block.search_highlight_ranges.is_empty() {
+                if !block.search_highlight_ranges.is_empty()
+                    || block.search_highlight_active_range.is_some()
+                {
                     block.search_highlight_ranges.clear();
+                    block.search_highlight_active_range = None;
                     changed = true;
                     cx.notify();
                 }
@@ -276,30 +306,30 @@ impl Editor {
         if !self.document_search.open || self.document_search.query.trim().is_empty() {
             return;
         }
-        let current_source_range = self
+        let current_match = self
             .document_search
             .match_index
             .and_then(|index| self.document_search.matches.get(index).cloned());
-        let query = self.document_search.query.clone();
-        let source = self.current_document_source(cx);
-        self.document_search.matches = find_case_insensitive_ranges(&source, &query);
-        self.document_search.match_index = if let Some(range) = current_source_range {
+        self.collect_document_search_matches(cx);
+        self.document_search.match_index = if let Some(current) = current_match {
             self.document_search
                 .matches
                 .iter()
-                .position(|candidate| *candidate == range)
+                .position(|candidate| {
+                    candidate.entity_id == current.entity_id && candidate.range == current.range
+                })
                 .or_else(|| {
-                    self.document_search
-                        .matches
-                        .iter()
-                        .position(|candidate| candidate.start >= range.start)
+                    self.document_search.matches.iter().position(|candidate| {
+                        candidate.entity_id == current.entity_id
+                            && candidate.range.start >= current.range.start
+                    })
                 })
         } else if self.document_search.matches.is_empty() {
             None
         } else {
             Some(0)
         };
-        self.sync_document_search_highlights(cx);
+        self.apply_document_search_highlights(cx);
         if let Some(index) = self.document_search.match_index {
             self.jump_to_document_search_match(Some(index), cx);
         } else {
@@ -307,42 +337,51 @@ impl Editor {
         }
     }
 
-    fn sync_document_search_highlights(&mut self, cx: &mut Context<Self>) {
+    fn collect_document_search_matches(&mut self, cx: &App) {
+        let query = self.document_search.query.trim();
+        let mut matches = Vec::new();
+        for visible in self.document.visible_blocks() {
+            let entity_id = visible.entity.entity_id();
+            let text = visible.entity.read(cx).display_text();
+            for range in find_case_insensitive_ranges(text, query) {
+                matches.push(DocumentSearchMatch { entity_id, range });
+            }
+        }
+        self.document_search.matches = matches;
+    }
+
+    fn apply_document_search_highlights(&mut self, cx: &mut Context<Self>) {
         let query = self.document_search.query.trim();
         if query.is_empty() {
             self.clear_document_search_highlights(cx);
             return;
         }
 
-        let source = self.current_document_source(cx);
-        let matches = find_case_insensitive_ranges(&source, query);
-        self.document_search.matches = matches.clone();
-
-        let mappings = self.build_source_target_mappings(cx);
+        let active_match = self
+            .document_search
+            .match_index
+            .and_then(|index| self.document_search.matches.get(index).cloned());
         let mut by_block: HashMap<EntityId, Vec<Range<usize>>> = HashMap::new();
-
-        for match_range in matches {
-            let Some(start) = self.endpoint_for_source_offset(match_range.start, &mappings, cx) else {
-                continue;
-            };
-            let Some(end) = self.endpoint_for_source_offset(match_range.end, &mappings, cx) else {
-                continue;
-            };
-            if start.entity_id != end.entity_id {
-                continue;
-            }
+        for match_record in &self.document_search.matches {
             by_block
-                .entry(start.entity_id)
+                .entry(match_record.entity_id)
                 .or_default()
-                .push(start.offset.min(end.offset)..start.offset.max(end.offset));
+                .push(match_record.range.clone());
         }
 
         for visible in self.document.visible_blocks().to_vec() {
             let entity_id = visible.entity.entity_id();
             let ranges = by_block.remove(&entity_id).unwrap_or_default();
+            let active = active_match
+                .as_ref()
+                .filter(|record| record.entity_id == entity_id)
+                .map(|record| record.range.clone());
             visible.entity.update(cx, |block, cx| {
-                if block.search_highlight_ranges != ranges {
+                if block.search_highlight_ranges != ranges
+                    || block.search_highlight_active_range != active
+                {
                     block.search_highlight_ranges = ranges;
+                    block.search_highlight_active_range = active;
                     cx.notify();
                 }
             });
@@ -362,6 +401,7 @@ impl Editor {
         let strings = cx.global::<I18nManager>().strings_arc();
         let placeholder: SharedString = strings.document_search_placeholder.clone().into();
         let match_count = self.document_search.matches.len();
+        let next_enabled = match_count > 0;
         let current = self
             .document_search
             .match_index
@@ -377,6 +417,10 @@ impl Editor {
                 .replace("{current}", &current.to_string())
                 .replace("{total}", &match_count.to_string())
         };
+        let d = &theme.dimensions;
+        let icon_size = px(d.format_toolbar_icon_size);
+        let button_size = px(d.format_toolbar_button_height);
+        let editor_for_next = cx.entity();
 
         Some(
             div()
@@ -391,6 +435,23 @@ impl Editor {
                 .bg(c.dialog_surface)
                 .border_b(px(theme.dimensions.format_toolbar_border_width))
                 .border_color(c.dialog_border.opacity(0.65))
+                .track_focus(&self.document_search_focus)
+                .key_context("BlockEditor")
+                .on_key_down(cx.listener(Self::on_document_search_key_down))
+                .on_action(cx.listener(Self::on_document_search_delete_back))
+                .on_action(cx.listener(Self::on_document_search_delete_forward))
+                .on_action(cx.listener(Self::on_document_search_paste))
+                .on_action(cx.listener(Self::on_document_search_copy))
+                .on_action(cx.listener(Self::on_document_search_cut))
+                .on_action(cx.listener(Self::on_document_search_select_all))
+                .on_action(cx.listener(Self::on_document_search_move_left))
+                .on_action(cx.listener(Self::on_document_search_move_right))
+                .on_action(cx.listener(Self::on_document_search_home))
+                .on_action(cx.listener(Self::on_document_search_end))
+                .on_action(cx.listener(Self::on_document_search_select_left))
+                .on_action(cx.listener(Self::on_document_search_select_right))
+                .on_action(cx.listener(Self::on_document_search_select_home))
+                .on_action(cx.listener(Self::on_document_search_select_end))
                 .child(
                     div()
                         .id("document-search-input")
@@ -438,7 +499,6 @@ impl Editor {
                                 .on_mouse_move(cx.listener(Self::on_document_search_mouse_move)),
                         ),
                 )
-                .on_key_down(cx.listener(Self::on_document_search_key_down))
                 .child(
                     div()
                         .flex_shrink_0()
@@ -446,6 +506,42 @@ impl Editor {
                         .text_color(c.dialog_muted)
                         .child(SharedString::from(status)),
                 )
+                .child({
+                    let mut button = div()
+                        .id("document-search-next")
+                        .w(button_size)
+                        .h(button_size)
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(d.format_toolbar_button_radius))
+                        .child(
+                            svg()
+                                .path(ICON_CHEVRON_DOWN)
+                                .size(icon_size)
+                                .text_color(c.dialog_muted),
+                        );
+                    if next_enabled {
+                        button = button
+                            .bg(c.dialog_surface)
+                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                            .active(|this| this.opacity(0.92))
+                            .cursor_pointer()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    let _ = editor_for_next.update(cx, |editor, cx| {
+                                        editor.find_next_document_match(cx);
+                                    });
+                                },
+                            );
+                    } else {
+                        button = button.opacity(0.45);
+                    }
+                    button
+                })
                 .into_any_element(),
         )
     }
@@ -513,6 +609,7 @@ impl Editor {
     ) {
         cx.stop_propagation();
         window.focus(&self.document_search_focus);
+        self.document_search.is_selecting = true;
         let offset = self.document_search_index_for_mouse_position(event.position);
         if event.modifiers.shift {
             self.document_search_select_to(offset, cx);
@@ -527,8 +624,10 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.document_search.is_selecting = false;
-        cx.notify();
+        if self.document_search.is_selecting {
+            self.document_search.is_selecting = false;
+            cx.notify();
+        }
     }
 
     pub(crate) fn on_document_search_mouse_move(
@@ -591,12 +690,15 @@ impl Editor {
             return query.len();
         }
         line.closest_index_for_x(position.x - bounds.left())
+            .min(query.len())
     }
 
     fn document_search_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         let clamped = offset.min(self.document_search.query.len());
         self.document_search.selected_range = clamped..clamped;
         self.document_search.selection_reversed = false;
+        self.document_search.marked_range = None;
+        self.document_search.is_selecting = false;
         cx.notify();
     }
 
@@ -613,46 +715,56 @@ impl Editor {
             self.document_search.selected_range = self.document_search.selected_range.end
                 ..self.document_search.selected_range.start;
         }
+        self.document_search.marked_range = None;
         cx.notify();
     }
 
     fn document_search_delete_backward(&mut self, cx: &mut Context<Self>) {
-        let cursor = self.document_search_cursor_offset();
-        if !self.document_search.selected_range.is_empty() {
-            self.replace_document_search_text(
-                self.document_search.selected_range.clone(),
-                "",
-                false,
-                Some(cursor..cursor),
-                cx,
-            );
+        if let Some(marked) = self.document_search.marked_range.clone() {
+            let cursor = marked.start;
+            self.replace_document_search_text(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
-        if cursor == 0 {
-            return;
-        }
-        let previous = document_text_grapheme_boundary(&self.document_search.query, cursor, true);
-        self.replace_document_search_text(previous..cursor, "", false, Some(previous..previous), cx);
+
+        let selected = self.document_search.selected_range.clone();
+        let delete_range = if selected.is_empty() {
+            let cursor = selected.end;
+            if cursor == 0 {
+                return;
+            }
+            let previous =
+                document_text_grapheme_boundary(&self.document_search.query, cursor, true);
+            previous..cursor
+        } else {
+            selected
+        };
+
+        let cursor = delete_range.start;
+        self.replace_document_search_text(delete_range, "", false, Some(cursor..cursor), cx);
     }
 
     fn document_search_delete_forward(&mut self, cx: &mut Context<Self>) {
-        let cursor = self.document_search_cursor_offset();
-        if !self.document_search.selected_range.is_empty() {
-            self.replace_document_search_text(
-                self.document_search.selected_range.clone(),
-                "",
-                false,
-                Some(cursor..cursor),
-                cx,
-            );
+        if let Some(marked) = self.document_search.marked_range.clone() {
+            let cursor = marked.start;
+            self.replace_document_search_text(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
+
         let query_len = self.document_search.query.len();
-        if cursor >= query_len {
-            return;
-        }
-        let next = document_text_grapheme_boundary(&self.document_search.query, cursor, false);
-        self.replace_document_search_text(cursor..next, "", false, Some(cursor..cursor), cx);
+        let selected = self.document_search.selected_range.clone();
+        let delete_range = if selected.is_empty() {
+            let cursor = selected.end;
+            if cursor >= query_len {
+                return;
+            }
+            let next = document_text_grapheme_boundary(&self.document_search.query, cursor, false);
+            cursor..next
+        } else {
+            selected
+        };
+
+        let cursor = delete_range.start;
+        self.replace_document_search_text(delete_range, "", false, Some(cursor..cursor), cx);
     }
 
     fn document_search_replace_selection(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -691,6 +803,220 @@ impl Editor {
 
     fn document_search_select_all_text(&mut self, cx: &mut Context<Self>) {
         self.document_search_move_to(0, cx);
+        self.document_search_select_to(self.document_search.query.len(), cx);
+    }
+
+    pub(crate) fn on_document_search_delete_back(
+        &mut self,
+        _: &DeleteBack,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_delete_backward(cx);
+    }
+
+    pub(crate) fn on_document_search_delete_forward(
+        &mut self,
+        _: &Delete,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_delete_forward(cx);
+    }
+
+    pub(crate) fn on_document_search_paste(
+        &mut self,
+        _: &Paste,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_paste_from_clipboard(cx);
+    }
+
+    pub(crate) fn on_document_search_copy(
+        &mut self,
+        _: &Copy,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_copy_to_clipboard(cx);
+    }
+
+    pub(crate) fn on_document_search_cut(
+        &mut self,
+        _: &Cut,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_cut_to_clipboard(cx);
+    }
+
+    pub(crate) fn on_document_search_select_all(
+        &mut self,
+        _: &SelectAll,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_select_all_text(cx);
+    }
+
+    pub(crate) fn on_document_search_move_left(
+        &mut self,
+        _: &MoveLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        if self.document_search.selected_range.is_empty() {
+            let previous = document_text_grapheme_boundary(
+                &self.document_search.query,
+                self.document_search_cursor_offset(),
+                true,
+            );
+            self.document_search_move_to(previous, cx);
+        } else {
+            self.document_search_move_to(self.document_search.selected_range.start, cx);
+        }
+    }
+
+    pub(crate) fn on_document_search_move_right(
+        &mut self,
+        _: &MoveRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        if self.document_search.selected_range.is_empty() {
+            let next = document_text_grapheme_boundary(
+                &self.document_search.query,
+                self.document_search_cursor_offset(),
+                false,
+            );
+            self.document_search_move_to(next, cx);
+        } else {
+            self.document_search_move_to(self.document_search.selected_range.end, cx);
+        }
+    }
+
+    pub(crate) fn on_document_search_home(
+        &mut self,
+        _: &Home,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_move_to(0, cx);
+    }
+
+    pub(crate) fn on_document_search_end(
+        &mut self,
+        _: &End,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_move_to(self.document_search.query.len(), cx);
+    }
+
+    pub(crate) fn on_document_search_select_left(
+        &mut self,
+        _: &SelectLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_select_to(
+            document_text_grapheme_boundary(
+                &self.document_search.query,
+                self.document_search_cursor_offset(),
+                true,
+            ),
+            cx,
+        );
+    }
+
+    pub(crate) fn on_document_search_select_right(
+        &mut self,
+        _: &SelectRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_select_to(
+            document_text_grapheme_boundary(
+                &self.document_search.query,
+                self.document_search_cursor_offset(),
+                false,
+            ),
+            cx,
+        );
+    }
+
+    pub(crate) fn on_document_search_select_home(
+        &mut self,
+        _: &SelectHome,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.document_search_select_to(0, cx);
+    }
+
+    pub(crate) fn on_document_search_select_end(
+        &mut self,
+        _: &SelectEnd,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.document_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
         self.document_search_select_to(self.document_search.query.len(), cx);
     }
 }

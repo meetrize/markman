@@ -506,6 +506,7 @@ impl Editor {
             visible.entity.update(cx, |block, cx| {
                 if !block.search_highlight_ranges.is_empty() {
                     block.search_highlight_ranges.clear();
+                    block.search_highlight_active_range = None;
                     changed = true;
                     cx.notify();
                 }
@@ -548,8 +549,12 @@ impl Editor {
 
             let next_ranges = next_range.map(|range| vec![range]).unwrap_or_default();
             visible.entity.update(cx, |block, cx| {
-                if block.search_highlight_ranges != next_ranges {
+                let active = None;
+                if block.search_highlight_ranges != next_ranges
+                    || block.search_highlight_active_range != active
+                {
                     block.search_highlight_ranges = next_ranges;
+                    block.search_highlight_active_range = active;
                     cx.notify();
                 }
             });

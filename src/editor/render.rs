@@ -440,6 +440,9 @@ impl Editor {
         let has_bounds = self.ensure_focused_caret_visible(window, cx);
         if self.pending_scroll_recheck_after_layout {
             self.pending_scroll_recheck_after_layout = false;
+            if self.document_search.open {
+                self.retry_document_search_scroll(cx);
+            }
             cx.notify();
             return;
         }

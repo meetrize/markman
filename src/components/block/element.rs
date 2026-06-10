@@ -59,10 +59,14 @@ fn push_search_highlight_boundaries(boundaries: &mut Vec<usize>, ranges: &[Range
     }
 }
 
+fn segment_overlaps_range(start: usize, end: usize, range: &Range<usize>) -> bool {
+    start < range.end && range.start < end
+}
+
 fn segment_in_search_highlight(start: usize, end: usize, ranges: &[Range<usize>]) -> bool {
     ranges
         .iter()
-        .any(|range| start < range.end && range.start < end)
+        .any(|range| segment_overlaps_range(start, end, range))
 }
 
 fn build_text_runs(
@@ -73,6 +77,7 @@ fn build_text_runs(
     link_color: Hsla,
     code_bg: Hsla,
     search_highlight_bg: Hsla,
+    search_highlight_active_bg: Hsla,
     show_inline_code_backgrounds: bool,
 ) -> Vec<TextRun> {
     let spans = input.inline_spans();
@@ -86,11 +91,16 @@ fn build_text_runs(
         boundaries.push(marked_range.end);
     }
     push_search_highlight_boundaries(&mut boundaries, &input.search_highlight_ranges);
+    if let Some(active_range) = input.search_highlight_active_range.as_ref() {
+        boundaries.push(active_range.start);
+        boundaries.push(active_range.end);
+    }
     boundaries.sort_unstable();
     boundaries.dedup();
 
     let marked_range = input.marked_range.as_ref();
     let search_highlight_ranges = &input.search_highlight_ranges;
+    let search_highlight_active_range = input.search_highlight_active_range.as_ref();
     let mut runs = Vec::new();
     let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
@@ -118,6 +128,8 @@ fn build_text_runs(
             .unwrap_or(false);
         let is_search_highlight =
             segment_in_search_highlight(start, end, search_highlight_ranges);
+        let is_active_search_highlight = search_highlight_active_range
+            .is_some_and(|range| segment_overlaps_range(start, end, range));
 
         let mut font = base_run.font.clone();
         if inline_style.bold && font.weight < FontWeight::BOLD {
@@ -154,7 +166,9 @@ fn build_text_runs(
         } else {
             base_run.background_color
         };
-        if is_search_highlight {
+        if is_active_search_highlight {
+            background_color = Some(search_highlight_active_bg);
+        } else if is_search_highlight {
             background_color = Some(search_highlight_bg);
         }
         if let Some(style) = html_style
@@ -199,6 +213,7 @@ fn build_code_text_runs(
     underline_thickness: Pixels,
     colors: &ThemeColors,
     search_highlight_bg: Hsla,
+    search_highlight_active_bg: Hsla,
 ) -> Vec<TextRun> {
     let highlight_spans = input
         .code_highlight_result()
@@ -214,11 +229,16 @@ fn build_code_text_runs(
         boundaries.push(marked_range.end);
     }
     push_search_highlight_boundaries(&mut boundaries, &input.search_highlight_ranges);
+    if let Some(active_range) = input.search_highlight_active_range.as_ref() {
+        boundaries.push(active_range.start);
+        boundaries.push(active_range.end);
+    }
     boundaries.sort_unstable();
     boundaries.dedup();
 
     let marked_range = input.marked_range.as_ref();
     let search_highlight_ranges = &input.search_highlight_ranges;
+    let search_highlight_active_range = input.search_highlight_active_range.as_ref();
     let mut runs = Vec::new();
     let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
@@ -233,6 +253,8 @@ fn build_code_text_runs(
             .unwrap_or(false);
         let is_search_highlight =
             segment_in_search_highlight(start, end, search_highlight_ranges);
+        let is_active_search_highlight = search_highlight_active_range
+            .is_some_and(|range| segment_overlaps_range(start, end, range));
         while span_idx < highlight_spans.len() && highlight_spans[span_idx].range.end <= start {
             span_idx += 1;
         }
@@ -246,7 +268,9 @@ fn build_code_text_runs(
             len: end - start,
             font: base_run.font.clone(),
             color: run_color,
-            background_color: if is_search_highlight {
+            background_color: if is_active_search_highlight {
+                Some(search_highlight_active_bg)
+            } else if is_search_highlight {
                 Some(search_highlight_bg)
             } else {
                 base_run.background_color
@@ -670,6 +694,8 @@ pub struct PrepaintState {
     source_line_number_gutter_width: Pixels,
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
+    search_highlights: Vec<PaintQuad>,
+    search_active_highlights: Vec<PaintQuad>,
     code_backgrounds: Vec<PaintQuad>,
     line_height: Pixels,
     hitbox: Hitbox,
@@ -732,7 +758,8 @@ impl Element for BlockTextElement {
             strikethrough: None,
         };
 
-        let search_highlight_bg = theme.colors.table_axis_preview_bg;
+        let search_highlight_bg = theme.colors.selection.opacity(0.35);
+        let search_highlight_active_bg = theme.colors.selection.opacity(0.7);
 
         let runs: Vec<TextRun> = if !is_placeholder {
             if input.kind().is_code_block() {
@@ -743,6 +770,7 @@ impl Element for BlockTextElement {
                     px(theme.dimensions.underline_thickness),
                     &theme.colors,
                     search_highlight_bg,
+                    search_highlight_active_bg,
                 )
             } else {
                 build_text_runs(
@@ -753,6 +781,7 @@ impl Element for BlockTextElement {
                     theme.colors.text_link,
                     theme.colors.code_bg,
                     search_highlight_bg,
+                    search_highlight_active_bg,
                     show_inline_code_backgrounds,
                 )
             }
@@ -940,6 +969,39 @@ impl Element for BlockTextElement {
 
         // Compute code-span background quads with rounded corners and padding.
         let mut code_quads = Vec::new();
+        let mut search_quads = Vec::new();
+        let mut search_active_quads = Vec::new();
+        if !self.is_placeholder {
+            let text = input.display_text();
+            let search_bg = theme.colors.selection.opacity(0.35);
+            let search_active_bg = theme.colors.selection.opacity(0.7);
+            if !input.search_highlight_ranges.is_empty() {
+                for range in &input.search_highlight_ranges {
+                    for segment in range_segment_bounds(
+                        &lines,
+                        text_bounds,
+                        line_height,
+                        text,
+                        range.clone(),
+                        text_align,
+                    ) {
+                        search_quads.push(fill(segment, search_bg));
+                    }
+                }
+            }
+            if let Some(active) = input.search_highlight_active_range.as_ref() {
+                for segment in range_segment_bounds(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    text,
+                    active.clone(),
+                    text_align,
+                ) {
+                    search_active_quads.push(fill(segment, search_active_bg));
+                }
+            }
+        }
         if show_inline_code_backgrounds && !self.is_placeholder {
             let text = input.display_text();
             let code_color = theme.colors.code_bg;
@@ -977,6 +1039,8 @@ impl Element for BlockTextElement {
             source_line_number_gutter_width,
             cursor: cursor_quad,
             selection: selection_quads,
+            search_highlights: search_quads,
+            search_active_highlights: search_active_quads,
             code_backgrounds: code_quads,
             line_height,
             hitbox,
@@ -1054,6 +1118,13 @@ impl Element for BlockTextElement {
         // Paint code backgrounds behind text.
         for code_bg in prepaint.code_backgrounds.drain(..) {
             window.paint_quad(code_bg);
+        }
+
+        for search_bg in prepaint.search_highlights.drain(..) {
+            window.paint_quad(search_bg);
+        }
+        for search_bg in prepaint.search_active_highlights.drain(..) {
+            window.paint_quad(search_bg);
         }
 
         for selection in prepaint.selection.drain(..) {
@@ -1314,6 +1385,7 @@ mod tests {
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0x111111ff)),
                 Hsla::from(rgba(0xffff0033)),
+                Hsla::from(rgba(0xffff0066)),
                 true,
             );
             let marked_run = runs.last().expect("styled text should create a final run");

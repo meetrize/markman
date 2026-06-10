@@ -651,7 +651,13 @@ impl Block {
         // Mixed inline visuals are display-only. Once focused, the text element
         // takes over so caret movement, projection markers, and IME ranges stay
         // anchored to editable text rather than rendered SVG/script offsets.
-        if focused || is_placeholder || !self.has_mixed_inline_visuals() {
+        // While document search highlights are active, keep BlockTextElement so
+        // highlight overlays share the same text layout as the search query.
+        if focused
+            || is_placeholder
+            || !self.has_mixed_inline_visuals()
+            || !self.search_highlight_ranges.is_empty()
+        {
             return match placeholder_text {
                 Some(placeholder) => BlockTextElement::with_placeholder(
                     cx.entity(),
