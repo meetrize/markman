@@ -43,6 +43,7 @@ mod tree;
 mod update;
 mod window_state;
 mod workspace;
+mod workspace_search_input;
 
 use self::workspace::WorkspaceState;
 
