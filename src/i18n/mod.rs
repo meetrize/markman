@@ -1307,7 +1307,7 @@ impl I18nStrings {
                 "请拖入 Markdown 文件（.md 或 .markdown）以在当前窗口打开。".into(),
             info_dialog_ok: "确定".into(),
             help_check_updates_title: "检查更新".into(),
-            help_check_updates_message: "正在检查 Velotype 的最新版本...".into(),
+            help_check_updates_message: "正在检查 Markman 的最新版本...".into(),
             update_available_title: "发现新版本".into(),
             update_available_message_template:
                 "当前版本：{current}\n最新版本：{latest}\n是否前往 GitHub Releases 下载？".into(),
@@ -1317,7 +1317,7 @@ impl I18nStrings {
             update_failed_message_template: "无法完成在线更新检查：{error}".into(),
             update_open_release: "前往下载".into(),
             update_later: "稍后".into(),
-            help_about_title: "关于 Velotype".into(),
+            help_about_title: "关于 Markman".into(),
             help_about_message: "作者：manyougz".into(),
             help_about_github_label: "GitHub".into(),
             help_about_star_message: "如果本项目对您有帮助，那不妨给本项目一颗 Star⭐，十分感谢！"
@@ -1343,7 +1343,7 @@ impl I18nStrings {
             menu_export_html: "HTML".into(),
             menu_export_pdf: "PDF".into(),
             menu_check_updates: "检查更新".into(),
-            menu_about: "关于".into(),
+            menu_about: "关于 Markman".into(),
             menu_install_cli_tool: "安装CLI命令".into(),
             menu_uninstall_cli_tool: "卸载CLI命令".into(),
             menu_toggle_workspace: "切换工作区".into(),
@@ -1515,7 +1515,7 @@ impl I18nStrings {
                 "Drop a Markdown file (.md or .markdown) to open it in this window.".into(),
             info_dialog_ok: "OK".into(),
             help_check_updates_title: "Check for Updates".into(),
-            help_check_updates_message: "Checking the latest Velotype version...".into(),
+            help_check_updates_message: "Checking the latest Markman version...".into(),
             update_available_title: "Update Available".into(),
             update_available_message_template:
                 "Current version: {current}\nLatest version: {latest}\nOpen GitHub Releases to download it?"
@@ -1528,7 +1528,7 @@ impl I18nStrings {
                 .into(),
             update_open_release: "Open Releases".into(),
             update_later: "Later".into(),
-            help_about_title: "About Velotype".into(),
+            help_about_title: "About Markman".into(),
             help_about_message: "Author: manyougz".into(),
             help_about_github_label: "GitHub".into(),
             help_about_star_message:
@@ -1554,7 +1554,7 @@ impl I18nStrings {
             menu_export_html: "HTML".into(),
             menu_export_pdf: "PDF".into(),
             menu_check_updates: "Check for Updates".into(),
-            menu_about: "About".into(),
+            menu_about: "About Markman".into(),
             menu_install_cli_tool: "Install CLI Command".into(),
             menu_uninstall_cli_tool: "Uninstall CLI Command".into(),
             menu_toggle_workspace: "Toggle Workspace".into(),
@@ -2119,7 +2119,7 @@ mod tests {
         assert_eq!(strings.image_loading_without_alt, "正在加载图片...");
         assert_eq!(
             strings.help_check_updates_message,
-            "正在检查 Velotype 的最新版本..."
+            "正在检查 Markman 的最新版本..."
         );
         assert_eq!(strings.update_open_release, "前往下载");
         assert_eq!(strings.help_about_github_label, "GitHub");

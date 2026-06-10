@@ -114,7 +114,7 @@ fn about_dialog_body_lines_include_repository_and_star_message() {
     let strings = I18nStrings::zh_cn();
     let lines = Editor::about_dialog_body_lines(&strings);
 
-    assert_eq!(lines[0], format!("Velotype {}", env!("CARGO_PKG_VERSION")));
+    assert_eq!(lines[0], crate::app_identity::app_version_line());
     assert_eq!(
         lines[2],
         format!("GitHub: {}", super::render::ABOUT_GITHUB_URL)

@@ -25,6 +25,7 @@ use crate::editor::{Editor, InfoDialogKind};
 use crate::export::ExportFormat;
 use crate::i18n::I18nManager;
 use crate::theme::ThemeManager;
+use crate::app_identity::{APP_DISPLAY_NAME, app_window_title};
 use crate::window_chrome::velotype_window_options;
 
 /// Global app-menu state for platform menu lifecycle hooks.
@@ -37,20 +38,13 @@ impl Global for AppMenuState {}
 
 fn window_title(file_path: Option<&Path>) -> SharedString {
     if let Some(path) = file_path {
-        // OsStr::to_string_lossy returns Cow<str>; calling .to_string() on
-        // it always allocates a fresh String, even for the valid-UTF-8 path
-        // (the common case). Borrow the Cow directly into format! — its
-        // Display impl writes the borrowed bytes straight into the output
-        // String, no intermediate allocation.
-        format!(
-            "Velotype - {}",
-            path.file_name()
-                .map(|name| name.to_string_lossy())
-                .unwrap_or_else(|| path.to_string_lossy())
-        )
-        .into()
+        let label = path
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| path.to_string_lossy());
+        app_window_title(Some(&label)).into()
     } else {
-        SharedString::new("Velotype")
+        SharedString::new(APP_DISPLAY_NAME)
     }
 }
 
@@ -744,7 +738,7 @@ fn build_menus(
         // match standard macOS conventions.
         vec![
             Menu {
-                name: "Velotype".into(),
+                name: APP_DISPLAY_NAME.into(),
                 items: vec![
                     MenuItem::action(strings.menu_preferences.clone(), OpenPreferences),
                     MenuItem::separator(),
@@ -1257,7 +1251,7 @@ mod tests {
         assert_eq!(
             menu_names,
             vec![
-                "Velotype",
+                "Markman",
                 "File",
                 "Export",
                 "Language",
@@ -1341,7 +1335,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(
             menu_names,
-            vec!["Velotype", "文件", "导出", "语言", "主题", "工作区", "帮助"]
+            vec!["Markman", "文件", "导出", "语言", "主题", "工作区", "帮助"]
         );
         #[cfg(not(target_os = "macos"))]
         assert_eq!(

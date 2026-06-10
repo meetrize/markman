@@ -12,6 +12,7 @@ use crate::components::CalloutVariant;
 use crate::components::{Block, BlockKind, NoRecentFiles};
 use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::{Theme, ThemeDimensions, ThemeManager};
+use crate::app_identity::app_version_line;
 use crate::window_chrome::{custom_titlebar_height, render_custom_titlebar};
 
 pub(crate) const ABOUT_GITHUB_URL: &str = "https://github.com/manyougz/velotype";
@@ -1204,7 +1205,7 @@ impl Editor {
 
     pub(crate) fn about_dialog_body_lines(strings: &I18nStrings) -> Vec<String> {
         vec![
-            format!("Velotype {}", env!("CARGO_PKG_VERSION")),
+            app_version_line(),
             strings.help_about_message.clone(),
             format!("{}: {}", strings.help_about_github_label, ABOUT_GITHUB_URL),
             strings.help_about_star_message.clone(),
@@ -1251,7 +1252,7 @@ impl Editor {
                 .flex()
                 .flex_col()
                 .gap(px(d.dialog_gap * 0.5))
-                .child(body_style(div()).child(format!("Velotype {}", env!("CARGO_PKG_VERSION"))))
+                .child(body_style(div()).child(app_version_line()))
                 .child(body_style(div()).child(strings.help_about_message.clone()))
                 .child(
                     body_style(div())

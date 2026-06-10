@@ -14,6 +14,7 @@ use crate::components::{
     normalize_shortcut_config, normalize_shortcut_keys, resolved_shortcut_keys,
     shortcut_conflict_for, shortcut_definitions,
 };
+use crate::app_identity::app_window_title;
 use crate::i18n::{I18nManager, language_id_for_locale_preferences};
 use crate::theme::{Theme, ThemeCatalogEntry, ThemeManager};
 use crate::window_chrome::{
@@ -1141,8 +1142,9 @@ impl Render for PreferencesWindow {
         let d = &theme.dimensions;
         let t = &theme.typography;
         let can_save = self.has_unsaved_changes();
-        let window_title =
-            SharedString::from(format!("Velotype - {}", strings.preferences_window_title));
+        let window_title = SharedString::from(app_window_title(Some(
+            strings.preferences_window_title.as_str(),
+        )));
         window.set_window_title(window_title.as_ref());
         let titlebar_height = custom_titlebar_height(window, d);
 
@@ -1350,7 +1352,7 @@ fn open_preferences_window_with_state(
     title: String,
 ) -> WindowHandle<PreferencesWindow> {
     let bounds = Bounds::centered(None, size(px(720.0), px(480.0)), cx);
-    let window_title = SharedString::from(format!("Velotype - {title}"));
+    let window_title = SharedString::from(app_window_title(Some(title.as_str())));
     let handle = cx
         .open_window(
             velotype_window_options(window_title, bounds),

@@ -83,17 +83,14 @@ impl Editor {
         is_dirty: bool,
         strings: &crate::i18n::I18nStrings,
     ) -> String {
-        let base_title = if let Some(path) = file_path {
-            format!(
-                "Velotype - {}",
-                path.file_name().map_or_else(
+        let document_label = file_path.map(|path| {
+            path.file_name()
+                .map_or_else(
                     || path.to_string_lossy().to_string(),
-                    |name| name.to_string_lossy().to_string()
+                    |name| name.to_string_lossy().to_string(),
                 )
-            )
-        } else {
-            "Velotype".to_string()
-        };
+        });
+        let base_title = crate::app_identity::app_window_title(document_label.as_deref());
 
         if is_dirty && !strings.dirty_title_marker.is_empty() {
             format!("{} {}", strings.dirty_title_marker, base_title)
