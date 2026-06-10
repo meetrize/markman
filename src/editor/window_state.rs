@@ -402,13 +402,6 @@ impl Editor {
         cx.notify();
     }
 
-    pub(crate) fn set_view_mode_toggle_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        if self.view_mode_toggle_hovered != hovered {
-            self.view_mode_toggle_hovered = hovered;
-            cx.notify();
-        }
-    }
-
     pub(crate) fn close_menu_bar(&mut self, cx: &mut Context<Self>) {
         let had_open_menu = self.menu_bar_open.take().is_some();
         let had_open_submenu = self.menu_submenu_open.take().is_some();

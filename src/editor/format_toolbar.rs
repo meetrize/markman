@@ -20,6 +20,8 @@ const ICON_CODE: &str = "icon/toolbar/code.svg";
 const ICON_LINK: &str = "icon/toolbar/link.svg";
 const ICON_QUOTE: &str = "icon/toolbar/quote.svg";
 const ICON_TABLE: &str = "icon/toolbar/table.svg";
+const ICON_VIEW_SOURCE: &str = "icon/toolbar/view-source.svg";
+const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
 
 enum FormatToolbarItem {
     Action(MarkdownToolbarAction),
@@ -125,60 +127,93 @@ impl Editor {
             FormatToolbarItem::Action(MarkdownToolbarAction::Table),
         ];
 
+        let view_mode_icon = match self.view_mode {
+            ViewMode::Rendered => ICON_VIEW_SOURCE,
+            ViewMode::Source => ICON_VIEW_RENDERED,
+        };
+
         div()
             .id("markdown-format-toolbar")
             .w_full()
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(px(d.format_toolbar_gap))
+            .justify_between()
             .px(px(d.format_toolbar_padding_x))
             .py(px(d.format_toolbar_padding_y))
             .bg(c.dialog_surface)
             .border_b(px(d.format_toolbar_border_width))
             .border_color(c.dialog_border.opacity(0.65))
-            .children(items.into_iter().enumerate().map(|(index, item)| {
-                match item {
-                    FormatToolbarItem::Separator => div()
-                        .id(("markdown-format-separator", index))
-                        .w(px(d.format_toolbar_separator_width))
-                        .h(px(d.format_toolbar_separator_height))
-                        .mx(px(d.format_toolbar_separator_margin_x))
-                        .flex_shrink_0()
-                        .bg(c.dialog_border.opacity(0.45))
-                        .into_any_element(),
-                    FormatToolbarItem::Action(action) => {
-                        let icon_path = format_toolbar_icon_path(action);
-                        let button_editor = editor.clone();
-                        div()
-                            .id(("markdown-format-button", index))
-                            .w(px(d.format_toolbar_button_height))
-                            .h(px(d.format_toolbar_button_height))
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(d.format_toolbar_button_radius))
-                            .bg(c.dialog_surface)
-                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                            .active(|this| this.opacity(0.92))
-                            .cursor_pointer()
-                            .child(
-                                svg()
-                                    .path(icon_path)
-                                    .size(icon_size)
-                                    .text_color(icon_color),
-                            )
-                            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                cx.stop_propagation();
-                                let _ = button_editor.update(cx, |editor, cx| {
-                                    editor.apply_markdown_toolbar_format(action, window, cx);
-                                });
-                            })
-                            .into_any_element()
-                    }
-                }
-            }))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(d.format_toolbar_gap))
+                    .children(items.into_iter().enumerate().map(|(index, item)| {
+                        match item {
+                            FormatToolbarItem::Separator => div()
+                                .id(("markdown-format-separator", index))
+                                .w(px(d.format_toolbar_separator_width))
+                                .h(px(d.format_toolbar_separator_height))
+                                .mx(px(d.format_toolbar_separator_margin_x))
+                                .flex_shrink_0()
+                                .bg(c.dialog_border.opacity(0.45))
+                                .into_any_element(),
+                            FormatToolbarItem::Action(action) => {
+                                let icon_path = format_toolbar_icon_path(action);
+                                let button_editor = editor.clone();
+                                div()
+                                    .id(("markdown-format-button", index))
+                                    .w(px(d.format_toolbar_button_height))
+                                    .h(px(d.format_toolbar_button_height))
+                                    .flex()
+                                    .flex_shrink_0()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(d.format_toolbar_button_radius))
+                                    .bg(c.dialog_surface)
+                                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                    .active(|this| this.opacity(0.92))
+                                    .cursor_pointer()
+                                    .child(
+                                        svg()
+                                            .path(icon_path)
+                                            .size(icon_size)
+                                            .text_color(icon_color),
+                                    )
+                                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                        cx.stop_propagation();
+                                        let _ = button_editor.update(cx, |editor, cx| {
+                                            editor.apply_markdown_toolbar_format(action, window, cx);
+                                        });
+                                    })
+                                    .into_any_element()
+                            }
+                        }
+                    })),
+            )
+            .child(
+                div()
+                    .id("view-mode-toggle")
+                    .w(px(d.format_toolbar_button_height))
+                    .h(px(d.format_toolbar_button_height))
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(d.format_toolbar_button_radius))
+                    .bg(c.dialog_surface)
+                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                    .active(|this| this.opacity(0.92))
+                    .cursor_pointer()
+                    .child(
+                        svg()
+                            .path(view_mode_icon)
+                            .size(icon_size)
+                            .text_color(icon_color),
+                    )
+                    .on_click(cx.listener(Self::on_toggle_view_mode)),
+            )
     }
 }
 

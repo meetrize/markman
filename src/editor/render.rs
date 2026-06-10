@@ -1383,7 +1383,6 @@ impl Render for Editor {
         self.sync_window_title(window, &strings);
 
         let d = &theme.dimensions;
-        let c = &theme.colors;
         let visible_blocks = self.document.visible_blocks().to_vec();
         let editor = cx.entity().downgrade();
         let has_menus = cx
@@ -1728,46 +1727,6 @@ impl Render for Editor {
         } else {
             content_area
         };
-
-        // View-mode toggle button — bottom-left corner of the editor.
-        let toggle_label = match (self.view_mode, self.view_mode_toggle_hovered) {
-            (super::ViewMode::Rendered, false) => strings.view_mode_source.clone(),
-            (super::ViewMode::Rendered, true) => strings.view_mode_switch_to_source.clone(),
-            (super::ViewMode::Source, false) => strings.view_mode_rendered.clone(),
-            (super::ViewMode::Source, true) => strings.view_mode_switch_to_rendered.clone(),
-        };
-        let view_mode_toggle = div()
-            .id("view-mode-toggle")
-            .absolute()
-            .left(px(d.view_mode_toggle_left))
-            .bottom(px(d.view_mode_toggle_bottom))
-            .occlude()
-            .min_w(px(d.view_mode_toggle_min_width))
-            .px(px(d.view_mode_toggle_padding_x))
-            .py(px(d.view_mode_toggle_padding_y))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(d.view_mode_toggle_radius))
-            .bg(if self.view_mode_toggle_hovered {
-                c.dialog_secondary_button_hover
-            } else {
-                c.dialog_surface
-            })
-            .border(px(d.view_mode_toggle_border_width))
-            .border_color(c.dialog_border.opacity(0.65))
-            .cursor_pointer()
-            .text_size(px(d.view_mode_toggle_text_size))
-            .text_color(if self.view_mode_toggle_hovered {
-                c.dialog_secondary_button_text
-            } else {
-                c.dialog_muted
-            })
-            .whitespace_nowrap()
-            .on_hover(cx.listener(Self::on_view_mode_toggle_hover))
-            .child(SharedString::from(toggle_label))
-            .on_click(cx.listener(Self::on_toggle_view_mode));
-        let content_area = content_area.child(view_mode_toggle);
 
         let base = div()
             .w_full()
