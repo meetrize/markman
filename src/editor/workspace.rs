@@ -618,7 +618,7 @@ impl Editor {
             if cursor == 0 {
                 return;
             }
-            let previous = workspace_search_grapheme_boundary(&self.workspace.search_query, cursor, true);
+            let previous = workspace_text_grapheme_boundary(&self.workspace.search_query, cursor, true);
             previous..cursor
         } else {
             selected
@@ -648,7 +648,7 @@ impl Editor {
             if cursor >= query_len {
                 return;
             }
-            let next = workspace_search_grapheme_boundary(&self.workspace.search_query, cursor, false);
+            let next = workspace_text_grapheme_boundary(&self.workspace.search_query, cursor, false);
             cursor..next
         } else {
             selected
@@ -793,7 +793,7 @@ impl Editor {
         }
         cx.stop_propagation();
         if self.workspace.search_selected_range.is_empty() {
-            let previous = workspace_search_grapheme_boundary(
+            let previous = workspace_text_grapheme_boundary(
                 &self.workspace.search_query,
                 self.workspace_search_cursor_offset(),
                 true,
@@ -815,7 +815,7 @@ impl Editor {
         }
         cx.stop_propagation();
         if self.workspace.search_selected_range.is_empty() {
-            let next = workspace_search_grapheme_boundary(
+            let next = workspace_text_grapheme_boundary(
                 &self.workspace.search_query,
                 self.workspace_search_cursor_offset(),
                 false,
@@ -863,7 +863,7 @@ impl Editor {
         }
         cx.stop_propagation();
         self.workspace_search_select_to(
-            workspace_search_grapheme_boundary(
+            workspace_text_grapheme_boundary(
                 &self.workspace.search_query,
                 self.workspace_search_cursor_offset(),
                 true,
@@ -883,7 +883,7 @@ impl Editor {
         }
         cx.stop_propagation();
         self.workspace_search_select_to(
-            workspace_search_grapheme_boundary(
+            workspace_text_grapheme_boundary(
                 &self.workspace.search_query,
                 self.workspace_search_cursor_offset(),
                 false,
@@ -2050,7 +2050,7 @@ fn workspace_search_primary_shortcut_modifiers(modifiers: &Modifiers) -> bool {
         && !modifiers.function
 }
 
-fn workspace_search_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {
+pub(super) fn workspace_text_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {
     let offset = offset.min(text.len());
     let mut cursor = GraphemeCursor::new(offset, text.len(), true);
     if backward {
@@ -2270,6 +2270,16 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
+        if self.workspace_name_input_active(window) {
+            let line = self.workspace_name_last_layout.as_ref()?;
+            let text = self.workspace_name_text();
+            let range = workspace_search_range_from_utf16(&text, &range_utf16);
+            return Some(Bounds::from_corners(
+                point(bounds.left() + line.x_for_index(range.start), bounds.top()),
+                point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
+            ));
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2288,6 +2298,18 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
+        if self.workspace_name_input_active(window) {
+            let bounds = self.workspace_name_last_bounds?;
+            let line = self.workspace_name_last_layout.as_ref()?;
+            let text = self.workspace_name_text();
+            let local = bounds.localize(&point)?;
+            let utf8_index = line.index_for_x(local.x - bounds.left())?;
+            return Some(workspace_search_offset_to_utf16(
+                &text,
+                utf8_index.min(text.len()),
+            ));
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }

@@ -45,6 +45,7 @@ mod update;
 mod window_state;
 mod workspace;
 mod workspace_file_menu;
+mod workspace_name_input;
 mod workspace_search_input;
 
 use self::workspace::WorkspaceState;
@@ -114,6 +115,8 @@ pub struct Editor {
     workspace: WorkspaceState,
     workspace_search_focus: FocusHandle,
     workspace_name_focus: FocusHandle,
+    workspace_name_last_layout: Option<ShapedLine>,
+    workspace_name_last_bounds: Option<Bounds<Pixels>>,
     workspace_file_context_menu: Option<workspace_file_menu::WorkspaceFileContextMenuState>,
     workspace_name_dialog: Option<workspace_file_menu::WorkspaceNameDialogState>,
     context_menu: Option<ContextMenuState>,
@@ -311,6 +314,8 @@ impl Editor {
             workspace: WorkspaceState::default(),
             workspace_search_focus: cx.focus_handle(),
             workspace_name_focus: cx.focus_handle(),
+            workspace_name_last_layout: None,
+            workspace_name_last_bounds: None,
             workspace_file_context_menu: None,
             workspace_name_dialog: None,
             context_menu: None,

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use gpui::*;
 
 use super::Editor;
+use super::workspace_name_input::WorkspaceNameInputElement;
+use crate::components::{Copy, Cut, Delete, DeleteBack, Paste, SelectAll};
 use crate::i18n::I18nManager;
 use crate::theme::Theme;
 
@@ -39,6 +41,70 @@ pub(super) struct WorkspaceNameDialogState {
 impl Editor {
     pub(super) fn workspace_name_input_active(&self, window: &Window) -> bool {
         self.workspace_name_dialog.is_some() && self.workspace_name_focus.is_focused(window)
+    }
+
+    pub(super) fn workspace_name_focus_handle(&self) -> FocusHandle {
+        self.workspace_name_focus.clone()
+    }
+
+    pub(super) fn workspace_name_text(&self) -> String {
+        self.workspace_name_dialog
+            .as_ref()
+            .map(|dialog| dialog.name.clone())
+            .unwrap_or_default()
+    }
+
+    pub(super) fn workspace_name_marked_range(&self) -> Option<Range<usize>> {
+        self.workspace_name_dialog
+            .as_ref()
+            .and_then(|dialog| dialog.marked_range.clone())
+    }
+
+    pub(super) fn workspace_name_selected_range(&self) -> Range<usize> {
+        self.workspace_name_dialog
+            .as_ref()
+            .map(|dialog| dialog.selected_range.clone())
+            .unwrap_or(0..0)
+    }
+
+    pub(super) fn workspace_name_cursor_offset(&self) -> usize {
+        self.workspace_name_selected_range().end
+    }
+
+    pub(super) fn set_workspace_name_layout(
+        &mut self,
+        line: ShapedLine,
+        bounds: Bounds<Pixels>,
+    ) {
+        self.workspace_name_last_layout = Some(line);
+        self.workspace_name_last_bounds = Some(bounds);
+    }
+
+    pub(super) fn workspace_name_index_for_mouse_position(
+        &self,
+        position: Point<Pixels>,
+    ) -> usize {
+        let text = self.workspace_name_text();
+        if text.is_empty() {
+            return 0;
+        }
+
+        let (Some(bounds), Some(line)) = (
+            self.workspace_name_last_bounds.as_ref(),
+            self.workspace_name_last_layout.as_ref(),
+        ) else {
+            return text.len();
+        };
+
+        if position.x <= bounds.left() {
+            return 0;
+        }
+        if position.x >= bounds.right() {
+            return text.len();
+        }
+
+        line.closest_index_for_x(position.x - bounds.left())
+            .min(text.len())
     }
 
     pub(super) fn open_workspace_file_context_menu(
@@ -447,6 +513,117 @@ impl Editor {
         cx.notify();
     }
 
+    fn workspace_name_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+            return;
+        };
+        let offset = offset.min(dialog.name.len());
+        dialog.selected_range = offset..offset;
+        dialog.marked_range = None;
+        cx.notify();
+    }
+
+    fn workspace_name_select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+            return;
+        };
+        let offset = offset.min(dialog.name.len());
+        let anchor = dialog.selected_range.start;
+        dialog.selected_range = anchor.min(offset)..anchor.max(offset);
+        dialog.marked_range = None;
+        cx.notify();
+    }
+
+    fn workspace_name_delete_backward(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return;
+        };
+        if !dialog.selected_range.is_empty() {
+            self.replace_workspace_name_dialog_text(
+                dialog.selected_range.clone(),
+                "",
+                false,
+                None,
+                cx,
+            );
+            return;
+        }
+
+        let cursor = dialog.selected_range.end;
+        if cursor == 0 {
+            return;
+        }
+        let previous = super::workspace::workspace_text_grapheme_boundary(&dialog.name, cursor, true);
+        self.replace_workspace_name_dialog_text(previous..cursor, "", false, Some(previous..previous), cx);
+    }
+
+    fn workspace_name_delete_forward(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return;
+        };
+        if !dialog.selected_range.is_empty() {
+            self.replace_workspace_name_dialog_text(
+                dialog.selected_range.clone(),
+                "",
+                false,
+                None,
+                cx,
+            );
+            return;
+        }
+
+        let cursor = dialog.selected_range.end;
+        if cursor >= dialog.name.len() {
+            return;
+        }
+        let next = super::workspace::workspace_text_grapheme_boundary(&dialog.name, cursor, false);
+        self.replace_workspace_name_dialog_text(cursor..next, "", false, Some(cursor..cursor), cx);
+    }
+
+    fn workspace_name_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+                return;
+            };
+            let range = if dialog.selected_range.is_empty() {
+                dialog.selected_range.clone()
+            } else {
+                dialog.selected_range.clone()
+            };
+            self.replace_workspace_name_dialog_text(range, &text, false, None, cx);
+        }
+    }
+
+    fn workspace_name_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return;
+        };
+        if dialog.selected_range.is_empty() {
+            return;
+        }
+        let selected = dialog.name[dialog.selected_range.clone()].to_string();
+        cx.write_to_clipboard(ClipboardItem::new_string(selected));
+    }
+
+    fn workspace_name_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
+        self.workspace_name_copy_to_clipboard(cx);
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return;
+        };
+        if !dialog.selected_range.is_empty() {
+            self.replace_workspace_name_dialog_text(dialog.selected_range.clone(), "", false, None, cx);
+        }
+    }
+
+    fn workspace_name_select_all_text(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return;
+        };
+        let len = dialog.name.len();
+        self.workspace_name_move_to(0, cx);
+        self.workspace_name_select_to(len, cx);
+    }
+
     pub(super) fn render_workspace_file_context_menu_overlay(
         &self,
         theme: &Theme,
@@ -626,6 +803,7 @@ impl Editor {
             WorkspaceNameDialogKind::NewMarkdown { .. } => s.workspace_dialog_new_file_title.clone(),
             WorkspaceNameDialogKind::Rename { .. } => s.workspace_dialog_rename_title.clone(),
         };
+        let name_focus = self.workspace_name_focus.clone();
 
         Some(
             div()
@@ -661,8 +839,15 @@ impl Editor {
                         .track_focus(&self.workspace_name_focus)
                         .key_context("BlockEditor")
                         .on_key_down(cx.listener(Self::on_workspace_name_dialog_key_down))
-                        .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
-                            cx.stop_propagation()
+                        .on_action(cx.listener(Self::on_workspace_name_delete_back))
+                        .on_action(cx.listener(Self::on_workspace_name_delete_forward))
+                        .on_action(cx.listener(Self::on_workspace_name_paste))
+                        .on_action(cx.listener(Self::on_workspace_name_copy))
+                        .on_action(cx.listener(Self::on_workspace_name_cut))
+                        .on_action(cx.listener(Self::on_workspace_name_select_all))
+                        .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                            cx.stop_propagation();
+                            window.focus(&name_focus);
                         })
                         .child(
                             div()
@@ -683,9 +868,11 @@ impl Editor {
                                 .border(px(d.dialog_border_width))
                                 .border_color(c.dialog_border)
                                 .bg(c.dialog_secondary_button_bg)
-                                .text_size(px(t.dialog_body_size))
-                                .text_color(c.dialog_body)
-                                .child(dialog.name.clone()),
+                                .child(WorkspaceNameInputElement::new(cx.entity()))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(Self::on_workspace_name_mouse_down),
+                                ),
                         )
                         .child(
                             div()
@@ -733,6 +920,100 @@ impl Editor {
         if event.keystroke.key == "enter" && !event.keystroke.modifiers.platform {
             self.confirm_workspace_name_dialog(window, cx);
         }
+    }
+
+    pub(super) fn on_workspace_name_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        window.focus(&self.workspace_name_focus);
+        let offset = self.workspace_name_index_for_mouse_position(event.position);
+        if event.modifiers.shift {
+            self.workspace_name_select_to(offset, cx);
+        } else {
+            self.workspace_name_move_to(offset, cx);
+        }
+    }
+
+    pub(super) fn on_workspace_name_delete_back(
+        &mut self,
+        _: &DeleteBack,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_name_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_name_delete_backward(cx);
+    }
+
+    pub(super) fn on_workspace_name_delete_forward(
+        &mut self,
+        _: &Delete,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_name_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_name_delete_forward(cx);
+    }
+
+    pub(super) fn on_workspace_name_paste(
+        &mut self,
+        _: &Paste,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_name_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_name_paste_from_clipboard(cx);
+    }
+
+    pub(super) fn on_workspace_name_copy(
+        &mut self,
+        _: &Copy,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_name_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_name_copy_to_clipboard(cx);
+    }
+
+    pub(super) fn on_workspace_name_cut(
+        &mut self,
+        _: &Cut,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_name_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_name_cut_to_clipboard(cx);
+    }
+
+    pub(super) fn on_workspace_name_select_all(
+        &mut self,
+        _: &SelectAll,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_name_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_name_select_all_text(cx);
     }
 }
 
