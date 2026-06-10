@@ -113,7 +113,9 @@ impl Editor {
         let had_menu = self.context_menu.take().is_some();
         let had_dialog = self.table_insert_dialog.take().is_some();
         let had_submenu_close = self.context_menu_submenu_close_task.take().is_some();
-        if had_menu || had_dialog || had_submenu_close {
+        let had_file_menu = self.workspace_file_context_menu.take().is_some();
+        let had_name_dialog = self.workspace_name_dialog.take().is_some();
+        if had_menu || had_dialog || had_submenu_close || had_file_menu || had_name_dialog {
             cx.notify();
         }
     }

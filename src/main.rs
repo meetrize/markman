@@ -12,6 +12,7 @@ use gpui::*;
 
 mod app_identity;
 mod app_menu;
+mod app_visibility;
 mod components;
 mod config;
 mod editor;
@@ -102,6 +103,9 @@ impl AssetSource for VelotypeAssets {
             )))),
             "icon/toolbar/view-rendered.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/view-rendered.svg"
+            )))),
+            "icon/toolbar/auto-save.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/auto-save.svg"
             )))),
             _ => Ok(None),
         }
@@ -196,25 +200,29 @@ fn main() {
             net::install_http_client(cx);
             init_editor(cx, &preferences.keybindings);
             init_app_menu(cx);
+            app_visibility::init(cx);
 
             if input_paths.is_empty() {
-                if preferences.startup_open == config::StartupOpenPreference::LastOpenedFile
-                    && let Some(path) = config::first_existing_recent_markdown_file()
-                {
-                    match std::fs::read_to_string(&path) {
-                        Ok(markdown) => {
-                            open_editor_window(cx, markdown, Some(path));
-                            return;
+                let handle =
+                    if preferences.startup_open == config::StartupOpenPreference::LastOpenedFile
+                        && let Some(path) = config::first_existing_recent_markdown_file()
+                    {
+                        match std::fs::read_to_string(&path) {
+                            Ok(markdown) => open_editor_window(cx, markdown, Some(path)),
+                            Err(err) => {
+                                eprintln!(
+                                    "failed to read last opened file '{}': {err}",
+                                    path.display()
+                                );
+                                open_editor_window(cx, String::new(), None)
+                            }
                         }
-                        Err(err) => {
-                            eprintln!(
-                                "failed to read last opened file '{}': {err}",
-                                path.display()
-                            );
-                        }
-                    }
-                }
-                open_editor_window(cx, String::new(), None);
+                    } else {
+                        open_editor_window(cx, String::new(), None)
+                    };
+                app_menu::restore_last_workspace_folder(&handle, cx);
+                app_menu::install_menus(cx);
+                cx.refresh_windows();
                 return;
             }
 
@@ -243,7 +251,8 @@ fn main() {
                         String::new()
                     }
                 };
-                open_editor_window(cx, markdown, Some(absolute_path));
+                let handle = open_editor_window(cx, markdown, Some(absolute_path));
+                app_menu::restore_last_workspace_folder(&handle, cx);
             }
             app_menu::install_menus(cx);
             cx.refresh_windows();

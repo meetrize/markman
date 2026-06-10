@@ -44,6 +44,7 @@ mod tree;
 mod update;
 mod window_state;
 mod workspace;
+mod workspace_file_menu;
 mod workspace_search_input;
 
 use self::workspace::WorkspaceState;
@@ -84,6 +85,9 @@ pub struct Editor {
     pending_scroll_recheck_after_layout: bool,
     pending_save: bool,
     pending_save_as: bool,
+    /// When enabled, edits debounce into automatic saves for documents with a path.
+    auto_save_enabled: bool,
+    auto_save_task: Option<Task<()>>,
     pending_open_link: Option<PendingOpenLink>,
     pending_workspace_search_jump: Option<PendingWorkspaceSearchJump>,
     search_match_source_range: Option<std::ops::Range<usize>>,
@@ -109,6 +113,9 @@ pub struct Editor {
     update_check_in_progress: bool,
     workspace: WorkspaceState,
     workspace_search_focus: FocusHandle,
+    workspace_name_focus: FocusHandle,
+    workspace_file_context_menu: Option<workspace_file_menu::WorkspaceFileContextMenuState>,
+    workspace_name_dialog: Option<workspace_file_menu::WorkspaceNameDialogState>,
     context_menu: Option<ContextMenuState>,
     table_insert_dialog: Option<TableInsertDialogState>,
     context_menu_submenu_close_task: Option<Task<()>>,
@@ -280,6 +287,8 @@ impl Editor {
             pending_scroll_recheck_after_layout: true,
             pending_save: false,
             pending_save_as: false,
+            auto_save_enabled: false,
+            auto_save_task: None,
             pending_open_link: None,
             pending_workspace_search_jump: None,
             search_match_source_range: None,
@@ -301,6 +310,9 @@ impl Editor {
             update_check_in_progress: false,
             workspace: WorkspaceState::default(),
             workspace_search_focus: cx.focus_handle(),
+            workspace_name_focus: cx.focus_handle(),
+            workspace_file_context_menu: None,
+            workspace_name_dialog: None,
             context_menu: None,
             table_insert_dialog: None,
             context_menu_submenu_close_task: None,

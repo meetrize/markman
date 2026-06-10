@@ -55,6 +55,10 @@ impl VelotypeConfigDirs {
         self.root.join(".history")
     }
 
+    pub(crate) fn last_workspace_file(&self) -> PathBuf {
+        self.root.join(".last_workspace")
+    }
+
     pub(crate) fn app_config_file(&self) -> PathBuf {
         self.root.join("config.toml")
     }
@@ -70,6 +74,21 @@ pub(crate) fn record_recent_file(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
 
 pub(crate) fn remove_recent_file(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
     remove_recent_file_with_dirs(path, &VelotypeConfigDirs::from_system()?)
+}
+
+pub(crate) fn read_last_workspace_folder() -> anyhow::Result<Option<PathBuf>> {
+    read_last_workspace_folder_with_dirs(&VelotypeConfigDirs::from_system()?)
+}
+
+pub(crate) fn record_last_workspace_folder(path: &Path) -> anyhow::Result<()> {
+    record_last_workspace_folder_with_dirs(path, &VelotypeConfigDirs::from_system()?)
+}
+
+pub(crate) fn last_existing_workspace_folder() -> Option<PathBuf> {
+    read_last_workspace_folder()
+        .ok()
+        .flatten()
+        .filter(|path| path.is_dir())
 }
 
 pub(crate) fn read_recent_files_with_dirs(
@@ -146,6 +165,42 @@ fn write_recent_files_with_dirs(
     }
     std::fs::write(&history_file, content)
         .with_context(|| format!("failed to write '{}'", history_file.display()))
+}
+
+pub(crate) fn read_last_workspace_folder_with_dirs(
+    dirs: &VelotypeConfigDirs,
+) -> anyhow::Result<Option<PathBuf>> {
+    let path = dirs.last_workspace_file();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to read '{}'", path.display()));
+        }
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(PathBuf::from(trimmed)))
+    }
+}
+
+pub(crate) fn record_last_workspace_folder_with_dirs(
+    path: &Path,
+    dirs: &VelotypeConfigDirs,
+) -> anyhow::Result<()> {
+    if !path.is_dir() {
+        bail!("workspace folder must be a directory");
+    }
+
+    let file = dirs.last_workspace_file();
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create '{}'", parent.display()))?;
+    }
+    std::fs::write(&file, path.to_string_lossy().as_bytes())
+        .with_context(|| format!("failed to write '{}'", file.display()))
 }
 
 fn normalize_recent_files(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -406,8 +461,9 @@ fn is_empty_json_value(value: &Value) -> bool {
 mod tests {
     use super::{
         RECENT_FILES_LIMIT, VelotypeConfigDirs, parse_jsonc_value, prune_empty_json_values,
-        read_recent_files_with_dirs, record_recent_file_with_dirs, remove_recent_file_with_dirs,
-        sanitize_config_file_stem, strip_jsonc_comments,
+        read_last_workspace_folder_with_dirs, read_recent_files_with_dirs,
+        record_last_workspace_folder_with_dirs, record_recent_file_with_dirs,
+        remove_recent_file_with_dirs, sanitize_config_file_stem, strip_jsonc_comments,
     };
     use serde_json::json;
     use std::path::{Path, PathBuf};
@@ -620,6 +676,41 @@ mod tests {
         assert!(paths.is_empty());
         assert!(!dirs.history_file().exists());
         assert!(read_recent_files_with_dirs(&dirs).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn records_and_reads_last_workspace_folder() {
+        let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
+        let dirs = VelotypeConfigDirs::from_root(&root);
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).expect("create workspace dir");
+
+        record_last_workspace_folder_with_dirs(&workspace, &dirs).expect("record workspace");
+        assert_eq!(
+            read_last_workspace_folder_with_dirs(&dirs)
+                .expect("read workspace")
+                .as_deref(),
+            Some(workspace.as_path())
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_last_workspace_folder_ignores_stale_missing_paths() {
+        let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
+        let dirs = VelotypeConfigDirs::from_root(&root);
+        std::fs::create_dir_all(&root).expect("create config dir");
+        std::fs::write(
+            dirs.last_workspace_file(),
+            "/tmp/velotype-missing-workspace-folder\n",
+        )
+        .expect("write stale workspace path");
+
+        let stored = read_last_workspace_folder_with_dirs(&dirs).expect("read workspace");
+        assert_eq!(stored.filter(|path| path.is_dir()), None);
 
         let _ = std::fs::remove_dir_all(root);
     }

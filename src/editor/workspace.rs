@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use super::{BlockKind, Editor, PendingWorkspaceSearchJump};
@@ -227,12 +228,68 @@ impl Editor {
         self.workspace.outline_source = Some(source);
     }
 
+    pub(super) fn workspace_files_panel_active(&self) -> bool {
+        matches!(self.workspace.active_tab, WorkspaceTab::Files) && !self.workspace.search_open
+    }
+
+    pub(super) fn workspace_tree_root_path(&self) -> Option<PathBuf> {
+        self.workspace.file_tree.as_ref().and_then(|root| {
+            if let WorkspaceTreeKind::Directory(path) = &root.kind {
+                Some(path.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    pub(super) fn workspace_is_tree_root(&self, path: &Path) -> bool {
+        self.workspace_tree_root_path().as_deref() == Some(path)
+    }
+
+    pub(super) fn workspace_expand_path(&mut self, path: &Path, cx: &mut Context<Self>) {
+        let mut current = Some(path);
+        while let Some(path) = current {
+            self.workspace.expanded.insert(workspace_file_node_id(path));
+            current = path.parent();
+        }
+        cx.notify();
+    }
+
+    pub(super) fn workspace_select_file_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.workspace.selected = Some(WorkspaceSelection::File(path));
+        cx.notify();
+    }
+
+    pub(super) fn workspace_refresh_file_tree(&mut self, cx: &mut Context<Self>) {
+        self.workspace.root = None;
+        self.sync_workspace_file_tree();
+        cx.notify();
+    }
+
+    pub(super) fn workspace_clear_file_selection_if(&mut self, path: &Path, cx: &mut Context<Self>) {
+        if matches!(
+            &self.workspace.selected,
+            Some(WorkspaceSelection::File(selected)) if selected == path
+        ) {
+            self.workspace.selected = None;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn open_workspace_folder(
         &mut self,
         path: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !path.is_dir() {
+            return;
+        }
+
+        if let Err(err) = crate::config::record_last_workspace_folder(&path) {
+            eprintln!("failed to record last workspace folder: {err}");
+        }
+
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
         self.workspace.folder_root = Some(path);
@@ -868,12 +925,32 @@ impl Editor {
         cx.notify();
     }
 
-    fn select_outline_node(&mut self, id: String, cx: &mut Context<Self>) {
+    fn select_outline_node(&mut self, id: String, line_index: usize, cx: &mut Context<Self>) {
         self.workspace.selected = Some(WorkspaceSelection::Outline(id));
+        if self.jump_to_source_line_index(line_index, cx) {
+            self.pending_scroll_active_block_into_view = true;
+            self.pending_scroll_recheck_after_layout = true;
+        }
         cx.notify();
     }
 
-    fn open_workspace_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn workspace_clear_folder_root_if(&mut self, path: &Path, cx: &mut Context<Self>) {
+        if self.workspace.folder_root.as_deref() == Some(path) {
+            self.workspace.folder_root = None;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn workspace_set_folder_root(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.workspace.folder_root = Some(path);
+        cx.notify();
+    }
+
+    pub(super) fn workspace_folder_root_is(&self, path: &Path) -> bool {
+        self.workspace.folder_root.as_deref() == Some(path)
+    }
+
+    pub(super) fn open_workspace_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.open_workspace_search_result(path, None, String::new(), None, None, window, cx);
     }
 
@@ -1528,9 +1605,15 @@ impl Editor {
             (Some(WorkspaceSelection::Outline(selected)), _) => selected == &node.id,
             _ => false,
         };
+        let supports_file_menu = matches!(
+            &node.kind,
+            WorkspaceTreeKind::Directory(_) | WorkspaceTreeKind::MarkdownFile(_)
+        );
         let node_id = node.id.clone();
         let click_editor = editor.clone();
         let click_kind = node.kind.clone();
+        let context_menu_editor = editor.clone();
+        let context_menu_kind = node.kind.clone();
         let arrow_node_id = node.id.clone();
         let arrow_editor = editor.clone();
         let chevron_color = c.dialog_muted;
@@ -1624,8 +1707,34 @@ impl Editor {
                     WorkspaceTreeKind::MarkdownFile(path) => {
                         editor.open_workspace_file(path, window, cx);
                     }
-                    WorkspaceTreeKind::Heading { .. } => editor.select_outline_node(node_id, cx),
+                    WorkspaceTreeKind::Heading { line, .. } => {
+                        editor.select_outline_node(node_id, line, cx);
+                    }
                 });
+            })
+            .when(supports_file_menu, |this| {
+                    this.on_mouse_down(MouseButton::Right, move |event, _window, cx| {
+                        cx.stop_propagation();
+                        let target = match context_menu_kind.clone() {
+                            WorkspaceTreeKind::Directory(path) => {
+                                Some(super::workspace_file_menu::WorkspaceFileMenuTarget::Directory(
+                                    path,
+                                ))
+                            }
+                            WorkspaceTreeKind::MarkdownFile(path) => Some(
+                                super::workspace_file_menu::WorkspaceFileMenuTarget::MarkdownFile(
+                                    path,
+                                ),
+                            ),
+                            WorkspaceTreeKind::Heading { .. } => None,
+                        };
+                        let Some(target) = target else {
+                            return;
+                        };
+                        let _ = context_menu_editor.update(cx, |editor, cx| {
+                            editor.open_workspace_file_context_menu(event.position, target, cx);
+                        });
+                    })
             })
             .into_any_element()
     }
@@ -1790,6 +1899,10 @@ fn file_label(path: &Path) -> String {
 
 fn file_node_id(path: &Path) -> String {
     format!("file:{}", path.to_string_lossy())
+}
+
+pub(super) fn workspace_file_node_id(path: &Path) -> String {
+    file_node_id(path)
 }
 
 fn stable_node_hash(id: &str) -> u64 {
@@ -1999,6 +2112,13 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
+        if self.workspace_name_input_active(window) {
+            let text = self.workspace_name_dialog.as_ref()?.name.clone();
+            let range = workspace_search_range_from_utf16(&text, &range_utf16);
+            actual_range.replace(workspace_search_range_to_utf16(&text, &range));
+            return Some(text[range].to_string());
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2015,6 +2135,14 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if self.workspace_name_input_active(window) {
+            let dialog = self.workspace_name_dialog.as_ref()?;
+            return Some(UTF16Selection {
+                range: workspace_search_range_to_utf16(&dialog.name, &dialog.selected_range),
+                reversed: false,
+            });
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2027,6 +2155,14 @@ impl EntityInputHandler for Editor {
     }
 
     fn marked_text_range(&self, window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+        if self.workspace_name_input_active(window) {
+            let dialog = self.workspace_name_dialog.as_ref()?;
+            return dialog
+                .marked_range
+                .as_ref()
+                .map(|range| workspace_search_range_to_utf16(&dialog.name, range));
+        }
+
         if !self.workspace_search_input_active(window) {
             return None;
         }
@@ -2038,6 +2174,13 @@ impl EntityInputHandler for Editor {
     }
 
     fn unmark_text(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        if self.workspace_name_input_active(window) {
+            if let Some(dialog) = self.workspace_name_dialog.as_mut() {
+                dialog.marked_range = None;
+            }
+            return;
+        }
+
         if self.workspace_search_input_active(window) {
             self.workspace.search_marked_range = None;
         }
@@ -2050,6 +2193,20 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_name_input_active(window) {
+            let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+                return;
+            };
+            let text = dialog.name.clone();
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| workspace_search_range_from_utf16(&text, range_utf16))
+                .or_else(|| dialog.marked_range.clone())
+                .unwrap_or_else(|| dialog.selected_range.clone());
+            self.replace_workspace_name_dialog_text(range, new_text, false, None, cx);
+            return;
+        }
+
         if !self.workspace_search_input_active(window) {
             return;
         }
@@ -2071,6 +2228,24 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_name_input_active(window) {
+            let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+                return;
+            };
+            let text = dialog.name.clone();
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| workspace_search_range_from_utf16(&text, range_utf16))
+                .or_else(|| dialog.marked_range.clone())
+                .unwrap_or_else(|| dialog.selected_range.clone());
+            let selected = new_selected_range_utf16
+                .as_ref()
+                .map(|range_utf16| workspace_search_range_from_utf16(new_text, range_utf16))
+                .map(|relative| relative.start + range.start..relative.end + range.start);
+            self.replace_workspace_name_dialog_text(range, new_text, true, selected, cx);
+            return;
+        }
+
         if !self.workspace_search_input_active(window) {
             return;
         }

@@ -796,6 +796,43 @@ impl Editor {
         cx.notify();
         true
     }
+
+    /// Jump the caret to the start of a 0-based source line index (as used by the outline tree).
+    pub(super) fn jump_to_source_line_index(
+        &mut self,
+        line_index: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let source = self.serialized_document_text(cx);
+        let Some(byte_offset) = source_line_index_start_offset(&source, line_index) else {
+            return false;
+        };
+
+        let mappings = self.build_source_target_mappings(cx);
+        let Some(start) = self.endpoint_for_source_offset(byte_offset, &mappings, cx) else {
+            return false;
+        };
+        let Some(block) = self.focusable_entity_by_id(start.entity_id) else {
+            return false;
+        };
+
+        block.update(cx, |block, cx| {
+            block.selected_range = start.offset..start.offset;
+            block.selection_reversed = false;
+            block.marked_range = None;
+            block.vertical_motion_x = None;
+            block.cursor_blink_epoch = Instant::now();
+            cx.notify();
+        });
+        self.focus_block(start.entity_id);
+        self.clear_search_match_highlight(cx);
+        cx.notify();
+        true
+    }
+}
+
+fn source_line_index_start_offset(source: &str, line_index: usize) -> Option<usize> {
+    source_line_start_offset(source, line_index + 1)
 }
 
 fn source_line_start_offset(source: &str, line: usize) -> Option<usize> {
@@ -892,7 +929,7 @@ fn resolve_search_match_in_source(
 mod tests {
     use gpui::{AppContext, Bounds, Context, TestAppContext, point, px, size};
 
-    use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor};
+    use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor, source_line_index_start_offset};
     use crate::components::{Cut, Undo, UndoCaptureKind};
     use crate::i18n::I18nManager;
     use crate::theme::ThemeManager;
@@ -949,6 +986,14 @@ mod tests {
                 ));
             });
         }
+    }
+
+    #[test]
+    fn source_line_index_start_offset_matches_outline_line_indices() {
+        let source = "# Root\n\n## Child\n\n# Next";
+        assert_eq!(source_line_index_start_offset(source, 0), Some(0));
+        assert_eq!(source_line_index_start_offset(source, 2), Some(8));
+        assert_eq!(source_line_index_start_offset(source, 4), Some(18));
     }
 
     #[test]

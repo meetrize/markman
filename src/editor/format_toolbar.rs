@@ -22,6 +22,7 @@ const ICON_QUOTE: &str = "icon/toolbar/quote.svg";
 const ICON_TABLE: &str = "icon/toolbar/table.svg";
 const ICON_VIEW_SOURCE: &str = "icon/toolbar/view-source.svg";
 const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
+const ICON_AUTO_SAVE: &str = "icon/toolbar/auto-save.svg";
 
 enum FormatToolbarItem {
     Action(MarkdownToolbarAction),
@@ -131,6 +132,17 @@ impl Editor {
             ViewMode::Rendered => ICON_VIEW_SOURCE,
             ViewMode::Source => ICON_VIEW_RENDERED,
         };
+        let auto_save_enabled = self.auto_save_enabled;
+        let auto_save_bg = if auto_save_enabled {
+            c.selection.opacity(0.35)
+        } else {
+            c.dialog_surface
+        };
+        let auto_save_hover_bg = if auto_save_enabled {
+            c.selection.opacity(0.5)
+        } else {
+            c.dialog_secondary_button_hover
+        };
 
         div()
             .id("markdown-format-toolbar")
@@ -194,25 +206,53 @@ impl Editor {
             )
             .child(
                 div()
-                    .id("view-mode-toggle")
-                    .w(px(d.format_toolbar_button_height))
-                    .h(px(d.format_toolbar_button_height))
                     .flex()
-                    .flex_shrink_0()
                     .items_center()
-                    .justify_center()
-                    .rounded(px(d.format_toolbar_button_radius))
-                    .bg(c.dialog_surface)
-                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                    .active(|this| this.opacity(0.92))
-                    .cursor_pointer()
+                    .gap(px(d.format_toolbar_gap))
                     .child(
-                        svg()
-                            .path(view_mode_icon)
-                            .size(icon_size)
-                            .text_color(icon_color),
+                        div()
+                            .id("auto-save-toggle")
+                            .w(px(d.format_toolbar_button_height))
+                            .h(px(d.format_toolbar_button_height))
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(d.format_toolbar_button_radius))
+                            .bg(auto_save_bg)
+                            .hover(|this| this.bg(auto_save_hover_bg))
+                            .active(|this| this.opacity(0.92))
+                            .cursor_pointer()
+                            .child(
+                                svg()
+                                    .path(ICON_AUTO_SAVE)
+                                    .size(icon_size)
+                                    .text_color(icon_color),
+                            )
+                            .on_click(cx.listener(Self::on_toggle_auto_save)),
                     )
-                    .on_click(cx.listener(Self::on_toggle_view_mode)),
+                    .child(
+                        div()
+                            .id("view-mode-toggle")
+                            .w(px(d.format_toolbar_button_height))
+                            .h(px(d.format_toolbar_button_height))
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(d.format_toolbar_button_radius))
+                            .bg(c.dialog_surface)
+                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                            .active(|this| this.opacity(0.92))
+                            .cursor_pointer()
+                            .child(
+                                svg()
+                                    .path(view_mode_icon)
+                                    .size(icon_size)
+                                    .text_color(icon_color),
+                            )
+                            .on_click(cx.listener(Self::on_toggle_view_mode)),
+                    ),
             )
     }
 }

@@ -238,6 +238,36 @@ pub struct I18nStrings {
     pub workspace_empty_outline: String,
     /// Title shown when the workspace file tree cannot be scanned.
     pub workspace_scan_failed_title: String,
+    /// Workspace file-tree context menu: create Markdown file.
+    pub workspace_menu_new_file: String,
+    /// Workspace file-tree context menu: create folder.
+    pub workspace_menu_new_folder: String,
+    /// Workspace file-tree context menu: rename item.
+    pub workspace_menu_rename: String,
+    /// Workspace file-tree context menu: delete item.
+    pub workspace_menu_delete: String,
+    /// Workspace file-tree context menu: copy absolute path.
+    pub workspace_menu_copy_path: String,
+    /// Workspace file-tree context menu: reveal in system file manager.
+    pub workspace_menu_reveal_in_file_manager: String,
+    /// Workspace file-tree context menu: refresh tree.
+    pub workspace_menu_refresh: String,
+    /// Dialog title for creating a Markdown file in the workspace tree.
+    pub workspace_dialog_new_file_title: String,
+    /// Dialog title for creating a folder in the workspace tree.
+    pub workspace_dialog_new_folder_title: String,
+    /// Dialog title for renaming a workspace tree item.
+    pub workspace_dialog_rename_title: String,
+    /// Confirmation title before deleting a workspace tree item.
+    pub workspace_delete_confirm_title: String,
+    /// Confirmation message before deleting a workspace tree item. Supports `{name}`.
+    pub workspace_delete_confirm_message: String,
+    /// Title shown when a workspace file operation fails.
+    pub workspace_operation_failed_title: String,
+    /// Default name for a new folder in the workspace tree.
+    pub workspace_default_folder_name: String,
+    /// Default name for a new Markdown file in the workspace tree.
+    pub workspace_default_file_name: String,
     /// Title of the link-opening confirmation prompt.
     pub open_link_title: String,
     /// Confirm button for the link-opening prompt.
@@ -451,6 +481,21 @@ struct I18nStringsDe {
     workspace_empty_files: Option<String>,
     workspace_empty_outline: Option<String>,
     workspace_scan_failed_title: Option<String>,
+    workspace_menu_new_file: Option<String>,
+    workspace_menu_new_folder: Option<String>,
+    workspace_menu_rename: Option<String>,
+    workspace_menu_delete: Option<String>,
+    workspace_menu_copy_path: Option<String>,
+    workspace_menu_reveal_in_file_manager: Option<String>,
+    workspace_menu_refresh: Option<String>,
+    workspace_dialog_new_file_title: Option<String>,
+    workspace_dialog_new_folder_title: Option<String>,
+    workspace_dialog_rename_title: Option<String>,
+    workspace_delete_confirm_title: Option<String>,
+    workspace_delete_confirm_message: Option<String>,
+    workspace_operation_failed_title: Option<String>,
+    workspace_default_folder_name: Option<String>,
+    workspace_default_file_name: Option<String>,
     open_link_title: Option<String>,
     open_link_open: Option<String>,
     open_link_cancel: Option<String>,
@@ -626,6 +671,21 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_empty_files",
     "workspace_empty_outline",
     "workspace_scan_failed_title",
+    "workspace_menu_new_file",
+    "workspace_menu_new_folder",
+    "workspace_menu_rename",
+    "workspace_menu_delete",
+    "workspace_menu_copy_path",
+    "workspace_menu_reveal_in_file_manager",
+    "workspace_menu_refresh",
+    "workspace_dialog_new_file_title",
+    "workspace_dialog_new_folder_title",
+    "workspace_dialog_rename_title",
+    "workspace_delete_confirm_title",
+    "workspace_delete_confirm_message",
+    "workspace_operation_failed_title",
+    "workspace_default_folder_name",
+    "workspace_default_file_name",
     "open_link_title",
     "open_link_open",
     "open_link_cancel",
@@ -1031,6 +1091,51 @@ impl I18nStringsDe {
             workspace_scan_failed_title: self
                 .workspace_scan_failed_title
                 .unwrap_or(defaults.workspace_scan_failed_title),
+            workspace_menu_new_file: self
+                .workspace_menu_new_file
+                .unwrap_or(defaults.workspace_menu_new_file),
+            workspace_menu_new_folder: self
+                .workspace_menu_new_folder
+                .unwrap_or(defaults.workspace_menu_new_folder),
+            workspace_menu_rename: self
+                .workspace_menu_rename
+                .unwrap_or(defaults.workspace_menu_rename),
+            workspace_menu_delete: self
+                .workspace_menu_delete
+                .unwrap_or(defaults.workspace_menu_delete),
+            workspace_menu_copy_path: self
+                .workspace_menu_copy_path
+                .unwrap_or(defaults.workspace_menu_copy_path),
+            workspace_menu_reveal_in_file_manager: self
+                .workspace_menu_reveal_in_file_manager
+                .unwrap_or(defaults.workspace_menu_reveal_in_file_manager),
+            workspace_menu_refresh: self
+                .workspace_menu_refresh
+                .unwrap_or(defaults.workspace_menu_refresh),
+            workspace_dialog_new_file_title: self
+                .workspace_dialog_new_file_title
+                .unwrap_or(defaults.workspace_dialog_new_file_title),
+            workspace_dialog_new_folder_title: self
+                .workspace_dialog_new_folder_title
+                .unwrap_or(defaults.workspace_dialog_new_folder_title),
+            workspace_dialog_rename_title: self
+                .workspace_dialog_rename_title
+                .unwrap_or(defaults.workspace_dialog_rename_title),
+            workspace_delete_confirm_title: self
+                .workspace_delete_confirm_title
+                .unwrap_or(defaults.workspace_delete_confirm_title),
+            workspace_delete_confirm_message: self
+                .workspace_delete_confirm_message
+                .unwrap_or(defaults.workspace_delete_confirm_message),
+            workspace_operation_failed_title: self
+                .workspace_operation_failed_title
+                .unwrap_or(defaults.workspace_operation_failed_title),
+            workspace_default_folder_name: self
+                .workspace_default_folder_name
+                .unwrap_or(defaults.workspace_default_folder_name),
+            workspace_default_file_name: self
+                .workspace_default_file_name
+                .unwrap_or(defaults.workspace_default_file_name),
             open_link_title: self.open_link_title.unwrap_or(defaults.open_link_title),
             open_link_open: self.open_link_open.unwrap_or(defaults.open_link_open),
             open_link_cancel: self.open_link_cancel.unwrap_or(defaults.open_link_cancel),
@@ -1288,6 +1393,21 @@ impl I18nStrings {
             workspace_empty_files: "没有可显示的 Markdown 文件".into(),
             workspace_empty_outline: "当前文档没有标题".into(),
             workspace_scan_failed_title: "无法读取工作区".into(),
+            workspace_menu_new_file: "新建 Markdown 文件".into(),
+            workspace_menu_new_folder: "新建文件夹".into(),
+            workspace_menu_rename: "重命名".into(),
+            workspace_menu_delete: "删除".into(),
+            workspace_menu_copy_path: "复制路径".into(),
+            workspace_menu_reveal_in_file_manager: "在 Finder 中显示".into(),
+            workspace_menu_refresh: "刷新".into(),
+            workspace_dialog_new_file_title: "新建 Markdown 文件".into(),
+            workspace_dialog_new_folder_title: "新建文件夹".into(),
+            workspace_dialog_rename_title: "重命名".into(),
+            workspace_delete_confirm_title: "确认删除".into(),
+            workspace_delete_confirm_message: "确定要删除“{name}”吗？此操作无法撤销。".into(),
+            workspace_operation_failed_title: "文件操作失败".into(),
+            workspace_default_folder_name: "新建文件夹".into(),
+            workspace_default_file_name: "未命名.md".into(),
             open_link_title: "打开链接？".into(),
             open_link_open: "打开".into(),
             open_link_cancel: "取消".into(),
@@ -1479,6 +1599,22 @@ impl I18nStrings {
             workspace_empty_files: "No Markdown files to show".into(),
             workspace_empty_outline: "This document has no headings".into(),
             workspace_scan_failed_title: "Unable to Read Workspace".into(),
+            workspace_menu_new_file: "New Markdown File".into(),
+            workspace_menu_new_folder: "New Folder".into(),
+            workspace_menu_rename: "Rename".into(),
+            workspace_menu_delete: "Delete".into(),
+            workspace_menu_copy_path: "Copy Path".into(),
+            workspace_menu_reveal_in_file_manager: "Reveal in Finder".into(),
+            workspace_menu_refresh: "Refresh".into(),
+            workspace_dialog_new_file_title: "New Markdown File".into(),
+            workspace_dialog_new_folder_title: "New Folder".into(),
+            workspace_dialog_rename_title: "Rename".into(),
+            workspace_delete_confirm_title: "Confirm Delete".into(),
+            workspace_delete_confirm_message:
+                "Delete “{name}”? This action cannot be undone.".into(),
+            workspace_operation_failed_title: "File Operation Failed".into(),
+            workspace_default_folder_name: "New Folder".into(),
+            workspace_default_file_name: "Untitled.md".into(),
             open_link_title: "Open link?".into(),
             open_link_open: "Open".into(),
             open_link_cancel: "Cancel".into(),

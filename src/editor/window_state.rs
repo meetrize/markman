@@ -257,6 +257,51 @@ impl Editor {
             self.pending_window_title_refresh = true;
             cx.notify();
         }
+        self.schedule_auto_save_if_enabled(cx);
+    }
+
+    const AUTO_SAVE_DEBOUNCE: Duration = Duration::from_millis(600);
+
+    pub(crate) fn on_toggle_auto_save(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.auto_save_enabled = !self.auto_save_enabled;
+        if self.auto_save_enabled {
+            if self.document_dirty && self.file_path.is_some() {
+                self.schedule_auto_save_if_enabled(cx);
+            }
+        } else {
+            self.auto_save_task = None;
+        }
+        cx.notify();
+    }
+
+    fn schedule_auto_save_if_enabled(&mut self, cx: &mut Context<Self>) {
+        if !self.auto_save_enabled || self.file_path.is_none() {
+            return;
+        }
+
+        self.auto_save_task = None;
+        let weak_editor = cx.entity().downgrade();
+        self.auto_save_task = Some(cx.spawn(
+            async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor()
+                    .timer(Self::AUTO_SAVE_DEBOUNCE)
+                    .await;
+                let _ = weak_editor.update(cx, |editor, cx| {
+                    editor.auto_save_task = None;
+                    if editor.auto_save_enabled
+                        && editor.document_dirty
+                        && editor.file_path.is_some()
+                    {
+                        editor.request_save_document(cx);
+                    }
+                });
+            },
+        ));
     }
 
     pub(super) fn request_active_block_scroll_into_view(&mut self, cx: &mut Context<Self>) {

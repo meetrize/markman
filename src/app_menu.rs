@@ -13,8 +13,9 @@ use crate::components::{
     AddLanguageConfig, AddThemeConfig, CheckForUpdates, CloseWindow, ExportHtml, ExportPdf,
     InstallCliTool, NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile,
     QuitApplication, SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme, ShowAbout,
-    ToggleWorkspace, UninstallCliTool,
+    ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
+use crate::app_visibility;
 use crate::config::{
     apply_configured_language, apply_configured_theme, import_language_config_and_select,
     import_theme_config_and_select, open_preferences_window, read_recent_files, record_recent_file,
@@ -76,6 +77,15 @@ pub(crate) fn open_editor_window(
         .expect("newly opened editor window should be updateable");
 
     handle
+}
+
+pub(crate) fn restore_last_workspace_folder(handle: &WindowHandle<Editor>, cx: &mut App) {
+    let Some(folder) = crate::config::last_existing_workspace_folder() else {
+        return;
+    };
+    let _ = handle.update(cx, |editor, window, cx| {
+        editor.open_workspace_folder(folder, window, cx);
+    });
 }
 
 fn open_file_in_new_window(cx: &mut App, path: &Path) -> anyhow::Result<()> {
@@ -1149,6 +1159,9 @@ pub(crate) fn init(cx: &mut App) {
     });
     cx.on_action(|_: &ToggleWorkspace, cx| {
         dispatch_menu_action(&ToggleWorkspace, cx);
+    });
+    cx.on_action(|_: &ToggleApplicationVisibility, cx| {
+        app_visibility::toggle_application_visibility(cx);
     });
     cx.on_action(|_: &QuitApplication, cx| {
         dispatch_menu_action(&QuitApplication, cx);

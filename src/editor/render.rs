@@ -1823,6 +1823,17 @@ impl Render for Editor {
         } else {
             base
         };
+        let base = if let Some(file_menu) = self.render_workspace_file_context_menu_overlay(&theme, cx)
+        {
+            base.child(file_menu)
+        } else {
+            base
+        };
+        let base = if let Some(name_dialog) = self.render_workspace_name_dialog_overlay(&theme, cx) {
+            base.child(name_dialog)
+        } else {
+            base
+        };
         let base = if let Some(table_dialog) = self.render_table_insert_dialog_overlay(&theme, cx) {
             base.child(table_dialog)
         } else {
