@@ -101,10 +101,11 @@ impl Editor {
     }
 
     pub(super) fn sync_workspace_after_document_path_change(&mut self, cx: &mut Context<Self>) {
-        self.workspace.folder_root = None;
-        self.workspace.root = None;
-        self.workspace.file_tree = None;
-        self.workspace.file_error = None;
+        if self.workspace.folder_root.is_none() {
+            self.workspace.root = None;
+            self.workspace.file_tree = None;
+            self.workspace.file_error = None;
+        }
         self.workspace.outline_source = None;
         if self.workspace.is_open {
             self.sync_workspace_models(cx);
