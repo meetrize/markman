@@ -11,7 +11,7 @@ use gpui::*;
 
 use crate::components::{
     AddLanguageConfig, AddThemeConfig, CheckForUpdates, CloseWindow, ExportHtml, ExportPdf,
-    InstallCliTool, NewWindow, NoRecentFiles, OpenFile, OpenPreferences, OpenRecentFile,
+    InstallCliTool, NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile,
     QuitApplication, SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme, ShowAbout,
     ToggleWorkspace, UninstallCliTool,
 };
@@ -412,6 +412,7 @@ fn is_editor_scoped_menu_action(action: &dyn Action) -> bool {
 fn is_window_context_menu_action(action: &dyn Action) -> bool {
     action.as_any().is::<NewWindow>()
         || action.as_any().is::<OpenFile>()
+        || action.as_any().is::<OpenFolder>()
         || action.as_any().is::<OpenPreferences>()
         || action.as_any().is::<OpenRecentFile>()
         || action.as_any().is::<NoRecentFiles>()
@@ -505,6 +506,8 @@ pub(crate) fn dispatch_menu_action(action: &dyn Action, cx: &mut App) {
         open_editor_window(cx, String::new(), None);
     } else if action.as_any().is::<OpenFile>() {
         prompt_and_open_files(cx);
+    } else if action.as_any().is::<OpenFolder>() {
+        prompt_and_open_folder(cx);
     } else if action.as_any().is::<OpenPreferences>() {
         open_preferences_window(cx);
     } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFile>() {
@@ -602,6 +605,8 @@ pub(crate) fn dispatch_menu_action_for_editor(
         open_editor_window(cx, String::new(), None);
     } else if action.as_any().is::<OpenFile>() {
         prompt_and_open_files_with_error_window(cx, current_window);
+    } else if action.as_any().is::<OpenFolder>() {
+        prompt_and_open_folder_with_error_window(cx, current_window);
     } else if action.as_any().is::<OpenPreferences>() {
         open_preferences_window(cx);
     } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFile>() {
@@ -742,6 +747,7 @@ fn build_menus(
                     MenuItem::action(strings.menu_new_window.clone(), NewWindow),
                     MenuItem::action(strings.menu_close_window.clone(), CloseWindow),
                     MenuItem::action(strings.menu_open_file.clone(), OpenFile),
+                    MenuItem::action(strings.menu_open_folder.clone(), OpenFolder),
                     MenuItem::submenu(Menu {
                         name: strings.menu_open_recent_file.clone().into(),
                         items: recent_items,
@@ -762,6 +768,7 @@ fn build_menus(
                 MenuItem::action(strings.menu_new_window.clone(), NewWindow),
                 MenuItem::action(strings.menu_close_window.clone(), CloseWindow),
                 MenuItem::action(strings.menu_open_file.clone(), OpenFile),
+                MenuItem::action(strings.menu_open_folder.clone(), OpenFolder),
                 MenuItem::submenu(Menu {
                     name: strings.menu_open_recent_file.clone().into(),
                     items: recent_items,
@@ -854,6 +861,66 @@ pub(crate) fn install_menus(cx: &mut App) {
 fn prompt_and_open_files(cx: &mut App) {
     let error_window = cx.active_window();
     prompt_and_open_files_with_error_window(cx, error_window);
+}
+
+fn prompt_and_open_folder(cx: &mut App) {
+    let error_window = cx.active_window();
+    prompt_and_open_folder_with_error_window(cx, error_window);
+}
+
+fn apply_workspace_folder(cx: &mut App, path: PathBuf) {
+    if !path.is_dir() {
+        return;
+    }
+
+    if with_active_editor(cx, |editor, window, cx| {
+        editor.open_workspace_folder(path.clone(), window, cx);
+    })
+    .is_none()
+    {
+        let handle = open_editor_window(cx, String::new(), None);
+        let _ = handle.update(cx, |editor, window, cx| {
+            editor.open_workspace_folder(path, window, cx);
+        });
+    }
+}
+
+fn prompt_and_open_folder_with_error_window(cx: &mut App, error_window: Option<AnyWindowHandle>) {
+    let prompt_title = cx
+        .global::<I18nManager>()
+        .strings()
+        .open_folder_prompt
+        .clone();
+    let prompt = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some(prompt_title.into()),
+    });
+
+    cx.spawn(async move |cx| match prompt.await {
+        Ok(Ok(Some(paths))) => {
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let _ = cx.update(move |cx| {
+                apply_workspace_folder(cx, path);
+            });
+        }
+        Ok(Err(err)) => {
+            let detail = err.to_string();
+            let _ = cx.update(move |cx| {
+                let title = cx
+                    .global::<I18nManager>()
+                    .strings()
+                    .open_failed_title
+                    .clone();
+                show_window_prompt(error_window, &title, &detail, cx);
+            });
+        }
+        Ok(Ok(None)) | Err(_) => {}
+    })
+    .detach();
 }
 
 fn prompt_and_open_files_with_error_window(cx: &mut App, error_window: Option<AnyWindowHandle>) {
@@ -1038,6 +1105,9 @@ pub(crate) fn init(cx: &mut App) {
     cx.on_action(|_: &OpenFile, cx| {
         dispatch_menu_action(&OpenFile, cx);
     });
+    cx.on_action(|_: &OpenFolder, cx| {
+        dispatch_menu_action(&OpenFolder, cx);
+    });
     cx.on_action(|_: &OpenPreferences, cx| {
         dispatch_menu_action(&OpenPreferences, cx);
     });
@@ -1096,7 +1166,7 @@ mod tests {
     use super::{applescript_string_literal, build_menus};
     use crate::components::{
         AddLanguageConfig, AddThemeConfig, CheckForUpdates, CloseWindow, ExportHtml, ExportPdf,
-        NewWindow, NoRecentFiles, OpenFile, OpenPreferences, OpenRecentFile, QuitApplication,
+        NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile, QuitApplication,
         SaveDocument, SelectLanguage, SelectTheme, ShowAbout,
     };
     use crate::i18n::I18nManager;
@@ -1199,12 +1269,12 @@ mod tests {
         // Open Recent File submenu location differs by platform.
         #[cfg(target_os = "macos")]
         assert_eq!(
-            submenu(&menus[1].items[3]).name.to_string(),
+            submenu(&menus[1].items[4]).name.to_string(),
             "Open Recent File"
         );
         #[cfg(not(target_os = "macos"))]
         assert_eq!(
-            submenu(&menus[0].items[3]).name.to_string(),
+            submenu(&menus[0].items[4]).name.to_string(),
             "Open Recent File"
         );
 
@@ -1218,7 +1288,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(action_name(&menus[0].items[0]), "Preferences");
         #[cfg(not(target_os = "macos"))]
-        assert_eq!(action_name(&menus[0].items[4]), "Preferences");
+        assert_eq!(action_name(&menus[0].items[5]), "Preferences");
 
         assert_eq!(action_name(&menus[EXPORT_IDX].items[0]), "HTML");
         assert_eq!(action_name(&menus[EXPORT_IDX].items[1]), "PDF");
@@ -1241,12 +1311,12 @@ mod tests {
 
         #[cfg(target_os = "macos")]
         assert_eq!(
-            submenu(&menus[1].items[3]).name.to_string(),
+            submenu(&menus[1].items[4]).name.to_string(),
             i18n_manager.strings().menu_open_recent_file.as_str()
         );
         #[cfg(not(target_os = "macos"))]
         assert_eq!(
-            submenu(&menus[0].items[3]).name.to_string(),
+            submenu(&menus[0].items[4]).name.to_string(),
             i18n_manager.strings().menu_open_recent_file.as_str()
         );
 
@@ -1325,12 +1395,12 @@ mod tests {
         let i18n_manager = I18nManager::default();
         let menus = build_menus(&theme_manager, &i18n_manager, &[]);
 
-        // On macOS: File menu is index 1, Open Recent is item 3 within it.
-        // On other platforms: File menu is index 0, Open Recent is item 3.
+        // On macOS: File menu is index 1, Open Recent is item 4 within it.
+        // On other platforms: File menu is index 0, Open Recent is item 4.
         #[cfg(target_os = "macos")]
-        let recent_menu = submenu(&menus[1].items[3]);
+        let recent_menu = submenu(&menus[1].items[4]);
         #[cfg(not(target_os = "macos"))]
-        let recent_menu = submenu(&menus[0].items[3]);
+        let recent_menu = submenu(&menus[0].items[4]);
 
         assert_eq!(recent_menu.name.to_string(), "Open Recent File");
         assert_eq!(recent_menu.items.len(), 1);
@@ -1354,9 +1424,9 @@ mod tests {
         let menus = build_menus(&theme_manager, &i18n_manager, &recent_files);
 
         #[cfg(target_os = "macos")]
-        let recent_menu = submenu(&menus[1].items[3]);
+        let recent_menu = submenu(&menus[1].items[4]);
         #[cfg(not(target_os = "macos"))]
-        let recent_menu = submenu(&menus[0].items[3]);
+        let recent_menu = submenu(&menus[0].items[4]);
 
         assert_eq!(recent_menu.items.len(), 2);
         assert_eq!(action_name(&recent_menu.items[0]), r"C:\docs\one.md");
@@ -1376,6 +1446,7 @@ mod tests {
     fn fallback_menu_routes_window_context_actions_without_app_defer() {
         assert!(super::is_window_context_menu_action(&NewWindow));
         assert!(super::is_window_context_menu_action(&OpenFile));
+        assert!(super::is_window_context_menu_action(&OpenFolder));
         assert!(super::is_window_context_menu_action(&OpenPreferences));
         assert!(super::is_window_context_menu_action(&OpenRecentFile {
             path: "notes.md".into(),

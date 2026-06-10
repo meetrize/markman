@@ -95,6 +95,8 @@ pub struct I18nStrings {
     pub menu_close_window: String,
     /// File menu item for opening Markdown files.
     pub menu_open_file: String,
+    /// File menu item for opening a local folder as workspace root.
+    pub menu_open_folder: String,
     /// File menu item for opening a recent file submenu.
     pub menu_open_recent_file: String,
     /// File menu item for opening app preferences.
@@ -123,6 +125,8 @@ pub struct I18nStrings {
     pub menu_toggle_workspace: String,
     /// Native file-dialog prompt for opening Markdown files.
     pub open_markdown_files_prompt: String,
+    /// Native folder-dialog prompt for opening a workspace folder.
+    pub open_folder_prompt: String,
     /// Native file-dialog prompt for importing a language pack.
     pub add_language_config_prompt: String,
     /// Native file-dialog prompt for importing a theme pack.
@@ -343,6 +347,7 @@ struct I18nStringsDe {
     menu_new_window: Option<String>,
     menu_close_window: Option<String>,
     menu_open_file: Option<String>,
+    menu_open_folder: Option<String>,
     menu_open_recent_file: Option<String>,
     menu_preferences: Option<String>,
     menu_no_recent_files: Option<String>,
@@ -357,6 +362,7 @@ struct I18nStringsDe {
     menu_uninstall_cli_tool: Option<String>,
     menu_toggle_workspace: Option<String>,
     open_markdown_files_prompt: Option<String>,
+    open_folder_prompt: Option<String>,
     add_language_config_prompt: Option<String>,
     add_theme_config_prompt: Option<String>,
     open_failed_title: Option<String>,
@@ -513,6 +519,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "menu_new_window",
     "menu_close_window",
     "menu_open_file",
+    "menu_open_folder",
     "menu_open_recent_file",
     "menu_preferences",
     "menu_no_recent_files",
@@ -527,6 +534,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "menu_uninstall_cli_tool",
     "menu_toggle_workspace",
     "open_markdown_files_prompt",
+    "open_folder_prompt",
     "add_language_config_prompt",
     "add_theme_config_prompt",
     "open_failed_title",
@@ -737,6 +745,9 @@ impl I18nStringsDe {
             menu_new_window: self.menu_new_window.unwrap_or(defaults.menu_new_window),
             menu_close_window: self.menu_close_window.unwrap_or(defaults.menu_close_window),
             menu_open_file: self.menu_open_file.unwrap_or(defaults.menu_open_file),
+            menu_open_folder: self
+                .menu_open_folder
+                .unwrap_or(defaults.menu_open_folder),
             menu_open_recent_file: self
                 .menu_open_recent_file
                 .unwrap_or(defaults.menu_open_recent_file),
@@ -765,6 +776,9 @@ impl I18nStringsDe {
             open_markdown_files_prompt: self
                 .open_markdown_files_prompt
                 .unwrap_or(defaults.open_markdown_files_prompt),
+            open_folder_prompt: self
+                .open_folder_prompt
+                .unwrap_or(defaults.open_folder_prompt),
             add_language_config_prompt: self
                 .add_language_config_prompt
                 .unwrap_or(defaults.add_language_config_prompt),
@@ -1153,6 +1167,7 @@ impl I18nStrings {
             menu_new_window: "新建窗口".into(),
             menu_close_window: "关闭窗口".into(),
             menu_open_file: "打开文件".into(),
+            menu_open_folder: "打开文件夹".into(),
             menu_open_recent_file: "打开最近文件".into(),
             menu_preferences: "偏好设置".into(),
             menu_no_recent_files: "无最近文件".into(),
@@ -1167,6 +1182,7 @@ impl I18nStrings {
             menu_uninstall_cli_tool: "卸载CLI命令".into(),
             menu_toggle_workspace: "切换工作区".into(),
             open_markdown_files_prompt: "打开 Markdown 文件".into(),
+            open_folder_prompt: "选择文件夹".into(),
             add_language_config_prompt: "选择语言配置文件".into(),
             add_theme_config_prompt: "选择主题配置文件".into(),
             open_failed_title: "打开失败".into(),
@@ -1338,6 +1354,7 @@ impl I18nStrings {
             menu_new_window: "New Window".into(),
             menu_close_window: "Close Window".into(),
             menu_open_file: "Open File".into(),
+            menu_open_folder: "Open Folder".into(),
             menu_open_recent_file: "Open Recent File".into(),
             menu_preferences: "Preferences".into(),
             menu_no_recent_files: "No Recent Files".into(),
@@ -1352,6 +1369,7 @@ impl I18nStrings {
             menu_uninstall_cli_tool: "Uninstall CLI Command".into(),
             menu_toggle_workspace: "Toggle Workspace".into(),
             open_markdown_files_prompt: "Open Markdown Files".into(),
+            open_folder_prompt: "Choose a Folder".into(),
             add_language_config_prompt: "Choose Language Config".into(),
             add_theme_config_prompt: "Choose Theme Config".into(),
             open_failed_title: "Open Failed".into(),

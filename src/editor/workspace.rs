@@ -49,6 +49,7 @@ enum WorkspaceSelection {
 
 pub(super) struct WorkspaceState {
     is_open: bool,
+    folder_root: Option<PathBuf>,
     active_tab: WorkspaceTab,
     root: Option<PathBuf>,
     file_tree: Option<WorkspaceTreeNode>,
@@ -63,6 +64,7 @@ impl Default for WorkspaceState {
     fn default() -> Self {
         Self {
             is_open: true,
+            folder_root: None,
             active_tab: WorkspaceTab::default(),
             root: None,
             file_tree: None,
@@ -99,6 +101,7 @@ impl Editor {
     }
 
     pub(super) fn sync_workspace_after_document_path_change(&mut self, cx: &mut Context<Self>) {
+        self.workspace.folder_root = None;
         self.workspace.root = None;
         self.workspace.file_tree = None;
         self.workspace.file_error = None;
@@ -117,8 +120,15 @@ impl Editor {
         self.file_path.as_ref()?.parent().map(Path::to_path_buf)
     }
 
+    fn effective_workspace_root(&self) -> Option<PathBuf> {
+        self.workspace
+            .folder_root
+            .clone()
+            .or_else(|| self.workspace_root_for_current_file())
+    }
+
     fn sync_workspace_file_tree(&mut self) {
-        let next_root = self.workspace_root_for_current_file();
+        let next_root = self.effective_workspace_root();
         if self.workspace.root == next_root && self.workspace.file_tree.is_some() {
             self.workspace.selected = self
                 .file_path
@@ -168,6 +178,24 @@ impl Editor {
         prune_outline_state(&mut self.workspace, &outline);
         self.workspace.outline_tree = outline;
         self.workspace.outline_source = Some(source);
+    }
+
+    pub(crate) fn open_workspace_folder(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_menu_bar(cx);
+        self.dismiss_contextual_overlays(cx);
+        self.workspace.folder_root = Some(path);
+        self.workspace.root = None;
+        self.workspace.file_tree = None;
+        self.workspace.file_error = None;
+        self.workspace.is_open = true;
+        self.sync_workspace_models(cx);
+        window.activate_window();
+        cx.notify();
     }
 
     fn set_workspace_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
