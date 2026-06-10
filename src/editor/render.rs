@@ -1454,7 +1454,7 @@ impl Render for Editor {
                                 .flex_shrink_0()
                                 .mt(px(footnote_row_top_gap(previous_footnote_row, d.block_gap)))
                                 .child(entity.clone());
-                            let row = if self.view_mode == super::ViewMode::Rendered {
+                            let row = {
                                 let row_editor = editor.clone();
                                 let entity_id = entity.entity_id();
                                 row.on_mouse_down(MouseButton::Right, move |event, window, cx| {
@@ -1464,8 +1464,6 @@ impl Render for Editor {
                                         );
                                     });
                                 })
-                            } else {
-                                row
                             };
                             footnote_children.push(row.into_any_element());
                             previous_footnote_row = Some(footnote_spacing);
@@ -1499,7 +1497,7 @@ impl Render for Editor {
                             d,
                         )))
                         .child(entity.clone());
-                    let row = if self.view_mode == super::ViewMode::Rendered {
+                    let row = {
                         let row_editor = editor.clone();
                         let entity_id = entity.entity_id();
                         row.on_mouse_down(MouseButton::Right, move |event, window, cx| {
@@ -1508,8 +1506,6 @@ impl Render for Editor {
                                     .on_block_context_menu_mouse_down(entity_id, event, window, cx);
                             });
                         })
-                    } else {
-                        row
                     };
                     group_children.push(row.into_any_element());
                     previous_callout_row = Some(row_spacing);
@@ -1554,7 +1550,7 @@ impl Render for Editor {
                         .flex_shrink_0()
                         .mt(px(footnote_row_top_gap(previous_footnote_row, d.block_gap)))
                         .child(entity.clone());
-                    let row = if self.view_mode == super::ViewMode::Rendered {
+                    let row = {
                         let row_editor = editor.clone();
                         let entity_id = entity.entity_id();
                         row.on_mouse_down(MouseButton::Right, move |event, window, cx| {
@@ -1563,8 +1559,6 @@ impl Render for Editor {
                                     .on_block_context_menu_mouse_down(entity_id, event, window, cx);
                             });
                         })
-                    } else {
-                        row
                     };
                     group_children.push(row.into_any_element());
                     previous_footnote_row = Some(row_spacing);
@@ -1592,7 +1586,7 @@ impl Render for Editor {
                 .flex_shrink_0()
                 .mt(px(top_gap))
                 .child(entity.clone());
-            let row = if self.view_mode == super::ViewMode::Rendered {
+            let row = {
                 let row_editor = editor.clone();
                 let entity_id = entity.entity_id();
                 row.on_mouse_down(MouseButton::Right, move |event, window, cx| {
@@ -1600,8 +1594,6 @@ impl Render for Editor {
                         editor.on_block_context_menu_mouse_down(entity_id, event, window, cx);
                     });
                 })
-            } else {
-                row
             };
             block_rows.push(row.into_any_element());
             previous_row_spacing = Some(first_spacing);
@@ -1629,14 +1621,10 @@ impl Render for Editor {
             .p(px(d.editor_padding))
             .pb(px(d.editor_padding + scroll_trigger_padding))
             .children(block_rows);
-        let scroll_content = if self.view_mode == super::ViewMode::Rendered {
-            scroll_content.on_mouse_down(
-                MouseButton::Right,
-                cx.listener(Self::on_editor_context_menu_mouse_down),
-            )
-        } else {
-            scroll_content
-        };
+        let scroll_content = scroll_content.on_mouse_down(
+            MouseButton::Right,
+            cx.listener(Self::on_editor_context_menu_mouse_down),
+        );
 
         let content_area = div()
             .id("editor-scroll")
@@ -1818,7 +1806,7 @@ impl Render for Editor {
         } else {
             base
         };
-        let base = if let Some(context_menu) = self.render_context_menu_overlay(&theme, cx) {
+        let base = if let Some(context_menu) = self.render_context_menu_overlay(&theme, window, cx) {
             base.child(context_menu)
         } else {
             base

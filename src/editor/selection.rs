@@ -658,7 +658,7 @@ impl Editor {
         true
     }
 
-    fn cross_block_selected_markdown(&self, cx: &App) -> Option<String> {
+    pub(super) fn cross_block_selected_markdown(&self, cx: &App) -> Option<String> {
         let selection = self.normalized_cross_block_selection(cx)?;
         let source = self.current_document_source(cx);
         let mappings = self.source_mapping_by_entity_id(cx);
@@ -760,7 +760,7 @@ impl Editor {
             .unwrap_or_default()
     }
 
-    fn delete_cross_block_selection(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(super) fn delete_cross_block_selection(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(selection) = self.normalized_cross_block_selection(cx) else {
             return false;
         };
