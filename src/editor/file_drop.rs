@@ -354,7 +354,8 @@ impl Editor {
         let had_dialog = self.show_drop_replace_dialog;
         let had_after_save = self.pending_drop_replace_after_save;
         let had_restore_focus = self.drop_replace_restore_focus.take().is_some();
-        let had_state = had_path || had_dialog || had_after_save || had_restore_focus;
+        let had_search_jump = self.pending_workspace_search_jump.take().is_some();
+        let had_state = had_path || had_dialog || had_after_save || had_restore_focus || had_search_jump;
         self.show_drop_replace_dialog = false;
         self.pending_drop_replace_after_save = false;
         if had_state {

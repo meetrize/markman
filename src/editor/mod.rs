@@ -54,6 +54,13 @@ pub(crate) struct PendingOpenLink {
     pub(crate) open_target: String,
 }
 
+/// Deferred jump target after opening a workspace search result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingWorkspaceSearchJump {
+    pub(crate) line: usize,
+    pub(crate) query: String,
+}
+
 /// Top-level controller that owns editor-wide state and delegates tree
 /// mutations to [`DocumentTree`].
 ///
@@ -74,6 +81,7 @@ pub struct Editor {
     pending_save: bool,
     pending_save_as: bool,
     pending_open_link: Option<PendingOpenLink>,
+    pending_workspace_search_jump: Option<PendingWorkspaceSearchJump>,
     pending_window_edited: bool,
     pending_window_title_refresh: bool,
     document_dirty: bool,
@@ -268,6 +276,7 @@ impl Editor {
             pending_save: false,
             pending_save_as: false,
             pending_open_link: None,
+            pending_workspace_search_jump: None,
             pending_window_edited: false,
             pending_window_title_refresh: false,
             document_dirty: false,

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use gpui::*;
 
-use super::{BlockKind, Editor};
+use super::{BlockKind, Editor, PendingWorkspaceSearchJump};
 use super::workspace_search_input::WorkspaceSearchInputElement;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste, SelectAll, SelectEnd,
@@ -871,8 +871,49 @@ impl Editor {
     }
 
     fn open_workspace_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_workspace_search_result(path, None, window, cx);
+    }
+
+    fn open_workspace_search_result(
+        &mut self,
+        path: PathBuf,
+        line: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.workspace.selected = Some(WorkspaceSelection::File(path.clone()));
+
+        if let Some(line) = line {
+            self.pending_workspace_search_jump = Some(PendingWorkspaceSearchJump {
+                line,
+                query: self.workspace.search_query.clone(),
+            });
+        } else {
+            self.pending_workspace_search_jump = None;
+        }
+
+        if line.is_some()
+            && !self.document_dirty
+            && self.file_path.as_deref() == Some(path.as_path())
+        {
+            self.apply_pending_workspace_search_jump(cx);
+            window.activate_window();
+            cx.notify();
+            return;
+        }
+
         self.request_dropped_markdown_replace(path, window, cx);
+    }
+
+    pub(super) fn apply_pending_workspace_search_jump(&mut self, cx: &mut Context<Self>) {
+        let Some(jump) = self.pending_workspace_search_jump.take() else {
+            return;
+        };
+
+        if self.jump_to_source_line_with_query(jump.line, &jump.query, cx) {
+            self.pending_scroll_active_block_into_view = true;
+            self.pending_scroll_recheck_after_layout = true;
+        }
     }
 
     pub(super) fn workspace_panel_width(&self, viewport_width: f32) -> f32 {
@@ -1330,6 +1371,7 @@ impl Editor {
             let label = workspace_search_result_label(root.as_deref(), result);
             let detail = workspace_search_result_detail(result);
             let path = result.path.clone();
+            let line = result.line;
             let open_editor = editor.clone();
             rows.push(
                 div()
@@ -1346,7 +1388,7 @@ impl Editor {
                     .on_click(move |_event, window, cx| {
                         let open_path = path.clone();
                         let _ = open_editor.update(cx, |editor, cx| {
-                            editor.open_workspace_file(open_path, window, cx);
+                            editor.open_workspace_search_result(open_path, line, window, cx);
                         });
                     })
                     .child(

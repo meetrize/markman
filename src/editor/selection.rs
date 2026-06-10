@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
+use std::time::Instant;
 
 use gpui::*;
 
@@ -419,6 +420,48 @@ impl Editor {
         })
     }
 
+    pub(super) fn jump_to_source_line_with_query(
+        &mut self,
+        line: usize,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if line == 0 {
+            return false;
+        }
+
+        let source = self.last_stable_source_text.as_str();
+        let Some(line_start) = source_line_start_offset(source, line) else {
+            return false;
+        };
+        let line_end = source[line_start..]
+            .find('\n')
+            .map(|index| line_start + index)
+            .unwrap_or(source.len());
+        let keyword_offset =
+            keyword_byte_offset_in_line(&source[line_start..line_end], query);
+        let target_offset = (line_start + keyword_offset).min(line_end);
+
+        let mappings = self.build_source_target_mappings(cx);
+        let Some(endpoint) = self.endpoint_for_source_offset(target_offset, &mappings, cx) else {
+            return false;
+        };
+        let Some(block) = self.focusable_entity_by_id(endpoint.entity_id) else {
+            return false;
+        };
+
+        block.update(cx, |block, cx| {
+            block.selected_range = endpoint.offset..endpoint.offset;
+            block.selection_reversed = false;
+            block.marked_range = None;
+            block.vertical_motion_x = None;
+            block.cursor_blink_epoch = Instant::now();
+            cx.notify();
+        });
+        self.focus_block(endpoint.entity_id);
+        true
+    }
+
     fn cross_block_source_range_for_normalized(
         &self,
         selection: NormalizedCrossBlockSelection,
@@ -672,6 +715,38 @@ impl Editor {
         cx.notify();
         true
     }
+}
+
+fn source_line_start_offset(source: &str, line: usize) -> Option<usize> {
+    if line == 0 {
+        return None;
+    }
+    if line == 1 {
+        return Some(0);
+    }
+
+    let mut current_line = 1usize;
+    for (index, byte) in source.bytes().enumerate() {
+        if byte == b'\n' {
+            current_line += 1;
+            if current_line == line {
+                return Some(index + 1);
+            }
+        }
+    }
+
+    (current_line == line).then_some(source.len())
+}
+
+fn keyword_byte_offset_in_line(line: &str, query: &str) -> usize {
+    let query = query.trim();
+    if query.is_empty() {
+        return 0;
+    }
+
+    let line_lower = line.to_lowercase();
+    let query_lower = query.to_lowercase();
+    line_lower.find(&query_lower).unwrap_or(0)
 }
 
 #[cfg(test)]
