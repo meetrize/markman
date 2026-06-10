@@ -5,6 +5,9 @@ use gpui::*;
 use super::Editor;
 use crate::theme::ThemeManager;
 
+const WORKSPACE_SEARCH_FONT_SCALE: f32 = 0.78;
+const WORKSPACE_SEARCH_TRUNCATION_SUFFIX: &str = "…";
+
 pub(super) struct WorkspaceSearchInputElement {
     editor: Entity<Editor>,
     placeholder: SharedString,
@@ -53,7 +56,7 @@ impl Element for WorkspaceSearchInputElement {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        style.size.height = px(24.0).max(window.line_height()).into();
+        style.size.height = relative(1.).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -72,25 +75,45 @@ impl Element for WorkspaceSearchInputElement {
         let is_placeholder = editor.workspace_search_query_is_empty();
         let focused = editor.workspace_search_input_active(window);
         let style = window.text_style();
+        let font_size = px(theme.typography.text_size * WORKSPACE_SEARCH_FONT_SCALE);
         let text_color = if is_placeholder {
             theme.colors.dialog_muted
         } else {
             theme.colors.text_default
         };
-        let base_run = TextRun {
-            len: content.len(),
-            font: style.font(),
-            color: text_color,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        };
 
-        let runs = if let Some(marked_range) = editor
-            .workspace_search_marked_range()
-            .filter(|_| !is_placeholder)
-        {
-            vec![
+        let (shape_text, runs) = if is_placeholder {
+            let mut placeholder_runs = vec![TextRun {
+                len: content.len(),
+                font: style.font(),
+                color: text_color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }];
+            let max_width = bounds.size.width;
+            let shape_text = if max_width > px(0.0) {
+                let mut line_wrapper = window.text_system().line_wrapper(style.font(), font_size);
+                line_wrapper.truncate_line(
+                    content,
+                    max_width,
+                    WORKSPACE_SEARCH_TRUNCATION_SUFFIX,
+                    &mut placeholder_runs,
+                )
+            } else {
+                content
+            };
+            (shape_text, placeholder_runs)
+        } else if let Some(marked_range) = editor.workspace_search_marked_range() {
+            let base_run = TextRun {
+                len: content.len(),
+                font: style.font(),
+                color: text_color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let runs = vec![
                 TextRun {
                     len: marked_range.start,
                     ..base_run.clone()
@@ -111,16 +134,30 @@ impl Element for WorkspaceSearchInputElement {
             ]
             .into_iter()
             .filter(|run| run.len > 0)
-            .collect()
+            .collect();
+            (content, runs)
         } else {
-            vec![base_run]
+            let query_len = content.len();
+            (
+                content,
+                vec![TextRun {
+                    len: query_len,
+                    font: style.font(),
+                    color: text_color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+            )
         };
 
-        let font_size = style.font_size.to_pixels(window.rem_size());
         let line = window
             .text_system()
-            .shape_line(content, font_size, &runs, None);
+            .shape_line(shape_text, font_size, &runs, None);
         let line_height = bounds.size.height;
+        let padding_top = (line_height - line.ascent - line.descent) / 2.0;
+        let text_top = bounds.top() + padding_top;
+        let text_bottom = text_top + line.ascent + line.descent;
 
         let marked = editor
             .workspace_search_marked_range()
@@ -130,11 +167,11 @@ impl Element for WorkspaceSearchInputElement {
                     Bounds::from_corners(
                         point(
                             bounds.left() + line.x_for_index(marked_range.start),
-                            bounds.top(),
+                            text_top,
                         ),
                         point(
                             bounds.left() + line.x_for_index(marked_range.end),
-                            bounds.bottom(),
+                            text_bottom,
                         ),
                     ),
                     theme.colors.selection.opacity(0.35),
@@ -148,11 +185,11 @@ impl Element for WorkspaceSearchInputElement {
                     Bounds::from_corners(
                         point(
                             bounds.left() + line.x_for_index(selected_range.start),
-                            bounds.top(),
+                            text_top,
                         ),
                         point(
                             bounds.left() + line.x_for_index(selected_range.end),
-                            bounds.bottom(),
+                            text_bottom,
                         ),
                     ),
                     theme.colors.selection.opacity(0.35),
@@ -173,9 +210,9 @@ impl Element for WorkspaceSearchInputElement {
                 Bounds::new(
                     point(
                         bounds.left() + line.x_for_index(cursor_offset),
-                        bounds.top(),
+                        text_top,
                     ),
-                    size(px(theme.dimensions.cursor_width), line_height),
+                    size(px(theme.dimensions.cursor_width), text_bottom - text_top),
                 ),
                 cursor_color,
             ))

@@ -1042,6 +1042,8 @@ impl Editor {
                         div()
                             .id("workspace-search-input")
                             .h(px(26.0))
+                            .min_w(px(0.0))
+                            .overflow_hidden()
                             .px(px(8.0))
                             .flex()
                             .items_center()
@@ -1062,6 +1064,7 @@ impl Editor {
                                     .flex_1()
                                     .min_w(px(0.0))
                                     .h_full()
+                                    .overflow_hidden()
                                     .child(WorkspaceSearchInputElement::new(
                                         cx.entity(),
                                         placeholder,
