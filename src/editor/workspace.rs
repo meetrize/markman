@@ -13,11 +13,17 @@ use crate::theme::Theme;
 
 const FOLDER_ICON: &str = "icon/workspace/folder.svg";
 const MARKDOWN_ICON: &str = "icon/workspace/markdown.svg";
+const CHEVRON_RIGHT_ICON: &str = "icon/workspace/chevron-right.svg";
+const CHEVRON_DOWN_ICON: &str = "icon/workspace/chevron-down.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
-const WORKSPACE_PANEL_MIN_WIDTH: f32 = 240.0;
+const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
 const WORKSPACE_PANEL_MAX_WIDTH: f32 = 360.0;
-const WORKSPACE_NODE_HEIGHT: f32 = 28.0;
-const WORKSPACE_NODE_INDENT: f32 = 18.0;
+const WORKSPACE_PANEL_MAX_VIEWPORT_RATIO: f32 = 0.45;
+const WORKSPACE_NODE_HEIGHT: f32 = 22.0;
+const WORKSPACE_NODE_INDENT: f32 = 12.0;
+const WORKSPACE_CHEVRON_SIZE: f32 = 12.0;
+const WORKSPACE_ICON_SIZE: f32 = 14.0;
+const WORKSPACE_RESIZE_HANDLE_WIDTH: f32 = 5.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum WorkspaceTab {
@@ -50,6 +56,7 @@ enum WorkspaceSelection {
 pub(super) struct WorkspaceState {
     is_open: bool,
     folder_root: Option<PathBuf>,
+    panel_width: Option<f32>,
     active_tab: WorkspaceTab,
     root: Option<PathBuf>,
     file_tree: Option<WorkspaceTreeNode>,
@@ -65,6 +72,7 @@ impl Default for WorkspaceState {
         Self {
             is_open: true,
             folder_root: None,
+            panel_width: None,
             active_tab: WorkspaceTab::default(),
             root: None,
             file_tree: None,
@@ -224,11 +232,50 @@ impl Editor {
         self.request_dropped_markdown_replace(path, window, cx);
     }
 
+    pub(super) fn workspace_panel_width(&self, viewport_width: f32) -> f32 {
+        workspace_panel_width_for_viewport(viewport_width, self.workspace.panel_width)
+    }
+
+    pub(crate) fn start_workspace_resize_drag(
+        &mut self,
+        pointer_x: f32,
+        viewport_width: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let current_width = self.workspace_panel_width(viewport_width);
+        self.workspace_resize_drag = Some(super::WorkspaceResizeDragSession {
+            start_pointer_x: pointer_x,
+            start_width: current_width,
+            viewport_width,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn update_workspace_resize_drag(&mut self, pointer_x: f32, cx: &mut Context<Self>) {
+        let Some(drag) = self.workspace_resize_drag else {
+            return;
+        };
+
+        let delta = pointer_x - drag.start_pointer_x;
+        let next_width =
+            clamp_workspace_panel_width(drag.start_width + delta, drag.viewport_width);
+        if self.workspace.panel_width != Some(next_width) {
+            self.workspace.panel_width = Some(next_width);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn end_workspace_resize_drag(&mut self, cx: &mut Context<Self>) {
+        if self.workspace_resize_drag.take().is_some() {
+            cx.notify();
+        }
+    }
+
     pub(super) fn render_workspace_panel(
         &mut self,
         theme: &Theme,
         strings: &I18nStrings,
-        panel_width: f32,
+        viewport_width: f32,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if !self.workspace.is_open {
@@ -236,6 +283,7 @@ impl Editor {
         }
 
         self.sync_workspace_models(cx);
+        let panel_width = self.workspace_panel_width(viewport_width);
         let editor = cx.entity().downgrade();
         let c = &theme.colors;
         let d = &theme.dimensions;
@@ -249,12 +297,13 @@ impl Editor {
             };
             div()
                 .id(tab_id)
-                .h(px(30.0))
-                .px(px(12.0))
+                .h(px(24.0))
+                .px(px(10.0))
                 .flex()
+                .flex_1()
                 .items_center()
                 .justify_center()
-                .rounded(px(6.0))
+                .rounded(px(4.0))
                 .bg(if active {
                     c.selection
                 } else {
@@ -262,7 +311,7 @@ impl Editor {
                 })
                 .hover(|this| this.bg(c.dialog_secondary_button_hover))
                 .cursor_pointer()
-                .text_size(px(t.text_size * 0.88))
+                .text_size(px(t.text_size * 0.82))
                 .text_color(if active {
                     c.text_default
                 } else {
@@ -281,46 +330,112 @@ impl Editor {
             WorkspaceTab::Outline => self.render_workspace_outline_tree(theme, strings, &editor),
         };
 
+        let resize_editor = editor.clone();
+        let drag_start_editor = resize_editor.clone();
+        let resize_viewport_width = viewport_width;
+
         Some(
             div()
-                .id("workspace-panel")
+                .id("workspace-panel-shell")
+                .relative()
                 .h_full()
                 .w(px(panel_width))
-                .flex()
-                .flex_col()
                 .flex_shrink_0()
-                .bg(c.dialog_surface)
-                .border_r(px(d.dialog_border_width))
-                .border_color(c.dialog_border)
                 .child(
                     div()
-                        .px(px(12.0))
-                        .pt(px(12.0))
-                        .pb(px(8.0))
+                        .id("workspace-panel")
+                        .size_full()
                         .flex()
-                        .gap(px(8.0))
-                        .border_b(px(d.dialog_border_width))
+                        .flex_col()
+                        .bg(c.dialog_surface)
+                        .border_r(px(d.dialog_border_width))
                         .border_color(c.dialog_border)
-                        .child(tab(
-                            strings.workspace_tab_files.clone(),
-                            WorkspaceTab::Files,
-                            self.workspace.active_tab == WorkspaceTab::Files,
-                        ))
-                        .child(tab(
-                            strings.workspace_tab_outline.clone(),
-                            WorkspaceTab::Outline,
-                            self.workspace.active_tab == WorkspaceTab::Outline,
-                        )),
+                        .child(
+                            div()
+                                .px(px(8.0))
+                                .pt(px(8.0))
+                                .pb(px(6.0))
+                                .flex()
+                                .gap(px(4.0))
+                                .border_b(px(d.dialog_border_width))
+                                .border_color(c.dialog_border)
+                                .child(tab(
+                                    strings.workspace_tab_files.clone(),
+                                    WorkspaceTab::Files,
+                                    self.workspace.active_tab == WorkspaceTab::Files,
+                                ))
+                                .child(tab(
+                                    strings.workspace_tab_outline.clone(),
+                                    WorkspaceTab::Outline,
+                                    self.workspace.active_tab == WorkspaceTab::Outline,
+                                )),
+                        )
+                        .child(
+                            div()
+                                .id("workspace-panel-scroll")
+                                .flex_1()
+                                .min_h(px(0.0))
+                                .overflow_y_scroll()
+                                .px(px(4.0))
+                                .py(px(4.0))
+                                .child(body),
+                        ),
                 )
                 .child(
                     div()
-                        .id("workspace-panel-scroll")
-                        .flex_1()
-                        .min_h(px(0.0))
-                        .overflow_y_scroll()
-                        .px(px(8.0))
-                        .py(px(10.0))
-                        .child(body),
+                        .id("workspace-resize-handle")
+                        .absolute()
+                        .top_0()
+                        .right(px(0.0))
+                        .w(px(WORKSPACE_RESIZE_HANDLE_WIDTH))
+                        .h_full()
+                        .occlude()
+                        .cursor_col_resize()
+                        .hover(|this| this.bg(c.dialog_border.opacity(0.55)))
+                        .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
+                            cx.stop_propagation();
+                            let _ = drag_start_editor.update(cx, |editor, cx| {
+                                editor.start_workspace_resize_drag(
+                                    f32::from(event.position.x),
+                                    resize_viewport_width,
+                                    cx,
+                                );
+                            });
+                        })
+                        .child(
+                            canvas(
+                                |_, _, _| (),
+                                move |_bounds, _, window, _| {
+                                    window.on_mouse_event({
+                                        let editor = resize_editor.clone();
+                                        move |event: &MouseMoveEvent, phase, _window, cx| {
+                                            if !phase.bubble() || !event.dragging() {
+                                                return;
+                                            }
+                                            let _ = editor.update(cx, |editor, cx| {
+                                                editor.update_workspace_resize_drag(
+                                                    f32::from(event.position.x),
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    });
+
+                                    window.on_mouse_event({
+                                        let editor = resize_editor.clone();
+                                        move |_event: &MouseUpEvent, phase, _window, cx| {
+                                            if !phase.bubble() {
+                                                return;
+                                            }
+                                            let _ = editor.update(cx, |editor, cx| {
+                                                editor.end_workspace_resize_drag(cx);
+                                            });
+                                        }
+                                    });
+                                },
+                            )
+                            .size_full(),
+                        ),
                 )
                 .into_any_element(),
         )
@@ -460,11 +575,36 @@ impl Editor {
         let click_kind = node.kind.clone();
         let arrow_node_id = node.id.clone();
         let arrow_editor = editor.clone();
-        let arrow = if has_children {
-            if is_expanded { "v" } else { ">" }
-        } else {
-            ""
-        };
+        let chevron_color = c.dialog_muted;
+
+        let mut arrow_el = div()
+            .w(px(WORKSPACE_CHEVRON_SIZE))
+            .h(px(WORKSPACE_CHEVRON_SIZE))
+            .flex_shrink_0();
+        if has_children {
+            let chevron_icon = if is_expanded {
+                CHEVRON_DOWN_ICON
+            } else {
+                CHEVRON_RIGHT_ICON
+            };
+            arrow_el = arrow_el
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .child(
+                    svg()
+                        .path(chevron_icon)
+                        .size(px(WORKSPACE_CHEVRON_SIZE))
+                        .text_color(chevron_color),
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    let _ = arrow_editor.update(cx, |editor, cx| {
+                        editor.toggle_workspace_node(&arrow_node_id, cx);
+                    });
+                    cx.stop_propagation();
+                });
+        }
 
         let icon = match &node.kind {
             WorkspaceTreeKind::Directory(_) => Some((FOLDER_ICON, Hsla::from(rgba(0xf59e0bff)))),
@@ -480,28 +620,6 @@ impl Editor {
             c.dialog_muted
         };
 
-        let mut arrow_el = div()
-            .w(px(14.0))
-            .h(px(18.0))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(12.0))
-            .text_color(c.dialog_muted)
-            .child(arrow);
-        if has_children {
-            arrow_el = arrow_el.cursor_pointer().on_mouse_down(
-                MouseButton::Left,
-                move |_event, _window, cx| {
-                    let _ = arrow_editor.update(cx, |editor, cx| {
-                        editor.toggle_workspace_node(&arrow_node_id, cx);
-                    });
-                    cx.stop_propagation();
-                },
-            );
-        }
-
         div()
             .id(("workspace-node", stable_node_hash(&node.id)))
             .h(px(WORKSPACE_NODE_HEIGHT))
@@ -509,10 +627,10 @@ impl Editor {
             .overflow_hidden()
             .flex()
             .items_center()
-            .gap(px(6.0))
-            .pl(px(8.0 + depth as f32 * WORKSPACE_NODE_INDENT))
-            .pr(px(8.0))
-            .rounded(px(6.0))
+            .gap(px(4.0))
+            .pl(px(4.0 + depth as f32 * WORKSPACE_NODE_INDENT))
+            .pr(px(4.0))
+            .rounded(px(4.0))
             .bg(if selected {
                 c.selection
             } else {
@@ -524,7 +642,7 @@ impl Editor {
             .children(icon.map(|(path, color)| {
                 svg()
                     .path(path)
-                    .size(px(16.0))
+                    .size(px(WORKSPACE_ICON_SIZE))
                     .flex_shrink_0()
                     .text_color(color)
                     .into_any_element()
@@ -535,8 +653,8 @@ impl Editor {
                     .min_w(px(0.0))
                     .overflow_hidden()
                     .truncate()
-                    .text_size(px(t.text_size * 0.9))
-                    .line_height(px(t.text_size * t.text_line_height))
+                    .text_size(px(t.text_size * 0.84))
+                    .line_height(px(t.text_size * 1.15))
                     .text_color(label_color)
                     .child(node.label.clone()),
             )
@@ -614,9 +732,26 @@ fn stable_node_hash(id: &str) -> u64 {
     hasher.finish()
 }
 
-pub(super) fn workspace_panel_width_for_viewport(viewport_width: f32) -> f32 {
+pub(super) fn default_workspace_panel_width(viewport_width: f32) -> f32 {
     let target = viewport_width * WORKSPACE_PANEL_TARGET_RATIO;
     target.clamp(WORKSPACE_PANEL_MIN_WIDTH, WORKSPACE_PANEL_MAX_WIDTH)
+}
+
+pub(super) fn clamp_workspace_panel_width(width: f32, viewport_width: f32) -> f32 {
+    let max_width = (viewport_width * WORKSPACE_PANEL_MAX_VIEWPORT_RATIO)
+        .max(WORKSPACE_PANEL_MIN_WIDTH)
+        .max(WORKSPACE_PANEL_MAX_WIDTH);
+    width.clamp(WORKSPACE_PANEL_MIN_WIDTH, max_width)
+}
+
+pub(super) fn workspace_panel_width_for_viewport(
+    viewport_width: f32,
+    user_width: Option<f32>,
+) -> f32 {
+    match user_width {
+        Some(width) => clamp_workspace_panel_width(width, viewport_width),
+        None => default_workspace_panel_width(viewport_width),
+    }
 }
 
 fn prune_outline_state(workspace: &mut WorkspaceState, outline: &[WorkspaceTreeNode]) {
@@ -802,8 +937,21 @@ mod tests {
 
     #[test]
     fn workspace_panel_width_uses_ratio_with_bounds() {
-        assert_eq!(workspace_panel_width_for_viewport(1000.0), 240.0);
-        assert_eq!(workspace_panel_width_for_viewport(2000.0), 300.0);
-        assert_eq!(workspace_panel_width_for_viewport(4000.0), 360.0);
+        assert_eq!(
+            workspace_panel_width_for_viewport(1000.0, None),
+            180.0
+        );
+        assert_eq!(
+            workspace_panel_width_for_viewport(2000.0, None),
+            300.0
+        );
+        assert_eq!(
+            workspace_panel_width_for_viewport(4000.0, None),
+            360.0
+        );
+        assert_eq!(
+            workspace_panel_width_for_viewport(1000.0, Some(280.0)),
+            280.0
+        );
     }
 }

@@ -113,6 +113,7 @@ pub struct Editor {
     scrollbar_visible_until: Instant,
     scrollbar_fade_task: Option<Task<()>>,
     scrollbar_drag: Option<ScrollbarDragSession>,
+    workspace_resize_drag: Option<WorkspaceResizeDragSession>,
     undo_history: Vec<HistoryEntry>,
     pending_undo_capture: Option<PendingUndoCapture>,
     last_selection_snapshot: UndoSelectionSnapshot,
@@ -146,6 +147,14 @@ struct ScrollbarGeometry {
     thumb_height: f32,
     thumb_top: f32,
     max_scroll_y: f32,
+}
+
+/// Active drag session for resizing the workspace panel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WorkspaceResizeDragSession {
+    start_pointer_x: f32,
+    start_width: f32,
+    viewport_width: f32,
 }
 
 /// Active drag session for the custom scrollbar thumb.
@@ -291,6 +300,7 @@ impl Editor {
             scrollbar_visible_until: Instant::now(),
             scrollbar_fade_task: None,
             scrollbar_drag: None,
+            workspace_resize_drag: None,
             undo_history: Vec::new(),
             pending_undo_capture: None,
             last_selection_snapshot: Self::empty_selection_snapshot(),
