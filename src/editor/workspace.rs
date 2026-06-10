@@ -47,7 +47,6 @@ enum WorkspaceSelection {
     Outline(String),
 }
 
-#[derive(Default)]
 pub(super) struct WorkspaceState {
     is_open: bool,
     active_tab: WorkspaceTab,
@@ -58,6 +57,22 @@ pub(super) struct WorkspaceState {
     outline_source: Option<String>,
     expanded: HashSet<String>,
     selected: Option<WorkspaceSelection>,
+}
+
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self {
+            is_open: true,
+            active_tab: WorkspaceTab::default(),
+            root: None,
+            file_tree: None,
+            file_error: None,
+            outline_tree: Vec::new(),
+            outline_source: None,
+            expanded: HashSet::new(),
+            selected: None,
+        }
+    }
 }
 
 impl Editor {
