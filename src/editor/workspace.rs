@@ -244,12 +244,13 @@ impl Editor {
     }
 
     fn set_workspace_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
-        if self.workspace.active_tab != tab {
-            self.workspace.active_tab = tab;
-            self.workspace.search_open = false;
-            self.sync_workspace_models(cx);
-            cx.notify();
+        if self.workspace.active_tab == tab && !self.workspace.search_open {
+            return;
         }
+        self.workspace.active_tab = tab;
+        self.workspace.search_open = false;
+        self.sync_workspace_models(cx);
+        cx.notify();
     }
 
     fn sync_workspace_search_selection(&mut self) {
