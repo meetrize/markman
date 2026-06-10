@@ -64,7 +64,7 @@ impl Editor {
     pub(super) fn on_editor_capture_mouse_down(
         &mut self,
         event: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if event.button != MouseButton::Left {
@@ -74,6 +74,13 @@ impl Editor {
 
         if self.view_mode != ViewMode::Rendered {
             cx.propagate();
+            return;
+        }
+
+        if event.click_count >= 2
+            && self.apply_rendered_word_or_line_selection_on_mouse_down(event, window, cx)
+        {
+            cx.stop_propagation();
             return;
         }
 
@@ -117,19 +124,57 @@ impl Editor {
     pub(super) fn on_editor_mouse_up(
         &mut self,
         event: &MouseUpEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.view_mode == ViewMode::Rendered && event.click_count >= 2 {
-            self.apply_rendered_word_or_line_selection(event, cx);
+            self.apply_rendered_word_or_line_selection(event, window, cx);
         }
         self.cross_block_drag = None;
         self.end_block_pointer_selection_sessions(cx);
     }
 
+    fn apply_rendered_word_or_line_selection_on_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(endpoint) = self.cross_block_endpoint_for_point(event.position, cx) else {
+            return false;
+        };
+        let Some(entity) = self.document.block_entity_by_id(endpoint.entity_id) else {
+            return false;
+        };
+
+        self.cross_block_drag = None;
+        self.cross_block_selection = None;
+        self.sync_cross_block_selection_visuals(cx);
+
+        let handled = entity.update(cx, |block, cx| {
+            if !block.focus_handle.is_focused(window) {
+                block.focus_handle.focus(window);
+            }
+            block.try_select_word_or_line_at_click_count(
+                event.position,
+                event.click_count,
+                window,
+                cx,
+            )
+        });
+        if !handled {
+            return false;
+        }
+
+        self.focus_block(endpoint.entity_id);
+        cx.notify();
+        true
+    }
+
     fn apply_rendered_word_or_line_selection(
         &mut self,
         event: &MouseUpEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(endpoint) = self.cross_block_endpoint_for_point(event.position, cx) else {
@@ -139,15 +184,19 @@ impl Editor {
             return;
         };
 
+        self.cross_block_selection = None;
+        self.sync_cross_block_selection_visuals(cx);
+
         let handled = entity.update(cx, |block, cx| {
-            block.try_select_word_or_line_at_click(event, cx)
+            if !block.focus_handle.is_focused(window) {
+                block.focus_handle.focus(window);
+            }
+            block.try_select_word_or_line_at_click(event, window, cx)
         });
         if !handled {
             return;
         }
 
-        self.cross_block_selection = None;
-        self.sync_cross_block_selection_visuals(cx);
         self.focus_block(endpoint.entity_id);
         cx.notify();
     }
@@ -268,7 +317,8 @@ impl Editor {
         let mut previous: Option<(Entity<Block>, Bounds<Pixels>)> = None;
         for visible in self.document.visible_blocks() {
             let entity = visible.entity.clone();
-            let bounds = entity.read(cx).last_bounds;
+            let block = entity.read(cx);
+            let bounds = block.last_bounds.or(block.interaction_bounds);
             let Some(bounds) = bounds else {
                 continue;
             };

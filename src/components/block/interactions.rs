@@ -895,8 +895,25 @@ impl Block {
             return;
         }
 
-        let offset = self.index_for_mouse_position(event.position);
         let was_focused = self.focus_handle.is_focused(window);
+        if event.click_count >= 2
+            && self.try_select_word_or_line_at_click_count(
+                event.position,
+                event.click_count,
+                window,
+                cx,
+            )
+        {
+            cx.stop_propagation();
+            self.is_selecting = false;
+            if !was_focused {
+                self.focus_handle.focus(window);
+                cx.emit(BlockEvent::RequestFocus);
+            }
+            return;
+        }
+
+        let offset = self.index_for_mouse_position(event.position);
 
         if was_focused {
             self.is_selecting = true;
@@ -919,36 +936,63 @@ impl Block {
         cx: &mut Context<Self>,
     ) {
         self.is_selecting = false;
-        self.try_select_word_or_line_at_click(event, cx);
+        if event.click_count >= 2 {
+            self.try_select_word_or_line_at_click_count(
+                event.position,
+                event.click_count,
+                _window,
+                cx,
+            );
+        }
+    }
+
+    fn finalize_pointer_word_or_line_selection(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.focus_handle.is_focused(window)
+            && self.edit_mode == super::runtime::EditMode::RenderedRich
+        {
+            self.sync_inline_projection_for_focus(true);
+        }
+        if !self.selected_range.is_empty() {
+            self.editor_selection_range = Some(self.selected_range.clone());
+            cx.notify();
+        }
     }
 
     /// Returns `true` when a double- or triple-click word/line selection (or
     /// footnote/link activation) was handled.
-    pub(crate) fn try_select_word_or_line_at_click(
+    pub(crate) fn try_select_word_or_line_at_click_count(
         &mut self,
-        event: &MouseUpEvent,
+        position: Point<Pixels>,
+        click_count: usize,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let offset = self.index_for_mouse_position(event.position);
+        let offset = self.index_for_mouse_position(position);
+        let text_bounds = self.last_bounds.or(self.interaction_bounds);
 
-        if event.click_count >= 3 {
+        if click_count >= 3 {
             cx.stop_propagation();
             self.select_line_at_offset(offset, cx);
+            self.finalize_pointer_word_or_line_selection(window, cx);
             return true;
         }
 
-        if event.click_count >= 2 {
+        if click_count >= 2 {
             let footnote = self
                 .last_layout
                 .as_ref()
-                .zip(self.last_bounds)
+                .zip(text_bounds)
                 .and_then(|(lines, bounds)| {
                     super::element::footnote_at_position(
                         self,
                         lines,
                         bounds,
                         self.last_line_height,
-                        event.position,
+                        position,
                     )
                 })
                 .cloned();
@@ -961,14 +1005,14 @@ impl Block {
             let link = self
                 .last_layout
                 .as_ref()
-                .zip(self.last_bounds)
+                .zip(text_bounds)
                 .and_then(|(lines, bounds)| {
                     super::element::link_at_position(
                         self,
                         lines,
                         bounds,
                         self.last_line_height,
-                        event.position,
+                        position,
                     )
                 })
                 .cloned();
@@ -983,10 +1027,22 @@ impl Block {
 
             cx.stop_propagation();
             self.select_word_at_offset(offset, cx);
+            self.finalize_pointer_word_or_line_selection(window, cx);
             return true;
         }
 
         false
+    }
+
+    /// Returns `true` when a double- or triple-click word/line selection (or
+    /// footnote/link activation) was handled.
+    pub(crate) fn try_select_word_or_line_at_click(
+        &mut self,
+        event: &MouseUpEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.try_select_word_or_line_at_click_count(event.position, event.click_count, window, cx)
     }
 
     pub(crate) fn on_footnote_backref_mouse_down(

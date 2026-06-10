@@ -115,6 +115,7 @@ pub struct Block {
     pub marked_range: Option<Range<usize>>,
     pub last_layout: Option<Vec<WrappedLine>>,
     pub last_bounds: Option<Bounds<Pixels>>,
+    pub(crate) interaction_bounds: Option<Bounds<Pixels>>,
     pub last_line_height: Pixels,
     pub render_depth: usize,
     pub quote_depth: usize,
@@ -220,6 +221,7 @@ impl Block {
             marked_range: None,
             last_layout: None,
             last_bounds: None,
+            interaction_bounds: None,
             last_line_height: px(20.0),
             render_depth: 0,
             quote_depth: 0,
@@ -968,6 +970,7 @@ impl Block {
         let clamped_offset = offset.min(self.visible_len());
         self.selected_range = clamped_offset..clamped_offset;
         self.selection_reversed = false;
+        self.editor_selection_range = None;
         self.vertical_motion_x = preferred_x;
         self.collapsed_caret_affinity = affinity;
         self.sync_collapsed_caret_affinity();
@@ -2245,6 +2248,7 @@ impl Block {
             let clean_offset = self.current_to_clean_offset(clamped);
             let clean_text = self.render_cache.visible_text();
             let clean_word = word_range_in_text(clean_text, clean_offset);
+            self.projection_cache_key = None;
             self.clean_to_current_range(clean_word)
         } else {
             word_range_in_text(self.display_text(), clamped)
@@ -2264,6 +2268,7 @@ impl Block {
             let clean_offset = self.current_to_clean_offset(clamped);
             let clean_text = self.render_cache.visible_text();
             let clean_line = line_range_in_text(clean_text, clean_offset);
+            self.projection_cache_key = None;
             self.clean_to_current_range(clean_line)
         } else {
             line_range_in_text(self.display_text(), clamped)
@@ -2294,8 +2299,8 @@ impl Block {
             return 0;
         }
 
-        let (Some(bounds), Some(lines)) = (self.last_bounds.as_ref(), self.last_layout.as_ref())
-        else {
+        let bounds = self.last_bounds.or(self.interaction_bounds);
+        let (Some(bounds), Some(lines)) = (bounds.as_ref(), self.last_layout.as_ref()) else {
             return 0;
         };
 

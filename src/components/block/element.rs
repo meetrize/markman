@@ -1012,6 +1012,34 @@ impl Element for BlockTextElement {
             );
         }
 
+        let text_bounds = source_text_bounds(bounds, prepaint.source_line_number_gutter_width);
+        let input_entity = self.input.clone();
+        let focus_handle_for_click = focus_handle.clone();
+        window.on_mouse_event({
+            let text_bounds_for_click = text_bounds;
+            move |event: &MouseDownEvent, phase, window, cx| {
+                if phase != DispatchPhase::Bubble
+                    || event.button != MouseButton::Left
+                    || event.click_count < 2
+                    || !text_bounds_for_click.contains(&event.position)
+                {
+                    return;
+                }
+                input_entity.update(cx, |block, cx| {
+                    if block.try_select_word_or_line_at_click_count(
+                        event.position,
+                        event.click_count,
+                        window,
+                        cx,
+                    ) && !focus_handle_for_click.is_focused(window)
+                    {
+                        block.focus_handle.focus(window);
+                        cx.emit(crate::components::BlockEvent::RequestFocus);
+                    }
+                });
+            }
+        });
+
         // Paint code backgrounds behind text.
         for code_bg in prepaint.code_backgrounds.drain(..) {
             window.paint_quad(code_bg);
@@ -1024,7 +1052,6 @@ impl Element for BlockTextElement {
         let line_height = prepaint.line_height;
         let lines = std::mem::take(&mut prepaint.lines);
         let text_align = self.input.read(cx).text_align();
-        let text_bounds = source_text_bounds(bounds, prepaint.source_line_number_gutter_width);
         let line_number_tops = source_line_number_tops(&lines, line_height);
         let line_number_gap = px(SOURCE_LINE_NUMBER_GAP);
         let line_numbers = std::mem::take(&mut prepaint.source_line_numbers);
@@ -1067,6 +1094,7 @@ impl Element for BlockTextElement {
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(lines);
             input.last_bounds = Some(text_bounds);
+            input.interaction_bounds = Some(text_bounds);
             input.last_line_height = line_height;
         });
     }
