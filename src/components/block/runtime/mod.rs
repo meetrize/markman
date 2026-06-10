@@ -1740,13 +1740,18 @@ impl Block {
         };
 
         // A span was closed when re-parsing absorbed delimiters into a style,
-        // leaving the clean text shorter than expected. Skip IME and deletions.
+        // leaving the clean text shorter than expected. Only treat delimiter
+        // keystrokes as span-closing edits; content characters should keep the
+        // caret inside the span (e.g. typing into `****` from the toolbar).
         let expected_visible_len =
             base_visible_len.saturating_sub(clean_range.len()) + new_text.len();
         let caret_may_have_closed_span = !self.uses_raw_text_editing()
             && !new_text.is_empty()
             && !mark_inserted_text
-            && result.tree.visible_text().len() < expected_visible_len;
+            && result.tree.visible_text().len() < expected_visible_len
+            && new_text
+                .chars()
+                .all(|ch| matches!(ch, '*' | '_' | '`' | '~'));
         let quote_structure_edit = !self.uses_raw_text_editing()
             && self.quote_depth > 0
             && (new_text.contains('\n')

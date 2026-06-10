@@ -823,6 +823,39 @@ async fn typing_inside_span_keeps_default_affinity(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn typing_into_toolbar_bold_markers_stays_inside_span(cx: &mut TestAppContext) {
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown("")),
+        )
+    });
+
+    block.update(cx, |block, cx| {
+        block.selected_range = 0..0;
+        block.sync_inline_projection_for_focus(true);
+        block.replace_text_in_visible_range(0..0, "****", Some(2..2), false, cx);
+        assert_eq!(block.display_text(), "****");
+        assert_eq!(block.cursor_offset(), 2);
+
+        block.replace_text_in_visible_range(2..2, "a", None, false, cx);
+        let caret_after_a = block.cursor_offset();
+
+        block.replace_text_in_visible_range(caret_after_a..caret_after_a, "b", None, false, cx);
+    });
+
+    block.read_with(cx, |block, _cx| {
+        assert_eq!(block.record.title.visible_text(), "ab");
+        assert_eq!(block.record.title.serialize_markdown(), "**ab**");
+        assert_eq!(block.cursor_offset(), 2);
+        assert_eq!(
+            block.collapsed_caret_affinity,
+            super::CollapsedCaretAffinity::Default
+        );
+    });
+}
+
+#[gpui::test]
 async fn typing_bold_markers_char_by_char_produces_bold_not_italic(cx: &mut TestAppContext) {
     // Typing `**bold**` one character at a time must yield bold, not italic.
     // The clean parse is committed on each keystroke, so the intermediate
