@@ -2239,10 +2239,6 @@ impl Render for Block {
                     + d.code_language_input_padding_y * 2.0
                     + d.code_language_input_border_width * 2.0;
                 let icon_size = px((t.code_size - 1.0).max(10.0));
-                let gutter_width = super::element::code_line_number_gutter_width(
-                    Self::code_block_line_count(self.display_text()),
-                    px(t.code_size),
-                );
                 let collapsible = self.code_block_is_collapsible();
                 let collapsed = self.code_block_collapsed(focused);
                 let code_line_height = t.code_size * t.text_line_height;
@@ -2412,6 +2408,10 @@ impl Render for Block {
                     );
                 }
 
+                let run_lane_width = px(badge_height + 6.0);
+                let run_icon_top = px(8.0);
+                let run_icon_size = px((t.code_size + 3.0).max(14.0));
+
                 focused_base
                     .rounded_sm()
                     .overflow_hidden()
@@ -2422,35 +2422,44 @@ impl Render for Block {
                         div()
                             .relative()
                             .w_full()
+                            .flex()
+                            .flex_row()
                             .child(
                                 div()
-                                    .w_full()
-                                    .pt(px(badge_height))
-                                    .py(px(d.code_block_padding_y))
-                                    .pr(px(d.code_block_padding_x))
-                                    .child(code_content),
+                                    .flex_none()
+                                    .flex_shrink_0()
+                                    .w(run_lane_width)
+                                    .relative()
+                                    .bg(c.code_language_input_bg)
+                                    .border_r(px(1.0))
+                                    .border_color(c.code_language_input_border.opacity(0.35))
+                                    .child(
+                                        div()
+                                            .id("code-block-run")
+                                            .absolute()
+                                            .top(run_icon_top)
+                                            .left_0()
+                                            .right_0()
+                                            .h(px(badge_height))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .opacity(0.72)
+                                            .child(
+                                                svg()
+                                                    .path(ICON_CODE_BLOCK_RUN)
+                                                    .size(run_icon_size)
+                                                    .text_color(c.code_language_input_text),
+                                            ),
+                                    ),
                             )
                             .child(
                                 div()
-                                    .id("code-block-run")
-                                    .absolute()
-                                    .top_0()
-                                    .left_0()
-                                    .w(gutter_width)
-                                    .h(px(badge_height))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(c.code_language_input_bg)
-                                    .border_b(px(1.0))
-                                    .border_color(c.code_language_input_border.opacity(0.35))
-                                    .opacity(0.72)
-                                    .child(
-                                        svg()
-                                            .path(ICON_CODE_BLOCK_RUN)
-                                            .size(icon_size)
-                                            .text_color(c.code_language_input_text),
-                                    ),
+                                    .flex_grow()
+                                    .min_w(px(0.0))
+                                    .py(px(d.code_block_padding_y))
+                                    .pr(px(d.code_block_padding_x))
+                                    .child(code_content),
                             ),
                     )
                     .into_any_element()
