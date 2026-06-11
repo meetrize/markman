@@ -2054,6 +2054,24 @@ pub(super) fn workspace_search_primary_shortcut_modifiers(modifiers: &Modifiers)
         && !modifiers.function
 }
 
+pub(super) fn extend_single_line_selection(
+    selected_range: &mut Range<usize>,
+    selection_reversed: &mut bool,
+    offset: usize,
+    text_len: usize,
+) {
+    let offset = offset.min(text_len);
+    if *selection_reversed {
+        selected_range.start = offset;
+    } else {
+        selected_range.end = offset;
+    }
+    if selected_range.end < selected_range.start {
+        *selection_reversed = !*selection_reversed;
+        *selected_range = selected_range.end..selected_range.start;
+    }
+}
+
 pub(super) fn workspace_text_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {
     let offset = offset.min(text.len());
     let mut cursor = GraphemeCursor::new(offset, text.len(), true);

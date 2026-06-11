@@ -39,6 +39,7 @@ pub(super) struct WorkspaceNameDialogState {
     pub(super) name: String,
     pub(super) marked_range: Option<Range<usize>>,
     pub(super) selected_range: Range<usize>,
+    pub(super) selection_reversed: bool,
 }
 
 impl Editor {
@@ -71,7 +72,14 @@ impl Editor {
     }
 
     pub(super) fn workspace_name_cursor_offset(&self) -> usize {
-        self.workspace_name_selected_range().end
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return 0;
+        };
+        if dialog.selection_reversed {
+            dialog.selected_range.start
+        } else {
+            dialog.selected_range.end
+        }
     }
 
     pub(super) fn set_workspace_name_layout(
@@ -195,6 +203,7 @@ impl Editor {
             name: default_name,
             marked_range: None,
             selected_range: 0..len,
+            selection_reversed: false,
         });
         window.focus(&self.workspace_name_focus);
         cx.notify();
@@ -524,6 +533,7 @@ impl Editor {
         let offset = offset.min(dialog.name.len());
         dialog.selected_range = offset..offset;
         dialog.marked_range = None;
+        dialog.selection_reversed = false;
         self.workspace_name_is_selecting = false;
         cx.notify();
     }
@@ -532,9 +542,12 @@ impl Editor {
         let Some(dialog) = self.workspace_name_dialog.as_mut() else {
             return;
         };
-        let offset = offset.min(dialog.name.len());
-        let anchor = dialog.selected_range.start;
-        dialog.selected_range = anchor.min(offset)..anchor.max(offset);
+        super::workspace::extend_single_line_selection(
+            &mut dialog.selected_range,
+            &mut dialog.selection_reversed,
+            offset,
+            dialog.name.len(),
+        );
         dialog.marked_range = None;
         cx.notify();
     }
@@ -809,7 +822,6 @@ impl Editor {
             WorkspaceNameDialogKind::Rename { .. } => s.workspace_dialog_rename_title.clone(),
         };
         let name_focus = self.workspace_name_focus.clone();
-        let name_input_focus = name_focus.clone();
 
         Some(
             div()
@@ -888,28 +900,21 @@ impl Editor {
                                         .min_w(px(0.0))
                                         .h_full()
                                         .overflow_hidden()
-                                        .child(WorkspaceNameInputElement::new(cx.entity()))
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(Self::on_workspace_name_mouse_down),
-                                        )
-                                        .on_mouse_up(
-                                            MouseButton::Left,
-                                            cx.listener(Self::on_workspace_name_mouse_up),
-                                        )
-                                        .on_mouse_up_out(
-                                            MouseButton::Left,
-                                            cx.listener(Self::on_workspace_name_mouse_up),
-                                        )
-                                        .on_mouse_move(cx.listener(Self::on_workspace_name_mouse_move)),
+                                        .child(WorkspaceNameInputElement::new(cx.entity())),
                                 )
                                 .on_mouse_down(
                                     MouseButton::Left,
-                                    move |_, window, cx| {
-                                        cx.stop_propagation();
-                                        window.focus(&name_input_focus);
-                                    },
-                                ),
+                                    cx.listener(Self::on_workspace_name_mouse_down),
+                                )
+                                .on_mouse_up(
+                                    MouseButton::Left,
+                                    cx.listener(Self::on_workspace_name_mouse_up),
+                                )
+                                .on_mouse_up_out(
+                                    MouseButton::Left,
+                                    cx.listener(Self::on_workspace_name_mouse_up),
+                                )
+                                .on_mouse_move(cx.listener(Self::on_workspace_name_mouse_move)),
                         )
                         .child(
                             div()
@@ -1006,13 +1011,13 @@ impl Editor {
     ) {
         cx.stop_propagation();
         window.focus(&self.workspace_name_focus);
-        self.workspace_name_is_selecting = true;
         let offset = self.workspace_name_index_for_mouse_position(event.position);
         if event.modifiers.shift {
             self.workspace_name_select_to(offset, cx);
         } else {
             self.workspace_name_move_to(offset, cx);
         }
+        self.workspace_name_is_selecting = true;
     }
 
     pub(super) fn on_workspace_name_mouse_up(
@@ -1034,6 +1039,11 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         if !self.workspace_name_is_selecting || !self.workspace_name_input_active(window) {
+            return;
+        }
+        if !event.dragging() {
+            self.workspace_name_is_selecting = false;
+            cx.notify();
             return;
         }
         self.workspace_name_select_to(
