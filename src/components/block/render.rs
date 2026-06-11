@@ -32,6 +32,8 @@ const ICON_CODE_BLOCK_COLLAPSE: &str = "icon/toolbar/chevrons-down-up.svg";
 const ICON_CODE_BLOCK_EXPAND: &str = "icon/toolbar/chevrons-up-down.svg";
 const ICON_CODE_BLOCK_RUN: &str = "icon/toolbar/circle-play.svg";
 const ICON_CODE_BLOCK_CLOSE: &str = "icon/toolbar/x.svg";
+const ICON_CODE_RUN_OUTPUT_CHEVRON_DOWN: &str = "icon/toolbar/chevron-down.svg";
+const ICON_CODE_RUN_OUTPUT_CHEVRON_UP: &str = "icon/toolbar/chevron-up.svg";
 
 fn bulleted_list_marker(depth: usize) -> &'static str {
     match depth {
@@ -78,12 +80,13 @@ impl Block {
         let t = &theme.typography;
         let running = snapshot.status == CodeRunStatus::Running;
         let panel_expanded = snapshot.output_expanded;
-        let toggle_label = if panel_expanded {
-            strings.code_run_output_collapse.clone()
+        let panel_toggle_icon = if panel_expanded {
+            ICON_CODE_RUN_OUTPUT_CHEVRON_UP
         } else {
-            strings.code_run_output_expand.clone()
+            ICON_CODE_RUN_OUTPUT_CHEVRON_DOWN
         };
         let icon_size = px((t.code_size - 1.0).max(10.0));
+        let action_icon_extent = px(f32::from(icon_size) + 8.0);
         let code_line_height = t.code_size * t.text_line_height;
         let content_line_count = code_run_output_line_count(
             &snapshot.stdout,
@@ -199,7 +202,11 @@ impl Block {
             );
         }
 
-        let mut actions = div().flex().items_center().gap(px(4.0));
+        let mut actions = div()
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .mr(px(8.0));
         if running {
             actions = actions.child(
                 div()
@@ -224,8 +231,8 @@ impl Block {
             actions = actions.child(
                 div()
                     .id("code-block-run-output-content-collapse")
-                    .w(px(f32::from(icon_size) + 8.0))
-                    .h(px(f32::from(icon_size) + 8.0))
+                    .w(action_icon_extent)
+                    .h(action_icon_extent)
                     .flex()
                     .items_center()
                     .justify_center()
@@ -247,9 +254,32 @@ impl Block {
         }
         actions = actions.child(
             div()
+                .id("code-block-run-output-toggle")
+                .w(action_icon_extent)
+                .h(action_icon_extent)
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.0))
+                .opacity(0.72)
+                .hover(|this| this.opacity(1.0))
+                .cursor_pointer()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(Self::on_code_block_run_output_toggle_mouse_down),
+                )
+                .child(
+                    svg()
+                        .path(panel_toggle_icon)
+                        .size(icon_size)
+                        .text_color(c.code_language_input_text),
+                ),
+        );
+        actions = actions.child(
+            div()
                 .id("code-block-run-output-close")
-                .w(px(f32::from(icon_size) + 8.0))
-                .h(px(f32::from(icon_size) + 8.0))
+                .w(action_icon_extent)
+                .h(action_icon_extent)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -305,31 +335,10 @@ impl Block {
                             .gap(px(8.0))
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.0))
-                                    .child(
-                                        div()
-                                            .text_size(px((t.code_size - 1.0).max(10.0)))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(c.code_language_input_text)
-                                            .child(strings.code_run_output_title.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("code-block-run-output-toggle")
-                                            .text_size(px((t.code_size - 1.0).max(10.0)))
-                                            .text_color(c.text_quote)
-                                            .hover(|this| this.text_color(c.text_link))
-                                            .cursor_pointer()
-                                            .on_mouse_down(
-                                                MouseButton::Left,
-                                                cx.listener(
-                                                    Self::on_code_block_run_output_toggle_mouse_down,
-                                                ),
-                                            )
-                                            .child(toggle_label),
-                                    ),
+                                    .text_size(px((t.code_size - 1.0).max(10.0)))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c.code_language_input_text)
+                                    .child(strings.code_run_output_title.clone()),
                             )
                             .child(actions)
                             .into_any_element(),
