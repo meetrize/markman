@@ -8,8 +8,8 @@ use gpui::*;
 use super::Editor;
 use super::single_line_input::{
     self, handle_mouse_down, handle_mouse_move, handle_mouse_up, index_for_mouse_position,
-    move_caret_to, primary_shortcut_modifiers, select_caret_to, text_grapheme_boundary,
-    SingleLineInputTarget,
+    move_caret_to, prepare_context_menu_selection, primary_shortcut_modifiers, select_caret_to,
+    text_grapheme_boundary, SingleLineInputTarget,
 };
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
@@ -112,6 +112,7 @@ impl Editor {
 
         self.close_workspace_file_context_menu(cx);
         self.close_workspace_name_dialog(cx);
+        self.close_single_line_input_context_menu(cx);
         self.context_menu = None;
         self.context_menu_submenu_close_task = None;
         self.workspace_file_context_menu = Some(WorkspaceFileContextMenuState { position, target });
@@ -127,6 +128,7 @@ impl Editor {
     pub(super) fn close_workspace_name_dialog(&mut self, cx: &mut Context<Self>) {
         if self.workspace_name_dialog.take().is_some() {
             self.workspace_name_is_selecting = false;
+            self.close_single_line_input_context_menu(cx);
             cx.notify();
         }
     }
@@ -583,21 +585,18 @@ impl Editor {
         self.replace_workspace_name_dialog_text(cursor..next, "", false, Some(cursor..cursor), cx);
     }
 
-    fn workspace_name_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn workspace_name_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            let text = super::single_line_input::sanitize_pasted_text(&text);
             let Some(dialog) = self.workspace_name_dialog.as_ref() else {
                 return;
             };
-            let range = if dialog.selected_range.is_empty() {
-                dialog.selected_range.clone()
-            } else {
-                dialog.selected_range.clone()
-            };
+            let range = dialog.selected_range.clone();
             self.replace_workspace_name_dialog_text(range, &text, false, None, cx);
         }
     }
 
-    fn workspace_name_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn workspace_name_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
         let Some(dialog) = self.workspace_name_dialog.as_ref() else {
             return;
         };
@@ -608,7 +607,7 @@ impl Editor {
         cx.write_to_clipboard(ClipboardItem::new_string(selected));
     }
 
-    fn workspace_name_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn workspace_name_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
         self.workspace_name_copy_to_clipboard(cx);
         let Some(dialog) = self.workspace_name_dialog.as_ref() else {
             return;
@@ -1001,6 +1000,25 @@ impl Editor {
             &mut self.workspace_name_is_selecting,
         );
         cx.notify();
+    }
+
+    pub(super) fn workspace_name_prepare_context_menu(
+        &mut self,
+        position: Point<Pixels>,
+    ) {
+        let offset = self.workspace_name_index_for_mouse_position(position);
+        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+            return;
+        };
+        let text_len = dialog.name.len();
+        prepare_context_menu_selection(
+            &mut dialog.selected_range,
+            &mut dialog.selection_reversed,
+            &mut dialog.marked_range,
+            &mut self.workspace_name_is_selecting,
+            offset,
+            text_len,
+        );
     }
 
     pub(super) fn on_workspace_name_mouse_up(

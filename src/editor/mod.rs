@@ -39,6 +39,7 @@ mod runtime_context;
 mod document_search;
 mod single_line_input;
 mod single_line_input_element;
+mod single_line_input_menu;
 mod search_match;
 mod selection;
 mod source_mapping;
@@ -125,6 +126,7 @@ pub struct Editor {
     workspace_name_last_bounds: Option<Bounds<Pixels>>,
     workspace_file_context_menu: Option<workspace_file_menu::WorkspaceFileContextMenuState>,
     workspace_name_dialog: Option<workspace_file_menu::WorkspaceNameDialogState>,
+    single_line_input_context_menu: Option<single_line_input_menu::SingleLineInputContextMenuState>,
     context_menu: Option<ContextMenuState>,
     table_insert_dialog: Option<TableInsertDialogState>,
     context_menu_submenu_close_task: Option<Task<()>>,
@@ -331,6 +333,7 @@ impl Editor {
             workspace_name_last_bounds: None,
             workspace_file_context_menu: None,
             workspace_name_dialog: None,
+            single_line_input_context_menu: None,
             context_menu: None,
             table_insert_dialog: None,
             context_menu_submenu_close_task: None,

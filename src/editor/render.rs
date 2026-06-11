@@ -1839,6 +1839,13 @@ impl Render for Editor {
         } else {
             base
         };
+        let base = if let Some(single_line_menu) =
+            self.render_single_line_input_context_menu_overlay(&theme, cx)
+        {
+            base.child(single_line_menu)
+        } else {
+            base
+        };
         let base = if let Some(table_dialog) = self.render_table_insert_dialog_overlay(&theme, cx) {
             base.child(table_dialog)
         } else {

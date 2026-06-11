@@ -16,8 +16,8 @@ use super::document_search::{
 };
 use super::single_line_input::{
     self, SingleLineInputTarget, arrow_key_from_event, handle_mouse_down, handle_mouse_move,
-    handle_mouse_up, index_for_mouse_position, move_caret_to, primary_shortcut_modifiers,
-    select_caret_to, text_grapheme_boundary, SingleLineArrowKey,
+    handle_mouse_up, index_for_mouse_position, move_caret_to, prepare_context_menu_selection,
+    primary_shortcut_modifiers, select_caret_to, text_grapheme_boundary, SingleLineArrowKey,
 };
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
@@ -332,6 +332,14 @@ impl Editor {
         self.workspace.search_open && self.workspace_search_focus.is_focused(window)
     }
 
+    pub(super) fn workspace_search_is_open(&self) -> bool {
+        self.workspace.search_open
+    }
+
+    pub(super) fn workspace_search_has_selection(&self) -> bool {
+        !self.workspace.search_selected_range.is_empty()
+    }
+
     pub(super) fn workspace_search_query_is_empty(&self) -> bool {
         self.workspace.search_query.is_empty()
     }
@@ -435,6 +443,7 @@ impl Editor {
             self.workspace.search_selected_range = 0..0;
             self.workspace.search_selection_reversed = false;
             self.clear_search_match_highlight(cx);
+            self.close_single_line_input_context_menu(cx);
             cx.notify();
         }
     }
@@ -601,6 +610,21 @@ impl Editor {
         cx.notify();
     }
 
+    pub(super) fn workspace_search_prepare_context_menu(
+        &mut self,
+        position: Point<Pixels>,
+    ) {
+        let offset = self.workspace_search_index_for_mouse_position(position);
+        prepare_context_menu_selection(
+            &mut self.workspace.search_selected_range,
+            &mut self.workspace.search_selection_reversed,
+            &mut self.workspace.search_marked_range,
+            &mut self.workspace.search_is_selecting,
+            offset,
+            self.workspace.search_query.len(),
+        );
+    }
+
     pub(crate) fn on_workspace_search_mouse_up(
         &mut self,
         _: &MouseUpEvent,
@@ -760,13 +784,13 @@ impl Editor {
         );
     }
 
-    fn workspace_search_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn workspace_search_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.workspace_search_replace_selection(&text, cx);
         }
     }
 
-    fn workspace_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn workspace_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
         if !self.workspace.search_selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.workspace.search_query
@@ -776,7 +800,7 @@ impl Editor {
         }
     }
 
-    fn workspace_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn workspace_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
         if !self.workspace.search_selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.workspace.search_query

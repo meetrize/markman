@@ -320,10 +320,19 @@ impl Element for SingleLineInputElement {
         let input_bounds = bounds;
         window.on_mouse_event({
             move |event: &MouseDownEvent, phase, window, cx| {
-                if phase != DispatchPhase::Bubble || event.button != MouseButton::Left {
+                if phase != DispatchPhase::Bubble || !input_bounds.contains(&event.position) {
                     return;
                 }
-                if !input_bounds.contains(&event.position) {
+                if event.button == MouseButton::Right {
+                    cx.stop_propagation();
+                    editor_for_down.update(cx, |editor, cx| {
+                        editor.on_single_line_input_context_menu_mouse_down(
+                            target, event, window, cx,
+                        );
+                    });
+                    return;
+                }
+                if event.button != MouseButton::Left {
                     return;
                 }
                 cx.stop_propagation();

@@ -148,6 +148,7 @@ impl Editor {
         self.document_search.match_index = None;
         self.document_search.scroll_entity_id = None;
         self.clear_document_search_highlights(cx);
+        self.close_single_line_input_context_menu(cx);
         cx.notify();
     }
 
@@ -610,6 +611,21 @@ impl Editor {
         cx.notify();
     }
 
+    pub(super) fn document_search_prepare_context_menu(
+        &mut self,
+        position: Point<Pixels>,
+    ) {
+        let offset = self.document_search_index_for_mouse_position(position);
+        super::single_line_input::prepare_context_menu_selection(
+            &mut self.document_search.selected_range,
+            &mut self.document_search.selection_reversed,
+            &mut self.document_search.marked_range,
+            &mut self.document_search.is_selecting,
+            offset,
+            self.document_search.query.len(),
+        );
+    }
+
     pub(crate) fn on_document_search_mouse_up(
         &mut self,
         _: &MouseUpEvent,
@@ -764,13 +780,14 @@ impl Editor {
         self.replace_document_search_text(range, text, false, Some(cursor..cursor), cx);
     }
 
-    fn document_search_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn document_search_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            let text = super::single_line_input::sanitize_pasted_text(&text);
             self.document_search_replace_selection(&text, cx);
         }
     }
 
-    fn document_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn document_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
         if !self.document_search.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.document_search.query
@@ -780,7 +797,7 @@ impl Editor {
         }
     }
 
-    fn document_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn document_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
         self.document_search_copy_to_clipboard(cx);
         if !self.document_search.selected_range.is_empty() {
             self.document_search_replace_selection("", cx);

@@ -62,6 +62,7 @@ impl Editor {
     ) {
         self.close_menu_bar(cx);
         self.context_menu_submenu_close_task = None;
+        self.close_single_line_input_context_menu(cx);
         self.context_menu = Some(ContextMenuState::Insert {
             position,
             target,
@@ -174,6 +175,7 @@ impl Editor {
 
         self.close_menu_bar(cx);
         self.context_menu_submenu_close_task = None;
+        self.close_single_line_input_context_menu(cx);
         self.context_menu = Some(ContextMenuState::TableAxis {
             position,
             selection,

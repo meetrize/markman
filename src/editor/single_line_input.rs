@@ -141,6 +141,34 @@ pub(super) fn handle_mouse_down(
     *is_selecting = true;
 }
 
+/// Prepare selection for a context menu click: keep the active range when the
+/// click lands inside it, otherwise move the caret to the click position.
+pub(super) fn prepare_context_menu_selection(
+    selected_range: &mut Range<usize>,
+    selection_reversed: &mut bool,
+    marked_range: &mut Option<Range<usize>>,
+    is_selecting: &mut bool,
+    offset: usize,
+    text_len: usize,
+) {
+    let offset = offset.min(text_len);
+    if selected_range.start < selected_range.end
+        && (selected_range.start..=selected_range.end).contains(&offset)
+    {
+        *is_selecting = false;
+        *marked_range = None;
+        return;
+    }
+    move_caret_to(
+        selected_range,
+        selection_reversed,
+        marked_range,
+        is_selecting,
+        offset,
+        text_len,
+    );
+}
+
 /// Returns `true` when the caller should notify the UI.
 pub(super) fn handle_mouse_move(
     dragging: bool,
@@ -176,6 +204,10 @@ pub(super) fn handle_mouse_up(is_selecting_flag: &mut bool) -> bool {
         return true;
     }
     false
+}
+
+pub(super) fn sanitize_pasted_text(text: &str) -> String {
+    text.replace("\r\n", " ").replace(['\r', '\n'], " ")
 }
 
 pub(super) fn text_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {
