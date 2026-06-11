@@ -10,8 +10,8 @@ use serde::Serialize;
 
 use super::{VelotypeConfigDirs, read_recent_files};
 use crate::components::{
-    ShortcutCategory, ShortcutCommand, ShortcutDefinition, install_keybindings,
-    normalize_shortcut_config, normalize_shortcut_keys, resolved_shortcut_keys,
+    CloseWindow, QuitApplication, ShortcutCategory, ShortcutCommand, ShortcutDefinition,
+    install_keybindings, normalize_shortcut_config, normalize_shortcut_keys, resolved_shortcut_keys,
     shortcut_conflict_for, shortcut_definitions,
 };
 use crate::app_identity::app_window_title;
@@ -512,6 +512,26 @@ impl PreferencesWindow {
         if event.standard_click() {
             window.remove_window();
         }
+    }
+
+    fn on_quit_application(
+        &mut self,
+        _: &QuitApplication,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        crate::app_menu::request_quit_application(cx);
+        cx.stop_propagation();
+    }
+
+    fn on_close_window(
+        &mut self,
+        _: &CloseWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.remove_window();
+        cx.stop_propagation();
     }
 
     fn save(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -1236,6 +1256,8 @@ impl Render for PreferencesWindow {
             .flex()
             .key_context("Preferences")
             .track_focus(&self.focus_handle)
+            .capture_action(cx.listener(Self::on_quit_application))
+            .capture_action(cx.listener(Self::on_close_window))
             .on_key_down(cx.listener(Self::capture_shortcut_key))
             .bg(c.editor_background)
             .text_color(c.dialog_body)

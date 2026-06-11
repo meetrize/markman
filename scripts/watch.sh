@@ -29,7 +29,8 @@ if (($# > 0)); then
         -w resources \
         -w build.rs \
         -w Cargo.toml \
-        -x "run -- $*"
+        -x build \
+        -s "./scripts/launch-dev-binary.sh $*"
 else
     exec cargo watch \
         -w src \
@@ -37,5 +38,6 @@ else
         -w resources \
         -w build.rs \
         -w Cargo.toml \
-        -x run
+        -x build \
+        -s "./scripts/launch-dev-binary.sh"
 fi

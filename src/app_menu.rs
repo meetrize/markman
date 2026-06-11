@@ -466,6 +466,10 @@ fn request_close_editor_window(window: AnyWindowHandle, cx: &mut App) -> bool {
 }
 
 fn request_close_current_editor_window(cx: &mut App) {
+    cx.defer(finish_close_current_editor_window);
+}
+
+fn finish_close_current_editor_window(cx: &mut App) {
     let candidates = current_window_candidates(cx);
     if candidates.is_empty() {
         cx.quit();
@@ -479,14 +483,23 @@ fn request_close_current_editor_window(cx: &mut App) {
     }
 }
 
+/// Schedules an application quit on the next effect cycle.
+///
+/// Quit/close menu items and key bindings are often dispatched while a window
+/// update is already on the stack. Attempting to update that same window
+/// synchronously fails silently in GPUI, so the actual work is deferred.
 pub(crate) fn request_quit_application(cx: &mut App) {
+    cx.defer(finish_quit_application);
+}
+
+fn finish_quit_application(cx: &mut App) {
     let candidates = current_window_candidates(cx);
     if candidates.is_empty() {
         cx.quit();
         return;
     }
 
-    for window in candidates {
+    for window in &candidates {
         let Some(window) = window.downcast::<Editor>() else {
             continue;
         };
@@ -501,7 +514,29 @@ pub(crate) fn request_quit_application(cx: &mut App) {
         }
     }
 
-    cx.quit();
+    // Close every window explicitly so the last `on_window_closed` hook quits the
+    // app. This avoids relying on NSApplication's terminate path, which can fail
+    // to cooperate with custom window-should-close handlers on macOS.
+    for window in candidates {
+        close_application_window(window, cx);
+    }
+
+    if cx.windows().is_empty() {
+        cx.quit();
+    }
+}
+
+fn close_application_window(window: AnyWindowHandle, cx: &mut App) {
+    if let Some(window) = window.downcast::<Editor>() {
+        let _ = window.update(cx, |editor, window, cx| {
+            editor.request_close_current_window(window, cx);
+        });
+        return;
+    }
+
+    let _ = window.update(cx, |_, window, _| {
+        window.remove_window();
+    });
 }
 
 /// Executes one of the app-menu actions against the current application state.
@@ -1158,7 +1193,8 @@ pub(crate) fn init(cx: &mut App) {
         app_visibility::toggle_application_visibility(cx);
     });
     cx.on_action(|_: &QuitApplication, cx| {
-        dispatch_menu_action(&QuitApplication, cx);
+        request_quit_application(cx);
+        cx.stop_propagation();
     });
     cx.on_action(|_: &CloseWindow, cx| {
         dispatch_menu_action(&CloseWindow, cx);

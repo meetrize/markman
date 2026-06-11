@@ -1,5 +1,5 @@
 fn main() {
-    println!("cargo:rerun-if-changed=resources/windows/velotype.rc");
+    println!("cargo:rerun-if-changed=resources/macos/Info.plist");
     println!("cargo:rerun-if-changed=assets/icon/velotype.ico");
     println!("cargo:rerun-if-changed=assets/icon/toolbar");
 

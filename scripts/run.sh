@@ -22,4 +22,4 @@ if [[ ! -x "$BINARY" ]]; then
 fi
 
 velotype_info "Running $BINARY"
-exec "$BINARY" "$@"
+velotype_launch_binary "$BINARY" "$@"

@@ -184,6 +184,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         crate::app_menu::request_quit_application(cx);
+        cx.stop_propagation();
     }
 
     pub(crate) fn on_close_window(
@@ -193,6 +194,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.request_close_current_window(window, cx);
+        cx.stop_propagation();
     }
 
     pub(crate) fn on_install_cli_tool(

@@ -16,10 +16,6 @@ fn source_line_count(text: &str) -> usize {
     text.split('\n').count().max(1)
 }
 
-pub(super) fn code_line_number_gutter_width(line_count: usize, font_size: Pixels) -> Pixels {
-    source_line_number_gutter_width(line_count, font_size)
-}
-
 fn source_line_number_gutter_width(line_count: usize, font_size: Pixels) -> Pixels {
     let digits = line_count
         .max(1)

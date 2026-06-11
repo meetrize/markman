@@ -203,7 +203,21 @@ pub(crate) fn render_custom_titlebar<T: 'static>(
         );
 
     let drag_title = match drag_strategy {
-        TitlebarDragStrategy::PlatformHitTest => drag_title,
+        TitlebarDragStrategy::PlatformHitTest => drag_title.on_mouse_down(
+            MouseButton::Left,
+            |event, window, cx| {
+                if event.click_count >= 2 {
+                    // Custom title bars occlude the native title bar, so macOS never
+                    // receives the system double-click. Use GPUI's platform hook so
+                    // the action respects the user's Dock & Menu Bar preference.
+                    #[cfg(target_os = "macos")]
+                    window.titlebar_double_click();
+                    #[cfg(not(target_os = "macos"))]
+                    window.zoom_window();
+                    cx.stop_propagation();
+                }
+            },
+        ),
         TitlebarDragStrategy::ExplicitMoveRequest => {
             drag_title.on_mouse_down(MouseButton::Left, |event, window, cx| {
                 if event.click_count >= 2 {
