@@ -20,3 +20,4 @@ pub use crate::components::markdown::inline::*;
 pub(crate) use crate::components::markdown::link::*;
 pub use runtime::*;
 pub use state::*;
+pub(crate) use runtime::CODE_LANGUAGE_MENU_OPTIONS;

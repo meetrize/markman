@@ -1819,6 +1819,13 @@ impl Render for Editor {
         } else {
             base
         };
+        let base = if let Some(code_language_menu) =
+            self.render_code_language_menu_overlay(&theme, window, cx)
+        {
+            base.child(code_language_menu)
+        } else {
+            base
+        };
         let base = if let Some(file_menu) = self.render_workspace_file_context_menu_overlay(&theme, cx)
         {
             base.child(file_menu)

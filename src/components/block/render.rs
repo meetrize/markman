@@ -2247,96 +2247,30 @@ impl Render for Block {
                             .child(BlockTextElement::new(cx.entity(), is_placeholder)),
                     );
 
-                if focused {
+                {
                     let block = cx.entity().downgrade();
-                    let current_language = language.as_ref().map(|value| value.to_string());
-                    let menu_open = self.code_language_menu_open;
-                    let mut language_badge = div()
-                        .relative()
-                        .child(
-                            div()
-                                .id("code-block-language")
-                                .h(px(badge_height))
-                                .flex()
-                                .items_center()
-                                .px(px(d.code_language_input_padding_x))
-                                .rounded(px(d.code_language_input_radius))
-                                .border(px(d.code_language_input_border_width))
-                                .border_color(c.code_language_input_border.opacity(0.65))
-                                .bg(c.code_language_input_bg.opacity(0.92))
-                                .hover(|this| this.bg(c.code_language_input_border.opacity(0.35)))
-                                .active(|this| this.opacity(0.92))
-                                .text_size(icon_size)
-                                .text_color(c.code_language_input_text)
-                                .font_weight(FontWeight::MEDIUM)
-                                .cursor_pointer()
-                                .occlude()
-                                .child(language_label)
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_code_language_badge_mouse_down),
-                                ),
+                    let language_badge = div()
+                        .id("code-block-language")
+                        .h(px(badge_height))
+                        .flex()
+                        .items_center()
+                        .px(px(d.code_language_input_padding_x))
+                        .rounded(px(d.code_language_input_radius))
+                        .border(px(d.code_language_input_border_width))
+                        .border_color(c.code_language_input_border.opacity(0.65))
+                        .bg(c.code_language_input_bg.opacity(0.92))
+                        .hover(|this| this.bg(c.code_language_input_border.opacity(0.35)))
+                        .active(|this| this.opacity(0.92))
+                        .text_size(icon_size)
+                        .text_color(c.code_language_input_text)
+                        .font_weight(FontWeight::MEDIUM)
+                        .cursor_pointer()
+                        .occlude()
+                        .child(language_label)
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(Self::on_code_language_badge_mouse_down),
                         );
-
-                    if menu_open {
-                        language_badge = language_badge.child(
-                            div()
-                                .id("code-block-language-menu")
-                                .absolute()
-                                .top(px(badge_height + d.code_language_input_gap))
-                                .right_0()
-                                .min_w(px(d.code_language_input_width))
-                                .p(px(d.menu_panel_padding))
-                                .flex()
-                                .flex_col()
-                                .gap(px(d.menu_panel_gap))
-                                .occlude()
-                                .bg(c.dialog_surface)
-                                .border(px(d.dialog_border_width))
-                                .border_color(c.dialog_border)
-                                .rounded(px(d.menu_panel_radius))
-                                .shadow_lg()
-                                .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
-                                    cx.stop_propagation();
-                                })
-                                .children(super::CODE_LANGUAGE_MENU_OPTIONS.iter().enumerate().map(
-                                    |(index, option)| {
-                                        let selected = current_language
-                                            .as_deref()
-                                            .is_some_and(|current| current == *option);
-                                        let option_label = SharedString::from(*option);
-                                        let item_block = block.clone();
-                                        div()
-                                            .id(("code-block-language-item", index))
-                                            .min_h(px(d.menu_item_height))
-                                            .px(px(d.menu_item_padding_x))
-                                            .flex()
-                                            .items_center()
-                                            .rounded(px(d.menu_item_radius))
-                                            .cursor_pointer()
-                                            .bg(if selected {
-                                                c.selection.opacity(0.35)
-                                            } else {
-                                                c.dialog_surface
-                                            })
-                                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                                            .text_size(icon_size)
-                                            .text_color(c.code_language_input_text)
-                                            .child(option_label.clone())
-                                            .on_mouse_down(
-                                                MouseButton::Left,
-                                                move |_, _window, cx| {
-                                                    cx.stop_propagation();
-                                                    let language = option_label.clone();
-                                                    let _ = item_block.update(cx, |block, cx| {
-                                                        block.set_code_language(&language, cx);
-                                                    });
-                                                },
-                                            )
-                                    },
-                                )),
-                        );
-                    }
 
                     code_content = code_content.child(
                         div()

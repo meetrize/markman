@@ -806,10 +806,16 @@ impl Block {
     pub(crate) fn on_code_language_badge_mouse_down(
         &mut self,
         _: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.code_language_menu_open = !self.code_language_menu_open;
+        if !self.focus_handle.is_focused(window) {
+            cx.emit(BlockEvent::RequestFocus);
+            self.focus_handle.focus(window);
+            self.code_language_menu_open = true;
+        } else {
+            self.code_language_menu_open = !self.code_language_menu_open;
+        }
         cx.stop_propagation();
         cx.notify();
     }

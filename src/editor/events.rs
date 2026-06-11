@@ -1443,9 +1443,25 @@ impl Editor {
                 self.close_menu_bar(cx);
                 self.clear_table_axis_preview(cx);
                 self.clear_table_axis_selection(cx);
-                self.focus_block(block.entity_id());
+                let focused_id = block.entity_id();
+                self.focus_block(focused_id);
                 for visible in self.document.flatten_visible_blocks() {
-                    visible.entity.update(cx, |_, cx| cx.notify());
+                    let visible_id = visible.entity.entity_id();
+                    visible.entity.update(cx, |other, cx| {
+                        if visible_id != focused_id {
+                            other.dismiss_code_language_menu();
+                        }
+                        cx.notify();
+                    });
+                }
+                for binding in self.table_cells.values() {
+                    let cell_id = binding.cell.entity_id();
+                    binding.cell.update(cx, |other, cx| {
+                        if cell_id != focused_id {
+                            other.dismiss_code_language_menu();
+                        }
+                        cx.notify();
+                    });
                 }
                 cx.notify();
             }
