@@ -123,6 +123,9 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/circle-play.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/circle-play.svg"
             )))),
+            "icon/toolbar/circle-stop.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/circle-stop.svg"
+            )))),
             "icon/toolbar/x.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/x.svg"
             )))),

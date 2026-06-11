@@ -31,6 +31,7 @@ const ICON_CODE_BLOCK_COPY: &str = "icon/toolbar/copy.svg";
 const ICON_CODE_BLOCK_COLLAPSE: &str = "icon/toolbar/chevrons-down-up.svg";
 const ICON_CODE_BLOCK_EXPAND: &str = "icon/toolbar/chevrons-up-down.svg";
 const ICON_CODE_BLOCK_RUN: &str = "icon/toolbar/circle-play.svg";
+const ICON_CODE_BLOCK_STOP: &str = "icon/toolbar/circle-stop.svg";
 const ICON_CODE_BLOCK_CLOSE: &str = "icon/toolbar/x.svg";
 const ICON_CODE_RUN_OUTPUT_CHEVRON_DOWN: &str = "icon/toolbar/chevron-down.svg";
 const ICON_CODE_RUN_OUTPUT_CHEVRON_UP: &str = "icon/toolbar/chevron-up.svg";
@@ -119,7 +120,7 @@ impl Block {
             text_sections = text_sections.child(
                 div()
                     .text_size(px(t.code_size))
-                    .text_color(c.dialog_danger_button_text)
+                    .text_color(c.dialog_danger_button_bg)
                     .child(snapshot.stderr.clone()),
             );
         }
@@ -127,7 +128,7 @@ impl Block {
             text_sections = text_sections.child(
                 div()
                     .text_size(px(t.code_size))
-                    .text_color(c.dialog_danger_button_text)
+                    .text_color(c.dialog_danger_button_bg)
                     .child(error.clone()),
             );
         }
@@ -211,20 +212,25 @@ impl Block {
             actions = actions.child(
                 div()
                     .id("code-block-run-stop")
-                    .px(px(8.0))
-                    .py(px(2.0))
+                    .w(action_icon_extent)
+                    .h(action_icon_extent)
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .rounded(px(4.0))
-                    .border(px(1.0))
-                    .border_color(c.code_language_input_border.opacity(0.55))
-                    .text_size(px((t.code_size - 1.0).max(10.0)))
-                    .text_color(c.dialog_danger_button_text)
-                    .hover(|this| this.bg(c.dialog_danger_button_bg.opacity(0.18)))
+                    .opacity(0.72)
+                    .hover(|this| this.opacity(1.0))
                     .cursor_pointer()
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(Self::on_code_block_run_stop_mouse_down),
                     )
-                    .child(strings.code_run_stop.clone()),
+                    .child(
+                        svg()
+                            .path(ICON_CODE_BLOCK_STOP)
+                            .size(icon_size)
+                            .text_color(c.dialog_danger_button_bg),
+                    ),
             );
         }
         if panel_expanded && content_collapsible && snapshot.output_content_expanded {
