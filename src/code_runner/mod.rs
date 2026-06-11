@@ -119,11 +119,6 @@ pub fn resolve_runner(language: &str) -> Option<RunnerSpec> {
     }
 }
 
-/// Returns the shell interpreter used for inline code execution.
-pub fn resolve_inline_code_runner() -> RunnerSpec {
-    resolve_runner(DEFAULT_INLINE_CODE_LANGUAGE).expect("inline shell runner must exist")
-}
-
 /// Extracts inline code source from visible display text at `span_range`.
 ///
 /// Leading and trailing whitespace are trimmed; internal spacing is preserved.
@@ -435,7 +430,7 @@ mod tests {
 
     #[test]
     fn resolve_inline_code_runner_returns_bash_shell_spec() {
-        let spec = resolve_inline_code_runner();
+        let spec = resolve_runner(DEFAULT_INLINE_CODE_LANGUAGE).expect("inline shell runner");
         assert_eq!(spec.program, "bash");
         assert_eq!(spec.extension, "sh");
     }

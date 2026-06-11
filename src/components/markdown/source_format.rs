@@ -89,12 +89,15 @@ fn toggle_inline_wrap(
 
 fn apply_link_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
     let selection = clamp_range(text, selection);
-    let link_text = if selection.is_empty() {
-        "link text".to_string()
+    let (link_text, url) = if selection.is_empty() {
+        (
+            "link text".to_string(),
+            "https://example.com".to_string(),
+        )
     } else {
-        text[selection.clone()].to_string()
+        let selected = text[selection.clone()].to_string();
+        (selected.clone(), selected)
     };
-    let url = "https://example.com";
     let replacement = format!("[{link_text}]({url})");
 
     let mut next = String::with_capacity(text.len() + replacement.len() - selection.len());
@@ -412,11 +415,19 @@ mod tests {
     }
 
     #[test]
-    fn link_wraps_selection_with_placeholder_url() {
+    fn link_wraps_selection_with_selected_text_as_url() {
         let (text, range) =
             apply_markdown_toolbar_action("click here", 0..10, MarkdownToolbarAction::Link);
-        assert_eq!(text, "[click here](https://example.com)");
-        assert_eq!(range, 13..32);
+        assert_eq!(text, "[click here](click here)");
+        assert_eq!(range, 13..23);
+    }
+
+    #[test]
+    fn link_without_selection_uses_placeholder_text_and_url() {
+        let (text, range) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::Link);
+        assert_eq!(text, "Hello[link text](https://example.com)");
+        assert_eq!(range, 17..36);
     }
 
     #[test]

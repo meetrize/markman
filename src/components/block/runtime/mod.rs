@@ -451,6 +451,7 @@ impl Block {
         (!source.is_empty()).then_some(source)
     }
 
+    #[cfg(test)]
     pub(crate) fn inline_code_source_at_cursor(&self) -> Option<String> {
         let span = self.inline_code_span_at_cursor()?;
         self.inline_code_source_for_visible_span(&span.range)

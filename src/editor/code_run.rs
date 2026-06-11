@@ -313,6 +313,7 @@ impl Editor {
         self.start_inline_code_run(target, source, cx);
     }
 
+    #[cfg(test)]
     pub(crate) fn inline_code_run_state(
         &self,
         target: &InlineCodeRunTarget,
@@ -473,30 +474,6 @@ impl Editor {
         {
             self.stop_active_inline_code_run(cx);
         }
-    }
-
-    pub(crate) fn on_close_inline_code_run_output(
-        &mut self,
-        block_id: EntityId,
-        cx: &mut Context<Self>,
-    ) {
-        if self
-            .active_inline_code_run
-            .as_ref()
-            .is_some_and(|active| active.target.block_id == block_id)
-        {
-            self.stop_active_inline_code_run(cx);
-        }
-        self.inline_code_runs
-            .retain(|target, _| target.block_id != block_id);
-        if self
-            .inline_code_run_popover
-            .as_ref()
-            .is_some_and(|target| target.block_id == block_id)
-        {
-            self.inline_code_run_popover = None;
-        }
-        cx.notify();
     }
 
     pub(crate) fn on_toggle_inline_code_run_output_content(
@@ -1176,14 +1153,6 @@ impl Editor {
                     source,
                     cx,
                 );
-                true
-            }
-            BlockEvent::RequestStopInlineCode => {
-                self.on_stop_inline_code_run(block.entity_id(), cx);
-                true
-            }
-            BlockEvent::RequestCloseInlineCodeRunOutput => {
-                self.on_close_inline_code_run_output(block.entity_id(), cx);
                 true
             }
             _ => false,

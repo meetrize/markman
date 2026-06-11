@@ -867,40 +867,6 @@ impl Block {
         cx.emit(BlockEvent::RequestCloseCodeRunOutput);
     }
 
-    pub(crate) fn on_inline_code_run_mouse_down(
-        &mut self,
-        _: &MouseDownEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.stop_propagation();
-        if let Some(span) = self.inline_code_run_action_span() {
-            cx.emit(BlockEvent::RequestRunInlineCode {
-                span_range: span.range,
-            });
-        }
-    }
-
-    pub(crate) fn on_inline_code_run_stop_mouse_down(
-        &mut self,
-        _: &MouseDownEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.stop_propagation();
-        cx.emit(BlockEvent::RequestStopInlineCode);
-    }
-
-    pub(crate) fn on_inline_code_run_output_close_mouse_down(
-        &mut self,
-        _: &MouseDownEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.stop_propagation();
-        cx.emit(BlockEvent::RequestCloseInlineCodeRunOutput);
-    }
-
     pub(crate) fn on_code_block_collapse_toggle(
         &mut self,
         _: &MouseDownEvent,

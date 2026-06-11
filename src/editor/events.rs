@@ -1476,9 +1476,7 @@ impl Editor {
             | BlockEvent::RequestToggleCodeRunOutput
             | BlockEvent::RequestToggleCodeRunOutputContent
             | BlockEvent::RequestCloseCodeRunOutput
-            | BlockEvent::RequestRunInlineCode { .. }
-            | BlockEvent::RequestStopInlineCode
-            | BlockEvent::RequestCloseInlineCodeRunOutput => {}
+            | BlockEvent::RequestRunInlineCode { .. } => {}
         }
     }
 }

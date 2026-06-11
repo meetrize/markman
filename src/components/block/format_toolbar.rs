@@ -88,14 +88,18 @@ impl Block {
     fn insert_link_markdown(&mut self, cx: &mut Context<Self>) {
         let selection = self.selected_range.clone();
         let text = self.display_text();
-        let link_text = if selection.is_empty() {
-            "link text".to_string()
+        let (link_text, url) = if selection.is_empty() {
+            (
+                "link text".to_string(),
+                "https://example.com".to_string(),
+            )
         } else {
-            text[selection.clone()].to_string()
+            let selected = text[selection.clone()].to_string();
+            (selected.clone(), selected)
         };
-        let replacement = format!("[{link_text}](https://example.com)");
+        let replacement = format!("[{link_text}]({url})");
         let url_start = selection.start + link_text.len() + 3;
-        let url_end = url_start + "https://example.com".len();
+        let url_end = url_start + url.len();
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         self.replace_text_in_visible_range(
             selection,
