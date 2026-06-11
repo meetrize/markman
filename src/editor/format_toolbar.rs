@@ -25,6 +25,7 @@ const ICON_QUOTE: &str = "icon/toolbar/quote.svg";
 const ICON_TABLE: &str = "icon/toolbar/table.svg";
 const ICON_VIEW_SOURCE: &str = "icon/toolbar/view-source.svg";
 const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
+const ICON_SAVE: &str = "icon/toolbar/save.svg";
 const ICON_AUTO_SAVE: &str = "icon/toolbar/auto-save.svg";
 const ICON_SEARCH: &str = "icon/toolbar/search.svg";
 
@@ -174,6 +175,7 @@ impl Editor {
         };
         let can_undo = self.can_undo();
         let can_redo = self.can_redo();
+        let can_save = self.document_dirty;
 
         div()
             .id("markdown-format-toolbar")
@@ -287,6 +289,14 @@ impl Editor {
                             )
                             .on_click(cx.listener(Self::on_toggle_document_search_click)),
                     )
+                    .child(Self::render_history_toolbar_button(
+                        "save-toolbar-button",
+                        ICON_SAVE,
+                        can_save,
+                        theme,
+                        editor.clone(),
+                        Self::request_save_document,
+                    ))
                     .child(
                         div()
                             .id("auto-save-toggle")
