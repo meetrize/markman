@@ -37,7 +37,8 @@ mod persistence;
 mod render;
 mod runtime_context;
 mod document_search;
-mod document_search_input;
+mod single_line_input;
+mod single_line_input_element;
 mod search_match;
 mod selection;
 mod source_mapping;
@@ -49,8 +50,6 @@ mod update;
 mod window_state;
 mod workspace;
 mod workspace_file_menu;
-mod workspace_name_input;
-mod workspace_search_input;
 
 use self::workspace::WorkspaceState;
 

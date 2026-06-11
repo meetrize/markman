@@ -6,7 +6,12 @@ use std::path::{Path, PathBuf};
 use gpui::*;
 
 use super::Editor;
-use super::workspace_name_input::WorkspaceNameInputElement;
+use super::single_line_input::{
+    self, handle_mouse_down, handle_mouse_move, handle_mouse_up, index_for_mouse_position,
+    move_caret_to, primary_shortcut_modifiers, select_caret_to, text_grapheme_boundary,
+    SingleLineInputTarget,
+};
+use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste, SelectAll, SelectEnd,
     SelectHome, SelectLeft, SelectRight,
@@ -47,10 +52,6 @@ impl Editor {
         self.workspace_name_dialog.is_some() && self.workspace_name_focus.is_focused(window)
     }
 
-    pub(super) fn workspace_name_focus_handle(&self) -> FocusHandle {
-        self.workspace_name_focus.clone()
-    }
-
     pub(super) fn workspace_name_text(&self) -> String {
         self.workspace_name_dialog
             .as_ref()
@@ -75,11 +76,7 @@ impl Editor {
         let Some(dialog) = self.workspace_name_dialog.as_ref() else {
             return 0;
         };
-        if dialog.selection_reversed {
-            dialog.selected_range.start
-        } else {
-            dialog.selected_range.end
-        }
+        single_line_input::cursor_offset(&dialog.selected_range, dialog.selection_reversed)
     }
 
     pub(super) fn set_workspace_name_layout(
@@ -95,27 +92,12 @@ impl Editor {
         &self,
         position: Point<Pixels>,
     ) -> usize {
-        let text = self.workspace_name_text();
-        if text.is_empty() {
-            return 0;
-        }
-
-        let (Some(bounds), Some(line)) = (
+        index_for_mouse_position(
+            self.workspace_name_text().len(),
             self.workspace_name_last_bounds.as_ref(),
             self.workspace_name_last_layout.as_ref(),
-        ) else {
-            return text.len();
-        };
-
-        if position.x <= bounds.left() {
-            return 0;
-        }
-        if position.x >= bounds.right() {
-            return text.len();
-        }
-
-        line.closest_index_for_x(position.x - bounds.left())
-            .min(text.len())
+            position,
+        )
     }
 
     pub(super) fn open_workspace_file_context_menu(
@@ -530,11 +512,14 @@ impl Editor {
         let Some(dialog) = self.workspace_name_dialog.as_mut() else {
             return;
         };
-        let offset = offset.min(dialog.name.len());
-        dialog.selected_range = offset..offset;
-        dialog.marked_range = None;
-        dialog.selection_reversed = false;
-        self.workspace_name_is_selecting = false;
+        move_caret_to(
+            &mut dialog.selected_range,
+            &mut dialog.selection_reversed,
+            &mut dialog.marked_range,
+            &mut self.workspace_name_is_selecting,
+            offset,
+            dialog.name.len(),
+        );
         cx.notify();
     }
 
@@ -542,13 +527,13 @@ impl Editor {
         let Some(dialog) = self.workspace_name_dialog.as_mut() else {
             return;
         };
-        super::workspace::extend_single_line_selection(
+        select_caret_to(
             &mut dialog.selected_range,
             &mut dialog.selection_reversed,
+            &mut dialog.marked_range,
             offset,
             dialog.name.len(),
         );
-        dialog.marked_range = None;
         cx.notify();
     }
 
@@ -571,7 +556,7 @@ impl Editor {
         if cursor == 0 {
             return;
         }
-        let previous = super::workspace::workspace_text_grapheme_boundary(&dialog.name, cursor, true);
+        let previous = text_grapheme_boundary(&dialog.name, cursor, true);
         self.replace_workspace_name_dialog_text(previous..cursor, "", false, Some(previous..previous), cx);
     }
 
@@ -594,7 +579,7 @@ impl Editor {
         if cursor >= dialog.name.len() {
             return;
         }
-        let next = super::workspace::workspace_text_grapheme_boundary(&dialog.name, cursor, false);
+        let next = text_grapheme_boundary(&dialog.name, cursor, false);
         self.replace_workspace_name_dialog_text(cursor..next, "", false, Some(cursor..cursor), cx);
     }
 
@@ -900,21 +885,12 @@ impl Editor {
                                         .min_w(px(0.0))
                                         .h_full()
                                         .overflow_hidden()
-                                        .child(WorkspaceNameInputElement::new(cx.entity())),
-                                )
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_workspace_name_mouse_down),
-                                )
-                                .on_mouse_up(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_workspace_name_mouse_up),
-                                )
-                                .on_mouse_up_out(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_workspace_name_mouse_up),
-                                )
-                                .on_mouse_move(cx.listener(Self::on_workspace_name_mouse_move)),
+                                        .child(SingleLineInputElement::new(
+                                            cx.entity(),
+                                            SingleLineInputTarget::WorkspaceName,
+                                            SharedString::default(),
+                                        )),
+                                ),
                         )
                         .child(
                             div()
@@ -956,7 +932,7 @@ impl Editor {
         }
 
         let modifiers = &event.keystroke.modifiers;
-        if super::workspace::workspace_search_primary_shortcut_modifiers(modifiers) {
+        if primary_shortcut_modifiers(modifiers) {
             match event.keystroke.key.as_str() {
                 "v" => {
                     self.workspace_name_paste_from_clipboard(cx);
@@ -1012,12 +988,19 @@ impl Editor {
         cx.stop_propagation();
         window.focus(&self.workspace_name_focus);
         let offset = self.workspace_name_index_for_mouse_position(event.position);
-        if event.modifiers.shift {
-            self.workspace_name_select_to(offset, cx);
-        } else {
-            self.workspace_name_move_to(offset, cx);
-        }
-        self.workspace_name_is_selecting = true;
+        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+            return;
+        };
+        handle_mouse_down(
+            event.modifiers.shift,
+            offset,
+            dialog.name.len(),
+            &mut dialog.selected_range,
+            &mut dialog.selection_reversed,
+            &mut dialog.marked_range,
+            &mut self.workspace_name_is_selecting,
+        );
+        cx.notify();
     }
 
     pub(super) fn on_workspace_name_mouse_up(
@@ -1026,8 +1009,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.workspace_name_is_selecting {
-            self.workspace_name_is_selecting = false;
+        if handle_mouse_up(&mut self.workspace_name_is_selecting) {
             cx.notify();
         }
     }
@@ -1038,18 +1020,29 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.workspace_name_is_selecting || !self.workspace_name_input_active(window) {
+        if !self.workspace_name_input_active(window) {
             return;
         }
-        if !event.dragging() {
-            self.workspace_name_is_selecting = false;
+        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            return;
+        };
+        let text_len = dialog.name.len();
+        let offset = self.workspace_name_index_for_mouse_position(event.position);
+        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+            return;
+        };
+        if handle_mouse_move(
+            event.dragging(),
+            offset,
+            text_len,
+            self.workspace_name_is_selecting,
+            &mut dialog.selected_range,
+            &mut dialog.selection_reversed,
+            &mut dialog.marked_range,
+            &mut self.workspace_name_is_selecting,
+        ) {
             cx.notify();
-            return;
         }
-        self.workspace_name_select_to(
-            self.workspace_name_index_for_mouse_position(event.position),
-            cx,
-        );
     }
 
     pub(super) fn on_workspace_name_delete_back(
@@ -1144,7 +1137,7 @@ impl Editor {
             return;
         };
         if dialog.selected_range.is_empty() {
-            let previous = super::workspace::workspace_text_grapheme_boundary(
+            let previous = text_grapheme_boundary(
                 &dialog.name,
                 self.workspace_name_cursor_offset(),
                 true,
@@ -1169,7 +1162,7 @@ impl Editor {
             return;
         };
         if dialog.selected_range.is_empty() {
-            let next = super::workspace::workspace_text_grapheme_boundary(
+            let next = text_grapheme_boundary(
                 &dialog.name,
                 self.workspace_name_cursor_offset(),
                 false,
@@ -1225,7 +1218,7 @@ impl Editor {
             return;
         };
         self.workspace_name_select_to(
-            super::workspace::workspace_text_grapheme_boundary(
+            text_grapheme_boundary(
                 &dialog.name,
                 self.workspace_name_cursor_offset(),
                 true,
@@ -1248,7 +1241,7 @@ impl Editor {
             return;
         };
         self.workspace_name_select_to(
-            super::workspace::workspace_text_grapheme_boundary(
+            text_grapheme_boundary(
                 &dialog.name,
                 self.workspace_name_cursor_offset(),
                 false,

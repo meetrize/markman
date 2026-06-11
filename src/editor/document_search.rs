@@ -4,9 +4,13 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use gpui::*;
-use unicode_segmentation::UnicodeSegmentation;
 
-use super::document_search_input::DocumentSearchInputElement;
+use super::single_line_input::{
+    self, SingleLineInputTarget, handle_mouse_down, handle_mouse_move, handle_mouse_up,
+    index_for_mouse_position, move_caret_to, primary_shortcut_modifiers, select_caret_to,
+    text_grapheme_boundary,
+};
+use super::single_line_input_element::SingleLineInputElement;
 use super::search_match::find_case_insensitive_ranges;
 use super::Editor;
 use super::ViewMode;
@@ -68,15 +72,10 @@ impl Editor {
     }
 
     pub(super) fn document_search_cursor_offset(&self) -> usize {
-        if self.document_search.selection_reversed {
-            self.document_search.selected_range.start
-        } else {
-            self.document_search.selected_range.end
-        }
-    }
-
-    pub(super) fn document_search_focus_handle(&self) -> FocusHandle {
-        self.document_search_focus.clone()
+        single_line_input::cursor_offset(
+            &self.document_search.selected_range,
+            self.document_search.selection_reversed,
+        )
     }
 
     pub(super) fn set_document_search_layout(
@@ -480,23 +479,11 @@ impl Editor {
                                 .min_w(px(0.0))
                                 .h_full()
                                 .overflow_hidden()
-                                .child(DocumentSearchInputElement::new(
+                                .child(SingleLineInputElement::new(
                                     cx.entity(),
+                                    SingleLineInputTarget::DocumentSearch,
                                     placeholder,
-                                ))
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_document_search_mouse_down),
-                                )
-                                .on_mouse_up(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_document_search_mouse_up),
-                                )
-                                .on_mouse_up_out(
-                                    MouseButton::Left,
-                                    cx.listener(Self::on_document_search_mouse_up),
-                                )
-                                .on_mouse_move(cx.listener(Self::on_document_search_mouse_move)),
+                                )),
                         ),
                 )
                 .child(
@@ -557,7 +544,7 @@ impl Editor {
         }
 
         let modifiers = event.keystroke.modifiers;
-        if document_search_primary_shortcut_modifiers(modifiers) {
+        if primary_shortcut_modifiers(&modifiers) {
             match event.keystroke.key.as_str() {
                 "v" => {
                     self.document_search_paste_from_clipboard(cx);
@@ -609,13 +596,18 @@ impl Editor {
     ) {
         cx.stop_propagation();
         window.focus(&self.document_search_focus);
-        self.document_search.is_selecting = true;
+        let text_len = self.document_search.query.len();
         let offset = self.document_search_index_for_mouse_position(event.position);
-        if event.modifiers.shift {
-            self.document_search_select_to(offset, cx);
-        } else {
-            self.document_search_move_to(offset, cx);
-        }
+        handle_mouse_down(
+            event.modifiers.shift,
+            offset,
+            text_len,
+            &mut self.document_search.selected_range,
+            &mut self.document_search.selection_reversed,
+            &mut self.document_search.marked_range,
+            &mut self.document_search.is_selecting,
+        );
+        cx.notify();
     }
 
     pub(crate) fn on_document_search_mouse_up(
@@ -624,8 +616,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.document_search.is_selecting {
-            self.document_search.is_selecting = false;
+        if handle_mouse_up(&mut self.document_search.is_selecting) {
             cx.notify();
         }
     }
@@ -636,13 +627,23 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.document_search.is_selecting || !self.document_search_input_active(window) {
+        if !self.document_search_input_active(window) {
             return;
         }
-        self.document_search_select_to(
-            self.document_search_index_for_mouse_position(event.position),
-            cx,
-        );
+        let text_len = self.document_search.query.len();
+        let offset = self.document_search_index_for_mouse_position(event.position);
+        if handle_mouse_move(
+            event.dragging(),
+            offset,
+            text_len,
+            self.document_search.is_selecting,
+            &mut self.document_search.selected_range,
+            &mut self.document_search.selection_reversed,
+            &mut self.document_search.marked_range,
+            &mut self.document_search.is_selecting,
+        ) {
+            cx.notify();
+        }
     }
 
     pub(super) fn replace_document_search_text(
@@ -672,50 +673,35 @@ impl Editor {
         self.run_document_search(cx);
     }
 
-    fn document_search_index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
-        let query = &self.document_search.query;
-        if query.is_empty() {
-            return 0;
-        }
-        let (Some(bounds), Some(line)) = (
+    pub(super) fn document_search_index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
+        index_for_mouse_position(
+            self.document_search.query.len(),
             self.document_search.last_bounds.as_ref(),
             self.document_search.last_layout.as_ref(),
-        ) else {
-            return query.len();
-        };
-        if position.x <= bounds.left() {
-            return 0;
-        }
-        if position.x >= bounds.right() {
-            return query.len();
-        }
-        line.closest_index_for_x(position.x - bounds.left())
-            .min(query.len())
+            position,
+        )
     }
 
     fn document_search_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let clamped = offset.min(self.document_search.query.len());
-        self.document_search.selected_range = clamped..clamped;
-        self.document_search.selection_reversed = false;
-        self.document_search.marked_range = None;
-        self.document_search.is_selecting = false;
+        move_caret_to(
+            &mut self.document_search.selected_range,
+            &mut self.document_search.selection_reversed,
+            &mut self.document_search.marked_range,
+            &mut self.document_search.is_selecting,
+            offset,
+            self.document_search.query.len(),
+        );
         cx.notify();
     }
 
     fn document_search_select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let clamped = offset.min(self.document_search.query.len());
-        if self.document_search.selection_reversed {
-            self.document_search.selected_range.start = clamped;
-        } else {
-            self.document_search.selected_range.end = clamped;
-        }
-        if self.document_search.selected_range.end < self.document_search.selected_range.start {
-            self.document_search.selection_reversed =
-                !self.document_search.selection_reversed;
-            self.document_search.selected_range = self.document_search.selected_range.end
-                ..self.document_search.selected_range.start;
-        }
-        self.document_search.marked_range = None;
+        select_caret_to(
+            &mut self.document_search.selected_range,
+            &mut self.document_search.selection_reversed,
+            &mut self.document_search.marked_range,
+            offset,
+            self.document_search.query.len(),
+        );
         cx.notify();
     }
 
@@ -733,7 +719,7 @@ impl Editor {
                 return;
             }
             let previous =
-                document_text_grapheme_boundary(&self.document_search.query, cursor, true);
+                text_grapheme_boundary(&self.document_search.query, cursor, true);
             previous..cursor
         } else {
             selected
@@ -757,7 +743,7 @@ impl Editor {
             if cursor >= query_len {
                 return;
             }
-            let next = document_text_grapheme_boundary(&self.document_search.query, cursor, false);
+            let next = text_grapheme_boundary(&self.document_search.query, cursor, false);
             cursor..next
         } else {
             selected
@@ -895,7 +881,7 @@ impl Editor {
         }
         cx.stop_propagation();
         if self.document_search.selected_range.is_empty() {
-            let previous = document_text_grapheme_boundary(
+            let previous = text_grapheme_boundary(
                 &self.document_search.query,
                 self.document_search_cursor_offset(),
                 true,
@@ -917,7 +903,7 @@ impl Editor {
         }
         cx.stop_propagation();
         if self.document_search.selected_range.is_empty() {
-            let next = document_text_grapheme_boundary(
+            let next = text_grapheme_boundary(
                 &self.document_search.query,
                 self.document_search_cursor_offset(),
                 false,
@@ -965,7 +951,7 @@ impl Editor {
         }
         cx.stop_propagation();
         self.document_search_select_to(
-            document_text_grapheme_boundary(
+            text_grapheme_boundary(
                 &self.document_search.query,
                 self.document_search_cursor_offset(),
                 true,
@@ -985,7 +971,7 @@ impl Editor {
         }
         cx.stop_propagation();
         self.document_search_select_to(
-            document_text_grapheme_boundary(
+            text_grapheme_boundary(
                 &self.document_search.query,
                 self.document_search_cursor_offset(),
                 false,
@@ -1018,23 +1004,6 @@ impl Editor {
         }
         cx.stop_propagation();
         self.document_search_select_to(self.document_search.query.len(), cx);
-    }
-}
-
-fn document_search_primary_shortcut_modifiers(modifiers: Modifiers) -> bool {
-    modifiers.platform
-}
-
-fn document_text_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {
-    if backward {
-        text.grapheme_indices(true)
-            .rev()
-            .find_map(|(idx, _)| (idx < offset).then_some(idx))
-            .unwrap_or(0)
-    } else {
-        text.grapheme_indices(true)
-            .find_map(|(idx, _)| (idx > offset).then_some(idx))
-            .unwrap_or(text.len())
     }
 }
 
