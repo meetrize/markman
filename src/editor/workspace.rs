@@ -2048,7 +2048,7 @@ fn is_closing_fence(trimmed: &str, marker: char, len: usize) -> bool {
     count >= len && trimmed[count..].trim().is_empty()
 }
 
-fn workspace_search_primary_shortcut_modifiers(modifiers: &Modifiers) -> bool {
+pub(super) fn workspace_search_primary_shortcut_modifiers(modifiers: &Modifiers) -> bool {
     (modifiers.platform || modifiers.control)
         && !modifiers.alt
         && !modifiers.function
