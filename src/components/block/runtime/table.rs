@@ -30,8 +30,10 @@ impl Block {
         &mut self,
         position: TableCellPosition,
         alignment: TableColumnAlignment,
+        extent: (usize, usize),
     ) {
         self.table_cell_position = Some(position);
+        self.table_cell_extent = Some(extent);
         self.table_cell_alignment = Some(alignment);
         self.edit_mode = EditMode::RenderedRich;
         self.clear_inline_projection();

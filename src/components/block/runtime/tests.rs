@@ -2009,6 +2009,7 @@ async fn ime_replace_and_mark_text_replaces_right_to_left_selection_in_table_cel
         block.set_table_cell_mode(
             TableCellPosition { row: 0, column: 0 },
             crate::components::TableColumnAlignment::Left,
+            (1, 1),
         );
         block
     });

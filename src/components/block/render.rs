@@ -10,7 +10,7 @@ use super::element::BlockTextElement;
 use super::{Block, BlockEvent, BlockKind, ImageResolvedSource, ImageRuntime};
 use crate::components::{
     Editor, HtmlCssColor, HtmlDocument, HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight,
-    TableAxisKind, TableCellInlineImageSegment, TableColumnLayout, attr_value,
+    TableAxisKind, TableCellInlineImageSegment, TableCellPosition, TableColumnLayout, attr_value,
     display_math_font_size, inline_math_font_size, parse_display_math_source,
     parse_html_image_block, parse_mermaid_fence_source, parse_table_cell_inline_images,
     render_display_math_svg, render_inline_math_svg, render_mermaid_svg_for_display,
@@ -36,6 +36,27 @@ const ICON_CODE_BLOCK_CLOSE: &str = "icon/toolbar/x.svg";
 const ICON_CODE_RUN_OUTPUT_CHEVRON_DOWN: &str = "icon/toolbar/chevron-down.svg";
 const ICON_CODE_RUN_OUTPUT_CHEVRON_UP: &str = "icon/toolbar/chevron-up.svg";
 const ICON_TABLE_COLUMN_MENU: &str = "icon/toolbar/ellipsis-vertical.svg";
+
+fn style_native_table_cell_borders(
+    mut cell: Stateful<Div>,
+    position: TableCellPosition,
+    extent: (usize, usize),
+    border_color: Hsla,
+    focused: bool,
+) -> Stateful<Div> {
+    if focused {
+        return cell.border(px(1.0)).border_color(border_color);
+    }
+
+    let (columns, rows) = extent;
+    if position.column + 1 < columns {
+        cell = cell.border_r(px(1.0));
+    }
+    if position.row + 1 < rows {
+        cell = cell.border_b(px(1.0));
+    }
+    cell.border_color(border_color)
+}
 
 fn bulleted_list_marker(depth: usize) -> &'static str {
     match depth {
@@ -1887,10 +1908,11 @@ impl Render for Block {
         let depth_padding = d.block_padding_x + d.nested_block_indent * self.render_depth as f32;
 
         if self.is_table_cell() {
-            let is_header = self
-                .table_cell_position()
-                .map(|position| position.is_header())
-                .unwrap_or(false);
+            let position = self.table_cell_position().expect("table cell position");
+            let extent = self
+                .table_cell_extent
+                .unwrap_or((position.column + 1, position.row + 1));
+            let is_header = position.is_header();
             let highlight = self.table_axis_highlight;
             let base_bg = if is_header {
                 c.table_header_bg
@@ -1911,8 +1933,8 @@ impl Render for Block {
                     TableAxisHighlight::Selected => c.table_axis_selected_bg,
                 }
             };
-            let cell_base = self
-                .render_shell(
+            let cell_base = style_native_table_cell_borders(
+                self.render_shell(
                     block_id,
                     false,
                     if showing_rendered_image {
@@ -1930,13 +1952,15 @@ impl Render for Block {
                 .min_h(px(d.table_cell_min_height))
                 .px(px(d.table_cell_padding_x))
                 .py(px(d.table_cell_padding_y))
-                .rounded(px(2.0))
-                .border(px(1.0))
-                .border_color(border_color)
                 .bg(bg)
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(rems(t.text_line_height));
+                .line_height(rems(t.text_line_height)),
+                position,
+                extent,
+                border_color,
+                focused,
+            );
 
             let cell_base = if is_header {
                 cell_base.font_weight(FontWeight::MEDIUM)
@@ -3098,6 +3122,9 @@ impl Render for Block {
                         .relative()
                         .flex()
                         .flex_col()
+                        .border(px(1.0))
+                        .border_color(c.table_border)
+                        .overflow_hidden()
                         .pr(right_gutter)
                         .pb(bottom_gutter)
                         .gap(px(0.0))

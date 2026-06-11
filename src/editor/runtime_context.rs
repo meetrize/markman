@@ -77,10 +77,11 @@ impl Editor {
         title: InlineTextTree,
         position: TableCellPosition,
         alignment: TableColumnAlignment,
+        extent: (usize, usize),
     ) -> Entity<Block> {
         let block = Self::new_block(cx, BlockRecord::new(BlockKind::Paragraph, title));
         block.update(cx, |block, _cx| {
-            block.set_table_cell_mode(position, alignment);
+            block.set_table_cell_mode(position, alignment, extent);
         });
         block
     }

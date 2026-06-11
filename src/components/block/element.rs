@@ -1348,6 +1348,7 @@ mod tests {
             block.set_table_cell_mode(
                 TableCellPosition { row: 0, column: 0 },
                 crate::components::TableColumnAlignment::Center,
+                (1, 1),
             );
             block
         });

@@ -157,6 +157,8 @@ pub struct Block {
     show_source_line_numbers: bool,
     pub(crate) table_runtime: Option<TableRuntime>,
     pub(crate) table_cell_position: Option<TableCellPosition>,
+    /// `(columns, rows)` for native table cells, including the header row.
+    pub(crate) table_cell_extent: Option<(usize, usize)>,
     pub(crate) table_cell_alignment: Option<TableColumnAlignment>,
     pub(crate) table_axis_preview: Option<TableAxisMarker>,
     pub(crate) table_axis_selection: Option<TableAxisMarker>,
@@ -259,6 +261,7 @@ impl Block {
             show_source_line_numbers: false,
             table_runtime: None,
             table_cell_position: None,
+            table_cell_extent: None,
             table_cell_alignment: None,
             table_axis_preview: None,
             table_axis_selection: None,

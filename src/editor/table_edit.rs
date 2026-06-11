@@ -13,6 +13,10 @@ impl Editor {
         table: &TableData,
         cx: &mut Context<Self>,
     ) {
+        let columns = table.column_count();
+        let rows = 1 + table.rows.len();
+        let extent = (columns, rows);
+
         let header = table
             .header
             .iter()
@@ -25,7 +29,7 @@ impl Editor {
                     .copied()
                     .unwrap_or(TableColumnAlignment::Left);
                 let position = TableCellPosition { row: 0, column };
-                let cell = Self::new_table_cell_block(cx, title, position, alignment);
+                let cell = Self::new_table_cell_block(cx, title, position, alignment, extent);
                 self.table_cells.insert(
                     cell.entity_id(),
                     TableCellBinding {
@@ -56,7 +60,8 @@ impl Editor {
                             row: body_row_index + 1,
                             column,
                         };
-                        let cell = Self::new_table_cell_block(cx, title, position, alignment);
+                        let cell =
+                            Self::new_table_cell_block(cx, title, position, alignment, extent);
                         self.table_cells.insert(
                             cell.entity_id(),
                             TableCellBinding {
