@@ -1662,7 +1662,7 @@ impl I18nStrings {
             code_run_unsupported_title: "无法运行此语言".into(),
             code_run_unsupported_message:
                 "当前仅支持 bash、sh、python 和 javascript 代码块。".into(),
-            code_run_output_title: "运行结果".into(),
+            code_run_output_title: "输出".into(),
             code_run_output_expand: "展开".into(),
             code_run_output_collapse: "收起".into(),
             code_run_stop: "停止".into(),
@@ -1905,7 +1905,7 @@ impl I18nStrings {
             code_run_unsupported_title: "Language Not Runnable".into(),
             code_run_unsupported_message:
                 "Only bash, sh, python, and javascript code blocks can be run.".into(),
-            code_run_output_title: "Run Output".into(),
+            code_run_output_title: "Output".into(),
             code_run_output_expand: "Expand".into(),
             code_run_output_collapse: "Collapse".into(),
             code_run_stop: "Stop".into(),

@@ -322,7 +322,7 @@ impl Block {
                     .w_full()
                     .flex()
                     .flex_row()
-                    .border_b(px(if panel_expanded { 1.0 } else { 0.0 }))
+                    .border_b(px(1.0))
                     .border_color(c.code_language_input_border.opacity(0.35))
                     .child(run_lane_spacer())
                     .child(panel_content_lane(
