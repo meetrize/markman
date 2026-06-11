@@ -1851,6 +1851,15 @@ impl Render for Editor {
         } else {
             base
         };
+        let base =
+            if let Some(popover) = self.render_inline_code_run_popover_overlay(&theme, window, cx) {
+                base.child(popover)
+            } else if let Some(run_button) = self.render_inline_code_run_button_overlay(window, cx)
+            {
+                base.child(run_button)
+            } else {
+                base
+            };
         let base = if let Some(kind) = self.info_dialog {
             base.child(self.render_info_dialog_overlay(&theme, kind, cx))
         } else if let Some(dialog) = self.render_code_run_dialog_overlay(&theme, cx) {

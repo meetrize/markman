@@ -1,10 +1,11 @@
-//! Code-block execution for supported scripting languages.
+//! Code-block and inline-code execution for supported scripting languages.
 
 use std::io::{BufRead, BufReader, Read};
+use std::ops::Range;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Instant;
 
@@ -26,6 +27,12 @@ pub struct CodeBlockRunSnapshot {
 
 /// Number of output lines shown before the body auto-collapses.
 pub const CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES: usize = 3;
+
+/// Default language label for inline code execution (shell one-liners).
+pub const DEFAULT_INLINE_CODE_LANGUAGE: &str = "shell";
+
+/// Maximum combined stdout/stderr characters retained for inline code runs.
+pub const INLINE_CODE_RUN_MAX_OUTPUT_CHARS: usize = 8_192;
 
 /// Counts logical lines across run-output text sections.
 pub fn code_run_output_line_count(stdout: &str, stderr: &str, error_message: Option<&str>) -> usize {
@@ -108,6 +115,20 @@ pub fn resolve_runner(language: &str) -> Option<RunnerSpec> {
     }
 }
 
+/// Returns the shell interpreter used for inline code execution.
+pub fn resolve_inline_code_runner() -> RunnerSpec {
+    resolve_runner(DEFAULT_INLINE_CODE_LANGUAGE).expect("inline shell runner must exist")
+}
+
+/// Extracts inline code source from visible display text at `span_range`.
+///
+/// Leading and trailing whitespace are trimmed; internal spacing is preserved.
+pub fn extract_inline_code_source(display_text: &str, span_range: &Range<usize>) -> String {
+    let end = span_range.end.min(display_text.len());
+    let start = span_range.start.min(end);
+    display_text[start..end].trim().to_string()
+}
+
 /// Spawns a background thread that executes `source` and streams output through `tx`.
 pub fn spawn_code_run(
     language: &str,
@@ -116,6 +137,39 @@ pub fn spawn_code_run(
     cancel: Arc<AtomicBool>,
     child_slot: Arc<std::sync::Mutex<Option<Child>>>,
     tx: UnboundedSender<CodeRunProgress>,
+) -> thread::JoinHandle<()> {
+    spawn_run(language, source, work_dir, cancel, child_slot, tx, None)
+}
+
+/// Spawns a background thread that executes inline shell `source`.
+///
+/// Output is capped at [`INLINE_CODE_RUN_MAX_OUTPUT_CHARS`].
+pub fn spawn_inline_shell_run(
+    source: &str,
+    work_dir: &Path,
+    cancel: Arc<AtomicBool>,
+    child_slot: Arc<std::sync::Mutex<Option<Child>>>,
+    tx: UnboundedSender<CodeRunProgress>,
+) -> thread::JoinHandle<()> {
+    spawn_run(
+        DEFAULT_INLINE_CODE_LANGUAGE,
+        source,
+        work_dir,
+        cancel,
+        child_slot,
+        tx,
+        Some(INLINE_CODE_RUN_MAX_OUTPUT_CHARS),
+    )
+}
+
+fn spawn_run(
+    language: &str,
+    source: &str,
+    work_dir: &Path,
+    cancel: Arc<AtomicBool>,
+    child_slot: Arc<std::sync::Mutex<Option<Child>>>,
+    tx: UnboundedSender<CodeRunProgress>,
+    max_output_chars: Option<usize>,
 ) -> thread::JoinHandle<()> {
     let language = language.to_string();
     let source = source.to_string();
@@ -131,6 +185,7 @@ pub fn spawn_code_run(
                 cancel,
                 child_slot,
                 tx.clone(),
+                max_output_chars,
             );
             let _ = tx.unbounded_send(CodeRunProgress::Finished(outcome));
         })
@@ -144,6 +199,7 @@ fn run_in_thread(
     cancel: Arc<AtomicBool>,
     child_slot: Arc<std::sync::Mutex<Option<Child>>>,
     tx: UnboundedSender<CodeRunProgress>,
+    max_output_chars: Option<usize>,
 ) -> CodeRunOutcome {
     let started = Instant::now();
     let Some(spec) = resolve_runner(language) else {
@@ -202,22 +258,41 @@ fn run_in_thread(
 
     let collected_stdout = Arc::new(std::sync::Mutex::new(String::new()));
     let collected_stderr = Arc::new(std::sync::Mutex::new(String::new()));
+    let total_output_chars = max_output_chars.map(|_| Arc::new(AtomicUsize::new(0)));
     let mut readers = Vec::new();
 
     if let Some(stdout) = stdout {
         let tx = tx.clone();
         let cancel = cancel.clone();
         let collected = collected_stdout.clone();
+        let total_output_chars = total_output_chars.clone();
         readers.push(thread::spawn(move || {
-            read_stream(stdout, false, &tx, &cancel, collected);
+            read_stream(
+                stdout,
+                false,
+                &tx,
+                &cancel,
+                collected,
+                max_output_chars,
+                total_output_chars,
+            );
         }));
     }
     if let Some(stderr) = stderr {
         let tx = tx.clone();
         let cancel = cancel.clone();
         let collected = collected_stderr.clone();
+        let total_output_chars = total_output_chars.clone();
         readers.push(thread::spawn(move || {
-            read_stream(stderr, true, &tx, &cancel, collected);
+            read_stream(
+                stderr,
+                true,
+                &tx,
+                &cancel,
+                collected,
+                max_output_chars,
+                total_output_chars,
+            );
         }));
     }
 
@@ -269,6 +344,8 @@ fn read_stream<R: Read + Send + 'static>(
     tx: &UnboundedSender<CodeRunProgress>,
     cancel: &Arc<AtomicBool>,
     collected: Arc<std::sync::Mutex<String>>,
+    max_output_chars: Option<usize>,
+    total_output_chars: Option<Arc<AtomicUsize>>,
 ) {
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
@@ -280,6 +357,21 @@ fn read_stream<R: Read + Send + 'static>(
         match reader.read_line(&mut line) {
             Ok(0) => break,
             Ok(_) => {
+                if let (Some(max), Some(total)) = (max_output_chars, total_output_chars.as_ref())
+                {
+                    let used = total.load(Ordering::Relaxed);
+                    if used >= max {
+                        break;
+                    }
+                    let remaining = max - used;
+                    if line.len() > remaining {
+                        line.truncate(remaining);
+                    }
+                    total.fetch_add(line.len(), Ordering::Relaxed);
+                }
+                if line.is_empty() {
+                    break;
+                }
                 collected
                     .lock()
                     .expect("stream collect lock")
@@ -290,6 +382,13 @@ fn read_stream<R: Read + Send + 'static>(
                     CodeRunProgress::StdoutChunk(line.clone())
                 };
                 let _ = tx.unbounded_send(progress);
+                if max_output_chars.is_some_and(|max| {
+                    total_output_chars
+                        .as_ref()
+                        .is_some_and(|total| total.load(Ordering::Relaxed) >= max)
+                }) {
+                    break;
+                }
             }
             Err(_) => break,
         }
@@ -301,5 +400,104 @@ pub fn kill_child(child_slot: &Arc<std::sync::Mutex<Option<Child>>>) {
     if let Some(mut child) = child_slot.lock().expect("child slot lock").take() {
         let _ = child.kill();
         let _ = child.wait();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    use futures::channel::mpsc;
+
+    use super::*;
+
+    fn collect_run_outcome(
+        mut rx: mpsc::UnboundedReceiver<CodeRunProgress>,
+    ) -> (String, CodeRunOutcome) {
+        let mut stdout = String::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            match rx.try_recv() {
+                Ok(CodeRunProgress::StdoutChunk(chunk)) => stdout.push_str(&chunk),
+                Ok(CodeRunProgress::StderrChunk(_)) => {}
+                Ok(CodeRunProgress::Finished(outcome)) => return (stdout, outcome),
+                Err(_) => std::thread::sleep(Duration::from_millis(20)),
+            }
+        }
+        panic!("run did not finish within timeout");
+    }
+
+    #[test]
+    fn resolve_inline_code_runner_returns_bash_shell_spec() {
+        let spec = resolve_inline_code_runner();
+        assert_eq!(spec.program, "bash");
+        assert_eq!(spec.extension, "sh");
+    }
+
+    #[test]
+    fn extract_inline_code_source_trims_outer_whitespace() {
+        let text = "run echo hello now";
+        assert_eq!(
+            extract_inline_code_source(text, &(4..15)),
+            "echo hello"
+        );
+    }
+
+    #[test]
+    fn extract_inline_code_source_preserves_internal_spacing() {
+        let text = "a b c";
+        assert_eq!(extract_inline_code_source(text, &(2..5)), "b c");
+    }
+
+    #[test]
+    fn extract_inline_code_source_clamps_out_of_range_bounds() {
+        let text = "hello";
+        assert_eq!(extract_inline_code_source(text, &(0..100)), "hello");
+        assert_eq!(extract_inline_code_source(text, &(10..20)), "");
+    }
+
+    #[test]
+    fn spawn_inline_shell_run_executes_echo_command() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let child_slot = Arc::new(std::sync::Mutex::new(None));
+        let (tx, rx) = mpsc::unbounded();
+
+        let join = spawn_inline_shell_run(
+            "echo hello",
+            Path::new("."),
+            cancel,
+            child_slot,
+            tx,
+        );
+
+        let (stdout, outcome) = collect_run_outcome(rx);
+        join.join().expect("inline shell run thread");
+
+        assert!(stdout.contains("hello"), "stdout was: {stdout:?}");
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(outcome.error_message.is_none());
+    }
+
+    #[test]
+    fn spawn_inline_shell_run_truncates_large_output() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let child_slot = Arc::new(std::sync::Mutex::new(None));
+        let (tx, rx) = mpsc::unbounded();
+
+        let join = spawn_inline_shell_run(
+            "python3 -c \"print('x' * 10000)\"",
+            Path::new("."),
+            cancel,
+            child_slot,
+            tx,
+        );
+
+        let (stdout, outcome) = collect_run_outcome(rx);
+        join.join().expect("inline shell run thread");
+
+        assert!(stdout.len() <= INLINE_CODE_RUN_MAX_OUTPUT_CHARS);
+        assert!(outcome.stdout.len() <= INLINE_CODE_RUN_MAX_OUTPUT_CHARS);
     }
 }

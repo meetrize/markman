@@ -2761,3 +2761,76 @@ async fn select_word_at_offset_preserves_range_in_projected_bold_text(cx: &mut T
         );
     });
 }
+
+#[gpui::test]
+async fn inline_code_span_at_cursor_returns_span_inside_code(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("Run `echo hi` here."),
+            ),
+        )
+    });
+
+    block.update(cx, |block, cx| {
+        block.move_to(5, cx);
+    });
+
+    block.read_with(cx, |block, _cx| {
+        let span = block
+            .inline_code_span_at_cursor()
+            .expect("cursor inside inline code");
+        assert_eq!(span.range, 4..11);
+        assert_eq!(
+            block.inline_code_source_at_cursor().as_deref(),
+            Some("echo hi")
+        );
+    });
+}
+
+#[gpui::test]
+async fn inline_code_span_at_cursor_returns_none_in_plain_text(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("Run `echo hi` here."),
+            ),
+        )
+    });
+
+    block.update(cx, |block, cx| {
+        block.move_to(1, cx);
+    });
+
+    block.read_with(cx, |block, _cx| {
+        assert!(block.inline_code_span_at_cursor().is_none());
+        assert!(block.inline_code_source_at_cursor().is_none());
+    });
+}
+
+#[gpui::test]
+async fn inline_code_span_for_range_locates_unique_code_span(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("Run `echo hi` here."),
+            ),
+        )
+    });
+
+    block.read_with(cx, |block, _cx| {
+        let span = block
+            .inline_code_span_for_range(5..8)
+            .expect("partial selection inside one code span");
+        assert_eq!(span.range, 4..11);
+    });
+}

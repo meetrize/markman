@@ -198,6 +198,7 @@ impl Editor {
     }
 
     pub(super) fn dismiss_contextual_overlays(&mut self, cx: &mut Context<Self>) {
+        let had_inline_code_popover = self.dismiss_inline_code_run_popover(cx);
         let had_document_search = self.document_search.open;
         let had_menu = self.context_menu.take().is_some();
         let had_dialog = self.table_insert_dialog.take().is_some();
@@ -208,7 +209,8 @@ impl Editor {
         if had_document_search {
             self.close_document_search(cx);
         }
-        if had_menu
+        if had_inline_code_popover
+            || had_menu
             || had_dialog
             || had_submenu_close
             || had_file_menu

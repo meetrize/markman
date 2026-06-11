@@ -116,7 +116,7 @@ Velotype 是 Rust + GPUI 的 Markdown 编辑器。已有围栏代码块执行能
 - `cargo test` 通过
 - 现有围栏代码块执行行为不变
 - 列出本步新增/修改的 public API
-```
+
 
 ---
 

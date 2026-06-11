@@ -158,6 +158,9 @@ pub struct Editor {
     footnote_registry: Arc<FootnoteRegistry>,
     code_runs: HashMap<EntityId, code_run::CodeBlockRunState>,
     active_code_run: Option<code_run::ActiveCodeRunControl>,
+    inline_code_runs: HashMap<code_run::InlineCodeRunTarget, code_run::CodeBlockRunState>,
+    active_inline_code_run: Option<code_run::ActiveInlineCodeRunControl>,
+    inline_code_run_popover: Option<code_run::InlineCodeRunTarget>,
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
 }
 
@@ -363,6 +366,9 @@ impl Editor {
             footnote_registry: Arc::default(),
             code_runs: HashMap::new(),
             active_code_run: None,
+            inline_code_runs: HashMap::new(),
+            active_inline_code_run: None,
+            inline_code_run_popover: None,
             code_run_dialog: None,
         };
         editor.rebuild_table_runtimes(cx);

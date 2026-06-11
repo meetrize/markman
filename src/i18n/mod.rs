@@ -391,6 +391,10 @@ pub struct I18nStrings {
     pub code_run_meta_template: String,
     /// Placeholder exit code when the process did not report one.
     pub code_run_exit_none: String,
+    /// Tooltip for the inline code run button.
+    pub inline_code_run_tooltip: String,
+    /// Title for the inline code run output popover.
+    pub inline_code_run_output_title: String,
     /// Preferences label for allowing code execution.
     pub preferences_allow_code_execution_label: String,
     /// Preferences value when code execution is enabled.
@@ -616,6 +620,8 @@ struct I18nStringsDe {
     code_run_output_expand_lines_template: Option<String>,
     code_run_meta_template: Option<String>,
     code_run_exit_none: Option<String>,
+    inline_code_run_tooltip: Option<String>,
+    inline_code_run_output_title: Option<String>,
     preferences_allow_code_execution_label: Option<String>,
     preferences_allow_code_execution_on: Option<String>,
     preferences_allow_code_execution_off: Option<String>,
@@ -836,6 +842,8 @@ const I18N_STRING_KEYS: &[&str] = &[
     "code_run_output_expand_lines_template",
     "code_run_meta_template",
     "code_run_exit_none",
+    "inline_code_run_tooltip",
+    "inline_code_run_output_title",
     "preferences_allow_code_execution_label",
     "preferences_allow_code_execution_on",
     "preferences_allow_code_execution_off",
@@ -1428,6 +1436,12 @@ impl I18nStringsDe {
             code_run_exit_none: self
                 .code_run_exit_none
                 .unwrap_or(defaults.code_run_exit_none),
+            inline_code_run_tooltip: self
+                .inline_code_run_tooltip
+                .unwrap_or(defaults.inline_code_run_tooltip),
+            inline_code_run_output_title: self
+                .inline_code_run_output_title
+                .unwrap_or(defaults.inline_code_run_output_title),
             preferences_allow_code_execution_label: self
                 .preferences_allow_code_execution_label
                 .unwrap_or(defaults.preferences_allow_code_execution_label),
@@ -1677,6 +1691,8 @@ impl I18nStrings {
             code_run_output_expand_lines_template: "展开 {count} 行".into(),
             code_run_meta_template: "退出码：{exit} · 耗时：{duration} ms".into(),
             code_run_exit_none: "—".into(),
+            inline_code_run_tooltip: "运行行内代码".into(),
+            inline_code_run_output_title: "行内代码输出".into(),
             preferences_allow_code_execution_label: "允许运行代码".into(),
             preferences_allow_code_execution_on: "已开启".into(),
             preferences_allow_code_execution_off: "已关闭".into(),
@@ -1921,6 +1937,8 @@ impl I18nStrings {
             code_run_output_expand_lines_template: "Expand {count} lines".into(),
             code_run_meta_template: "Exit code: {exit} · Duration: {duration} ms".into(),
             code_run_exit_none: "—".into(),
+            inline_code_run_tooltip: "Run inline code".into(),
+            inline_code_run_output_title: "Inline code output".into(),
             preferences_allow_code_execution_label: "Allow code execution".into(),
             preferences_allow_code_execution_on: "Enabled".into(),
             preferences_allow_code_execution_off: "Disabled".into(),

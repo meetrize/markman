@@ -7,11 +7,15 @@ use gpui::{
 };
 
 use super::{Editor, ViewMode};
+use super::code_run::InlineCodeRunTarget;
+use crate::code_runner::CodeRunStatus;
 use crate::components::{
-    BlockKind, CloseWindow, ImageReferenceDefinitions, ImageResolvedSource, InlineTextTree,
-    QuitApplication, SaveDocument, TableCellInlineImageSegment, TableColumnAlignment,
-    parse_table_cell_inline_images, superscript_ordinal,
+    BlockEvent, BlockKind, CloseWindow, ImageReferenceDefinitions,
+    ImageResolvedSource, InlineTextTree, QuitApplication, SaveDocument,
+    TableCellInlineImageSegment, TableColumnAlignment, parse_table_cell_inline_images,
+    superscript_ordinal,
 };
+use crate::config::{read_app_preferences, set_code_execution_confirm_shown};
 use crate::export::ExportFormat;
 use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::{Theme, ThemeManager};
@@ -2529,5 +2533,179 @@ async fn toggle_view_mode_preserves_callout_table_cell_position(cx: &mut TestApp
         assert_eq!(restored_cell.read(cx).display_text(), "beta");
         assert_eq!(restored_cell.read(cx).selected_range, 2..2);
         assert_eq!(editor.pending_focus, Some(restored_cell.entity_id()));
+    });
+}
+
+#[gpui::test]
+async fn inline_code_run_executes_shell_command(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let path = temp_markdown_path("inline_code_run");
+    fs::write(&path, "Run `echo hi` here.").expect("write temp markdown");
+    let (editor, cx) = cx.add_window_view(|_window, cx| {
+        Editor::from_markdown(cx, "Run `echo hi` here.".to_string(), Some(path))
+    });
+
+    set_code_execution_confirm_shown().expect("mark code execution confirmed");
+    assert!(
+        read_app_preferences()
+            .expect("read preferences")
+            .code_execution_confirm_shown
+    );
+
+    let target = editor.update(cx, |editor, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        editor.focus_block(block.entity_id());
+        block.update(cx, |block, block_cx| {
+            block.move_to(5, block_cx);
+        });
+        assert_eq!(block.read(cx).display_text(), "Run echo hi here.");
+        assert_eq!(
+            block.read(cx).inline_code_source_at_cursor().as_deref(),
+            Some("echo hi")
+        );
+        let span = block
+            .read(cx)
+            .inline_code_span_at_cursor()
+            .expect("cursor inside inline code");
+        let target = InlineCodeRunTarget {
+            block_id: block.entity_id(),
+            span_range: span.range,
+        };
+        assert!(
+            editor.code_run_dialog_for_test().is_none(),
+            "unexpected code run dialog: {:?}",
+            editor.code_run_dialog_for_test()
+        );
+        editor.on_block_event(
+            block,
+            &BlockEvent::RequestRunInlineCode {
+                span_range: target.span_range.clone(),
+            },
+            cx,
+        );
+        assert!(
+            editor
+                .inline_code_run_statuses_for_test()
+                .contains(&CodeRunStatus::Running),
+            "expected running state, got {:?}",
+            editor.inline_code_run_statuses_for_test()
+        );
+        target
+    });
+
+    for _ in 0..100 {
+        cx.run_until_parked();
+        let finished = editor.read_with(cx, |editor, _cx| {
+            let state = editor.inline_code_run_state(&target)?;
+            Some(
+                state.status == CodeRunStatus::Done
+                    && state.exit_code == Some(0)
+                    && state.stdout.contains("hi"),
+            )
+        });
+        if finished == Some(true) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let (statuses, stdout, stderr, exit_code) = editor.read_with(cx, |editor, _cx| {
+        let state = editor
+            .inline_code_run_state(&target)
+            .expect("inline code run state");
+        (
+            editor.inline_code_run_statuses_for_test(),
+            state.stdout.clone(),
+            state.stderr.clone(),
+            state.exit_code,
+        )
+    });
+    panic!(
+        "inline code run did not finish successfully; statuses={statuses:?} exit_code={exit_code:?} stdout={stdout:?} stderr={stderr:?}"
+    );
+}
+
+#[gpui::test]
+async fn inline_code_run_ctrl_enter_does_not_insert_hard_newline(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let path = temp_markdown_path("inline_code_run_ctrl_enter");
+    fs::write(&path, "Run `echo hi` here.").expect("write temp markdown");
+    let (editor, cx) = cx.add_window_view(|_window, cx| {
+        Editor::from_markdown(cx, "Run `echo hi` here.".to_string(), Some(path))
+    });
+
+    set_code_execution_confirm_shown().expect("mark code execution confirmed");
+
+    editor.update(cx, |editor, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        editor.focus_block(block.entity_id());
+        block.update(cx, |block, block_cx| {
+            block.move_to(5, block_cx);
+        });
+        assert_eq!(
+            block.read(cx).inline_code_source_at_cursor().as_deref(),
+            Some("echo hi")
+        );
+    });
+    redraw(cx);
+
+    cx.simulate_keystrokes("ctrl-enter");
+    redraw(cx);
+
+    editor.update(cx, |editor, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        assert_eq!(block.read(cx).display_text(), "Run `echo hi` here.");
+        assert_eq!(
+            block.read(cx).inline_code_source_at_cursor().as_deref(),
+            Some("echo hi")
+        );
+        assert!(
+            editor
+                .inline_code_run_statuses_for_test()
+                .iter()
+                .any(|status| matches!(status, CodeRunStatus::Running | CodeRunStatus::Done)),
+            "expected inline code run to start after ctrl-enter, got {:?}",
+            editor.inline_code_run_statuses_for_test()
+        );
+    });
+}
+
+#[gpui::test]
+async fn inline_code_run_exit_code_block_ignored_outside_inline_code(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let (editor, cx) = cx.add_window_view(|_window, cx| {
+        Editor::from_markdown(cx, "Run `echo hi` here.".to_string(), None)
+    });
+
+    editor.update(cx, |editor, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        editor.focus_block(block.entity_id());
+        block.update(cx, |block, block_cx| {
+            block.move_to(0, block_cx);
+        });
+        assert!(
+            block.read(cx).inline_code_span_at_cursor().is_none(),
+            "cursor should be outside inline code"
+        );
+    });
+    redraw(cx);
+
+    cx.simulate_keystrokes("ctrl-enter");
+    redraw(cx);
+
+    editor.update(cx, |editor, cx| {
+        assert!(
+            editor.inline_code_run_statuses_for_test().is_empty(),
+            "ctrl-enter outside inline code should not start a run, got {:?}",
+            editor.inline_code_run_statuses_for_test()
+        );
+        assert_eq!(editor.document.visible_blocks().len(), 1);
+        assert_eq!(
+            editor.document.visible_blocks()[0]
+                .entity
+                .read(cx)
+                .display_text(),
+            "Run echo hi here."
+        );
     });
 }

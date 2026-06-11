@@ -876,6 +876,7 @@ impl Editor {
                 self.mark_dirty(cx);
                 self.request_active_block_scroll_into_view(cx);
                 self.finalize_pending_undo_capture(cx);
+                self.prune_stale_inline_code_runs(block.entity_id(), cx);
             }
             BlockEvent::RequestNewline {
                 trailing,
@@ -1474,7 +1475,10 @@ impl Editor {
             | BlockEvent::RequestStopCodeBlock
             | BlockEvent::RequestToggleCodeRunOutput
             | BlockEvent::RequestToggleCodeRunOutputContent
-            | BlockEvent::RequestCloseCodeRunOutput => {}
+            | BlockEvent::RequestCloseCodeRunOutput
+            | BlockEvent::RequestRunInlineCode { .. }
+            | BlockEvent::RequestStopInlineCode
+            | BlockEvent::RequestCloseInlineCodeRunOutput => {}
         }
     }
 }

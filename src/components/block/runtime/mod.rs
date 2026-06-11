@@ -171,6 +171,9 @@ pub struct Block {
     pub(crate) table_append_row_zone_hovered: bool,
     pub(crate) table_append_row_button_hovered: bool,
     pub(crate) table_append_row_close_task: Option<Task<()>>,
+    pub(crate) inline_code_hover_span: Option<Range<usize>>,
+    pub(crate) skip_inline_code_newline_once: bool,
+    pub(crate) last_keydown_modifiers: Modifiers,
     image_runtime: Option<ImageRuntime>,
     image_edit_expanded: bool,
     image_expand_requested: bool,
@@ -270,6 +273,9 @@ impl Block {
             table_append_row_zone_hovered: false,
             table_append_row_button_hovered: false,
             table_append_row_close_task: None,
+            inline_code_hover_span: None,
+            skip_inline_code_newline_once: false,
+            last_keydown_modifiers: Modifiers::default(),
             image_runtime: None,
             image_edit_expanded: false,
             image_expand_requested: false,
@@ -394,6 +400,82 @@ impl Block {
 
     pub fn inline_spans(&self) -> &[InlineSpan] {
         self.current_cache().spans()
+    }
+
+    fn inline_code_span_for_offset(&self, offset: usize) -> Option<InlineSpan> {
+        let offset = offset.min(self.display_text().len());
+        self.inline_spans()
+            .iter()
+            .filter(|span| {
+                span.style.code && span.range.start <= offset && offset <= span.range.end
+            })
+            .max_by_key(|span| span.range.len())
+            .cloned()
+    }
+
+    fn inline_code_ranges_overlap(span_range: &Range<usize>, range: &Range<usize>) -> bool {
+        span_range.start < range.end && range.start < span_range.end
+    }
+
+    pub(crate) fn inline_code_span_at_cursor(&self) -> Option<InlineSpan> {
+        if self.selected_range.is_empty() {
+            if !self.collapsed_caret_inherits_inline_code_style() {
+                return None;
+            }
+            return self.inline_code_span_for_offset(self.cursor_offset());
+        }
+        self.inline_code_span_for_range(self.selected_range.clone())
+    }
+
+    pub(crate) fn inline_code_span_for_range(&self, range: Range<usize>) -> Option<InlineSpan> {
+        let matching = self
+            .inline_spans()
+            .iter()
+            .filter(|span| {
+                span.style.code && Self::inline_code_ranges_overlap(&span.range, &range)
+            })
+            .collect::<Vec<_>>();
+        match matching.len() {
+            1 => Some(matching[0].clone()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn inline_code_source_for_visible_span(
+        &self,
+        span_range: &Range<usize>,
+    ) -> Option<String> {
+        let clean_range = self.current_to_clean_range(span_range.clone());
+        let cache = self.record.title.render_cache();
+        let source = crate::code_runner::extract_inline_code_source(cache.visible_text(), &clean_range);
+        (!source.is_empty()).then_some(source)
+    }
+
+    pub(crate) fn inline_code_source_at_cursor(&self) -> Option<String> {
+        let span = self.inline_code_span_at_cursor()?;
+        self.inline_code_source_for_visible_span(&span.range)
+    }
+
+    pub(crate) fn inline_code_run_action_span(&self) -> Option<InlineSpan> {
+        if self.collapsed_caret_inherits_inline_code_style() {
+            return self.inline_code_span_at_cursor();
+        }
+        self.inline_code_hover_span
+            .as_ref()
+            .and_then(|range| self.inline_code_span_for_range(range.clone()))
+    }
+
+    pub(crate) fn visible_range_bounds(&self, range: Range<usize>) -> Option<Bounds<Pixels>> {
+        let bounds = self.last_bounds.or(self.interaction_bounds)?;
+        let lines = self.last_layout.as_ref()?;
+        super::element::range_bounds(
+            lines,
+            bounds,
+            self.last_line_height,
+            self.display_text(),
+            range,
+            self.text_align(),
+        )
     }
 
     #[allow(dead_code)]

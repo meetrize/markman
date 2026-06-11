@@ -776,6 +776,12 @@ pub enum BlockEvent {
     RequestToggleCodeRunOutputContent,
     /// Dismiss the run-output panel below this code block.
     RequestCloseCodeRunOutput,
+    /// Run inline code for the span captured at emit time.
+    RequestRunInlineCode { span_range: Range<usize> },
+    /// Stop the active inline code run in this block.
+    RequestStopInlineCode,
+    /// Dismiss inline code run output for the current span.
+    RequestCloseInlineCodeRunOutput,
 }
 
 /// Undo coalescing category captured before a mutation.

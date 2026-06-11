@@ -343,6 +343,18 @@ impl Block {
         }
 
         if self.collapsed_caret_inherits_inline_code_style() {
+            if self.skip_inline_code_newline_once {
+                self.skip_inline_code_newline_once = false;
+                return;
+            }
+            let modifiers = window.modifiers();
+            if modifiers.control
+                || modifiers.platform
+                || self.last_keydown_modifiers.control
+                || self.last_keydown_modifiers.platform
+            {
+                return;
+            }
             self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
             self.replace_text_in_range(None, "\n", window, cx);
             return;
@@ -575,6 +587,8 @@ impl Block {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.last_keydown_modifiers = event.keystroke.modifiers;
+
         if event.keystroke.key != "tab" {
             return;
         }
@@ -851,6 +865,40 @@ impl Block {
     ) {
         cx.stop_propagation();
         cx.emit(BlockEvent::RequestCloseCodeRunOutput);
+    }
+
+    pub(crate) fn on_inline_code_run_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        if let Some(span) = self.inline_code_run_action_span() {
+            cx.emit(BlockEvent::RequestRunInlineCode {
+                span_range: span.range,
+            });
+        }
+    }
+
+    pub(crate) fn on_inline_code_run_stop_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestStopInlineCode);
+    }
+
+    pub(crate) fn on_inline_code_run_output_close_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestCloseInlineCodeRunOutput);
     }
 
     pub(crate) fn on_code_block_collapse_toggle(
@@ -1170,6 +1218,21 @@ impl Block {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.is_source_raw_mode() && !self.kind().is_code_block() {
+            let offset = self.index_for_mouse_position(event.position);
+            let next_hover = self
+                .inline_spans()
+                .iter()
+                .find(|span| {
+                    span.style.code && span.range.start <= offset && offset <= span.range.end
+                })
+                .map(|span| span.range.clone());
+            if self.inline_code_hover_span != next_hover {
+                self.inline_code_hover_span = next_hover;
+                cx.notify();
+            }
+        }
+
         if self.is_selecting {
             // A stale selecting flag can survive a missed mouse-up. Only extend
             // the selection while the platform still reports an active drag.
@@ -1326,6 +1389,17 @@ impl Block {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.collapsed_caret_inherits_inline_code_style() {
+            self.skip_inline_code_newline_once = true;
+            if let Some(span) = self.inline_code_span_at_cursor() {
+                cx.emit(BlockEvent::RequestRunInlineCode {
+                    span_range: span.range,
+                });
+            }
+            cx.stop_propagation();
+            return;
+        }
+
         let exits_multiline_block = self.is_table_cell()
             || self.kind().is_code_block()
             || matches!(
