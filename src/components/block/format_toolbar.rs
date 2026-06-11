@@ -39,6 +39,9 @@ impl Block {
                     self.toggle_inline_format(InlineFormat::Code, cx);
                 }
             }
+            MarkdownToolbarAction::CodeBlock => {
+                self.convert_block_to_code_block(SharedString::from("javascript"), cx);
+            }
             MarkdownToolbarAction::Link => {
                 self.insert_link_markdown(cx);
             }
@@ -160,6 +163,36 @@ impl Block {
         }
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         self.record.kind = BlockKind::Quote;
+        self.mark_changed(cx);
+    }
+
+    fn convert_block_to_code_block(&mut self, language: SharedString, cx: &mut Context<Self>) {
+        if matches!(
+            self.kind(),
+            BlockKind::CodeBlock {
+                language: existing
+            } if existing
+                .as_ref()
+                .is_some_and(|value| value.as_ref() == language.as_ref())
+        ) {
+            self.convert_to_paragraph(cx);
+            return;
+        }
+        if !matches!(
+            self.kind(),
+            BlockKind::Paragraph
+                | BlockKind::Heading { .. }
+                | BlockKind::BulletedListItem
+                | BlockKind::NumberedListItem
+                | BlockKind::TaskListItem { .. }
+                | BlockKind::Quote
+        ) {
+            return;
+        }
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        self.record.kind = BlockKind::CodeBlock {
+            language: Some(language),
+        };
         self.mark_changed(cx);
     }
 }

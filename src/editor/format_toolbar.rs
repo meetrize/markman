@@ -3,7 +3,7 @@
 use gpui::*;
 
 use crate::components::markdown::source_format::{MarkdownToolbarAction, apply_markdown_toolbar_action};
-use crate::components::UndoCaptureKind;
+use crate::components::{BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
 use crate::theme::Theme;
 
 use super::Editor;
@@ -17,6 +17,7 @@ const ICON_HEADING_3: &str = "icon/toolbar/heading-3.svg";
 const ICON_LIST_ORDERED: &str = "icon/toolbar/list-ordered.svg";
 const ICON_LIST_BULLET: &str = "icon/toolbar/list-bullet.svg";
 const ICON_CODE: &str = "icon/toolbar/code.svg";
+const ICON_SQUARE_CODE: &str = "icon/toolbar/square-code.svg";
 const ICON_LINK: &str = "icon/toolbar/link.svg";
 const ICON_QUOTE: &str = "icon/toolbar/quote.svg";
 const ICON_TABLE: &str = "icon/toolbar/table.svg";
@@ -39,6 +40,19 @@ impl Editor {
     ) {
         if action == MarkdownToolbarAction::Table && self.view_mode == ViewMode::Rendered {
             self.open_table_insert_from_toolbar(window, cx);
+            return;
+        }
+
+        if action == MarkdownToolbarAction::CodeBlock && self.view_mode == ViewMode::Rendered {
+            if let Some(block) = self.focused_edit_target(window, cx) {
+                block.update(cx, |block, cx| {
+                    block.apply_rendered_toolbar_format(action, cx);
+                });
+            } else {
+                self.append_code_block_from_toolbar(cx);
+            }
+            self.mark_dirty(cx);
+            cx.notify();
             return;
         }
 
@@ -123,6 +137,7 @@ impl Editor {
             FormatToolbarItem::Action(MarkdownToolbarAction::UnorderedList),
             FormatToolbarItem::Separator,
             FormatToolbarItem::Action(MarkdownToolbarAction::Code),
+            FormatToolbarItem::Action(MarkdownToolbarAction::CodeBlock),
             FormatToolbarItem::Action(MarkdownToolbarAction::Link),
             FormatToolbarItem::Action(MarkdownToolbarAction::Quote),
             FormatToolbarItem::Separator,
@@ -289,6 +304,24 @@ impl Editor {
                     ),
             )
     }
+
+    fn append_code_block_from_toolbar(&mut self, cx: &mut Context<Self>) {
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        let record = BlockRecord::new(
+            BlockKind::CodeBlock {
+                language: Some(SharedString::from("javascript")),
+            },
+            InlineTextTree::plain(String::new()),
+        );
+        let new_block = Self::new_block(cx, record);
+        self.document
+            .insert_blocks_at(None, self.document.root_count(), vec![new_block.clone()], cx);
+        self.focus_block(new_block.entity_id());
+        self.mark_dirty(cx);
+        self.request_active_block_scroll_into_view(cx);
+        self.finalize_pending_undo_capture(cx);
+        cx.notify();
+    }
 }
 
 fn format_toolbar_icon_path(action: MarkdownToolbarAction) -> &'static str {
@@ -301,6 +334,7 @@ fn format_toolbar_icon_path(action: MarkdownToolbarAction) -> &'static str {
         MarkdownToolbarAction::OrderedList => ICON_LIST_ORDERED,
         MarkdownToolbarAction::UnorderedList => ICON_LIST_BULLET,
         MarkdownToolbarAction::Code => ICON_CODE,
+        MarkdownToolbarAction::CodeBlock => ICON_SQUARE_CODE,
         MarkdownToolbarAction::Link => ICON_LINK,
         MarkdownToolbarAction::Quote => ICON_QUOTE,
         MarkdownToolbarAction::Table => ICON_TABLE,

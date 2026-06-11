@@ -13,6 +13,7 @@ pub(crate) enum MarkdownToolbarAction {
     OrderedList,
     UnorderedList,
     Code,
+    CodeBlock,
     Link,
     Quote,
     Table,
@@ -29,6 +30,7 @@ pub(crate) fn apply_markdown_toolbar_action(
         MarkdownToolbarAction::Bold => toggle_inline_wrap(text, selection, "**", "**"),
         MarkdownToolbarAction::Italic => toggle_inline_wrap(text, selection, "*", "*"),
         MarkdownToolbarAction::Code => toggle_inline_wrap(text, selection, "`", "`"),
+        MarkdownToolbarAction::CodeBlock => insert_code_fence(text, selection, "javascript"),
         MarkdownToolbarAction::Link => apply_link_format(text, selection),
         MarkdownToolbarAction::Heading1 => toggle_line_prefix(text, selection, "# "),
         MarkdownToolbarAction::Heading2 => toggle_line_prefix(text, selection, "## "),
@@ -195,6 +197,35 @@ fn strip_atx_heading_content(line: &str) -> &str {
         return line[hash_count..].strip_prefix(' ').unwrap_or(&line[hash_count..]);
     }
     line
+}
+
+fn insert_code_fence(text: &str, selection: Range<usize>, language: &str) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let prefix = if selection.start == 0 {
+        String::new()
+    } else if text[..selection.start].ends_with("\n\n") {
+        String::new()
+    } else if text[..selection.start].ends_with('\n') {
+        "\n".to_string()
+    } else {
+        "\n\n".to_string()
+    };
+    let suffix = if selection.end == text.len() || text[selection.end..].starts_with('\n') {
+        "\n".to_string()
+    } else {
+        "\n\n".to_string()
+    };
+    let fence_body = format!("```{language}\n\n```");
+    let insertion = format!("{prefix}{fence_body}{suffix}");
+    let insert_at = selection.start;
+
+    let mut next = String::with_capacity(text.len() + insertion.len());
+    next.push_str(&text[..insert_at]);
+    next.push_str(&insertion);
+    next.push_str(&text[selection.end..]);
+
+    let cursor = insert_at + prefix.len() + language.len() + 4;
+    (next, cursor..cursor)
 }
 
 fn insert_markdown_table(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
@@ -401,5 +432,13 @@ mod tests {
         let (text, _) =
             apply_markdown_toolbar_action("quoted", 0..6, MarkdownToolbarAction::Quote);
         assert_eq!(text, "> quoted");
+    }
+
+    #[test]
+    fn code_block_inserts_javascript_fence() {
+        let (text, range) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::CodeBlock);
+        assert_eq!(text, "Hello\n\n```javascript\n\n```\n");
+        assert_eq!(range, 21..21);
     }
 }
