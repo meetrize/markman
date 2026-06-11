@@ -2233,17 +2233,28 @@ impl Render for Block {
                     + d.code_language_input_padding_y * 2.0
                     + d.code_language_input_border_width * 2.0;
                 let icon_size = px((t.code_size - 1.0).max(10.0));
-                let mut code_content = div().min_w(px(0.0)).w_full();
+                let mut code_content = div()
+                    .relative()
+                    .min_w(px(0.0))
+                    .w_full()
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .w_full()
+                            .child(BlockTextElement::new(cx.entity(), is_placeholder)),
+                    );
 
                 if focused {
                     let block = cx.entity().downgrade();
                     code_content = code_content.child(
                         div()
+                            .absolute()
+                            .top_0()
+                            .right_0()
                             .flex()
                             .items_center()
                             .justify_end()
                             .gap(px(d.code_language_input_gap))
-                            .mb(px(d.code_language_input_gap))
                             .child(
                                 div()
                                     .h(px(badge_height))
@@ -2275,6 +2286,7 @@ impl Render for Block {
                                     .hover(|this| this.bg(c.code_language_input_border.opacity(0.35)))
                                     .active(|this| this.opacity(0.92))
                                     .cursor_pointer()
+                                    .occlude()
                                     .child(
                                         svg()
                                             .path(ICON_CODE_BLOCK_COPY)
@@ -2293,13 +2305,6 @@ impl Render for Block {
                             ),
                     );
                 }
-
-                code_content = code_content.child(
-                    div()
-                        .min_w(px(0.0))
-                        .w_full()
-                        .child(BlockTextElement::new(cx.entity(), is_placeholder)),
-                );
 
                 focused_base
                     .bg(c.code_bg)
