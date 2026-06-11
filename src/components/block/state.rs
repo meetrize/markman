@@ -766,6 +766,12 @@ pub enum BlockEvent {
     /// The user clicked this block; notify siblings so they re-render
     /// in display mode.
     RequestFocus,
+    /// Run the focused code block in an external interpreter.
+    RequestRunCodeBlock,
+    /// Stop the active run for this code block.
+    RequestStopCodeBlock,
+    /// Toggle the collapsible run-output panel below this code block.
+    RequestToggleCodeRunOutput,
 }
 
 /// Undo coalescing category captured before a mutation.

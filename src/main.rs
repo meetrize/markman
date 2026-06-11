@@ -13,6 +13,7 @@ use gpui::*;
 mod app_identity;
 mod app_menu;
 mod app_visibility;
+mod code_runner;
 mod components;
 mod config;
 mod editor;

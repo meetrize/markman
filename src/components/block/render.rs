@@ -16,6 +16,7 @@ use crate::components::{
     render_display_math_svg, render_inline_math_svg, render_mermaid_svg_for_display,
     resolve_image_source, style_for_node,
 };
+use crate::code_runner::CodeRunStatus;
 use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::{Theme, ThemeDimensions, ThemeManager};
 
@@ -54,6 +55,149 @@ fn column_axis_gutter_visible(
             ..
         })
     )
+}
+
+impl Block {
+    fn render_code_run_output_panel(
+        &self,
+        theme: &Theme,
+        strings: &I18nStrings,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let snapshot = &self.code_run_snapshot;
+    if !snapshot.shows_output_panel() {
+        return div().into_any_element();
+    }
+
+    let c = &theme.colors;
+    let d = &theme.dimensions;
+    let t = &theme.typography;
+    let running = snapshot.status == CodeRunStatus::Running;
+    let expanded = snapshot.output_expanded;
+    let toggle_label = if expanded {
+        strings.code_run_output_collapse.clone()
+    } else {
+        strings.code_run_output_expand.clone()
+    };
+
+    let mut body = div().w_full().flex().flex_col().gap(px(6.0));
+    if expanded {
+        if !snapshot.stdout.is_empty() {
+            body = body.child(
+                div()
+                    .text_size(px(t.code_size))
+                    .text_color(c.code_text)
+                    .child(snapshot.stdout.clone()),
+            );
+        }
+        if !snapshot.stderr.is_empty() {
+            body = body.child(
+                div()
+                    .text_size(px(t.code_size))
+                    .text_color(c.dialog_danger_button_text)
+                    .child(snapshot.stderr.clone()),
+            );
+        }
+        if let Some(error) = snapshot.error_message.as_ref() {
+            body = body.child(
+                div()
+                    .text_size(px(t.code_size))
+                    .text_color(c.dialog_danger_button_text)
+                    .child(error.clone()),
+            );
+        }
+        let exit_label = snapshot
+            .exit_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| strings.code_run_exit_none.clone());
+        let meta = strings
+            .code_run_meta_template
+            .replace("{exit}", &exit_label)
+            .replace("{duration}", &snapshot.duration_ms.to_string());
+        body = body.child(
+            div()
+                .text_size(px((t.code_size - 1.0).max(10.0)))
+                .text_color(c.text_quote)
+                .child(meta),
+        );
+    }
+
+    div()
+        .id("code-block-run-output")
+        .w_full()
+        .mt(px(6.0))
+        .rounded_sm()
+        .border(px(1.0))
+        .border_color(c.code_language_input_border.opacity(0.45))
+        .bg(c.code_bg.opacity(0.96))
+        .child(
+            div()
+                .w_full()
+                .px(px(d.code_block_padding_x))
+                .py(px(6.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(8.0))
+                .border_b(px(if expanded { 1.0 } else { 0.0 }))
+                .border_color(c.code_language_input_border.opacity(0.35))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(
+                            div()
+                                .text_size(px((t.code_size - 1.0).max(10.0)))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c.code_language_input_text)
+                                .child(strings.code_run_output_title.clone()),
+                        )
+                        .child(
+                            div()
+                                .id("code-block-run-output-toggle")
+                                .text_size(px((t.code_size - 1.0).max(10.0)))
+                                .text_color(c.text_quote)
+                                .hover(|this| this.text_color(c.text_link))
+                                .cursor_pointer()
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(Self::on_code_block_run_output_toggle_mouse_down),
+                                )
+                                .child(toggle_label),
+                        ),
+                )
+                .child(if running {
+                    div()
+                        .id("code-block-run-stop")
+                        .px(px(8.0))
+                        .py(px(2.0))
+                        .rounded(px(4.0))
+                        .border(px(1.0))
+                        .border_color(c.code_language_input_border.opacity(0.55))
+                        .text_size(px((t.code_size - 1.0).max(10.0)))
+                        .text_color(c.dialog_danger_button_text)
+                        .hover(|this| this.bg(c.dialog_danger_button_bg.opacity(0.18)))
+                        .cursor_pointer()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(Self::on_code_block_run_stop_mouse_down),
+                        )
+                        .child(strings.code_run_stop.clone())
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
+                }),
+        )
+        .child(
+            div()
+                .w_full()
+                .px(px(d.code_block_padding_x))
+                .py(px(if expanded { 8.0 } else { 0.0 }))
+                .child(body),
+        )
+        .into_any_element()
+    }
 }
 
 fn fallback_image_label(alt: &str, strings: &I18nStrings) -> SharedString {
@@ -2411,58 +2555,72 @@ impl Render for Block {
                 let run_lane_width = px(badge_height + 6.0);
                 let run_icon_top = px(8.0);
                 let run_icon_size = px((t.code_size + 3.0).max(14.0));
+                let run_snapshot = self.code_run_snapshot.clone();
+                let running = run_snapshot.status == CodeRunStatus::Running;
 
-                focused_base
+                let code_shell = div()
+                    .relative()
+                    .w_full()
+                    .flex()
+                    .flex_row()
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex_shrink_0()
+                            .w(run_lane_width)
+                            .relative()
+                            .bg(c.code_language_input_bg)
+                            .border_r(px(1.0))
+                            .border_color(c.code_language_input_border.opacity(0.35))
+                            .child(
+                                div()
+                                    .id("code-block-run")
+                                    .absolute()
+                                    .top(run_icon_top)
+                                    .left_0()
+                                    .right_0()
+                                    .h(px(badge_height))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .opacity(if running { 1.0 } else { 0.72 })
+                                    .hover(|this| this.opacity(1.0))
+                                    .cursor_pointer()
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(Self::on_code_block_run_mouse_down),
+                                    )
+                                    .child(
+                                        svg()
+                                            .path(ICON_CODE_BLOCK_RUN)
+                                            .size(run_icon_size)
+                                            .text_color(c.code_language_input_text),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_grow()
+                            .min_w(px(0.0))
+                            .py(px(d.code_block_padding_y))
+                            .pr(px(d.code_block_padding_x))
+                            .child(code_content),
+                    );
+
+                let mut block_shell = focused_base
                     .rounded_sm()
                     .overflow_hidden()
                     .text_size(px(t.code_size))
                     .text_color(c.code_text)
                     .line_height(rems(t.text_line_height))
-                    .child(
-                        div()
-                            .relative()
-                            .w_full()
-                            .flex()
-                            .flex_row()
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .flex_shrink_0()
-                                    .w(run_lane_width)
-                                    .relative()
-                                    .bg(c.code_language_input_bg)
-                                    .border_r(px(1.0))
-                                    .border_color(c.code_language_input_border.opacity(0.35))
-                                    .child(
-                                        div()
-                                            .id("code-block-run")
-                                            .absolute()
-                                            .top(run_icon_top)
-                                            .left_0()
-                                            .right_0()
-                                            .h(px(badge_height))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .opacity(0.72)
-                                            .child(
-                                                svg()
-                                                    .path(ICON_CODE_BLOCK_RUN)
-                                                    .size(run_icon_size)
-                                                    .text_color(c.code_language_input_text),
-                                            ),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .flex_grow()
-                                    .min_w(px(0.0))
-                                    .py(px(d.code_block_padding_y))
-                                    .pr(px(d.code_block_padding_x))
-                                    .child(code_content),
-                            ),
-                    )
-                    .into_any_element()
+                    .child(code_shell);
+
+                if run_snapshot.shows_output_panel() {
+                    block_shell =
+                        block_shell.child(self.render_code_run_output_panel(&theme, &strings, cx));
+                }
+
+                block_shell.into_any_element()
             }
             BlockKind::Table => {
                 let Some(runtime) = self.table_runtime.clone() else {

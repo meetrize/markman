@@ -54,6 +54,10 @@ pub(crate) struct AppPreferences {
     pub(crate) default_language_id: String,
     pub(crate) default_theme_id: String,
     pub(crate) keybindings: BTreeMap<String, Vec<String>>,
+    /// When false, code-block run buttons are disabled.
+    pub(crate) allow_code_execution: bool,
+    /// Set after the user accepts the first-run code execution warning.
+    pub(crate) code_execution_confirm_shown: bool,
 }
 
 impl Default for AppPreferences {
@@ -63,6 +67,8 @@ impl Default for AppPreferences {
             default_language_id: DEFAULT_LANGUAGE_ID.into(),
             default_theme_id: DEFAULT_THEME_ID.into(),
             keybindings: BTreeMap::new(),
+            allow_code_execution: true,
+            code_execution_confirm_shown: false,
         }
     }
 }
@@ -73,6 +79,7 @@ struct PreferencesFile {
     language: LanguagePreferencesFile,
     theme: ThemePreferencesFile,
     keybindings: BTreeMap<String, Vec<String>>,
+    code_execution: CodeExecutionPreferencesFile,
 }
 
 #[derive(Serialize)]
@@ -90,6 +97,12 @@ struct ThemePreferencesFile {
     default_theme_id: String,
 }
 
+#[derive(Serialize)]
+struct CodeExecutionPreferencesFile {
+    allow: bool,
+    confirm_shown: bool,
+}
+
 impl From<&AppPreferences> for PreferencesFile {
     fn from(value: &AppPreferences) -> Self {
         Self {
@@ -103,6 +116,10 @@ impl From<&AppPreferences> for PreferencesFile {
                 default_theme_id: value.default_theme_id.clone(),
             },
             keybindings: normalize_shortcut_config(&value.keybindings),
+            code_execution: CodeExecutionPreferencesFile {
+                allow: value.allow_code_execution,
+                confirm_shown: value.code_execution_confirm_shown,
+            },
         }
     }
 }
@@ -181,12 +198,32 @@ fn app_preferences_from_toml_value(
         .map(|keybindings| normalize_shortcut_config(&keybindings))
         .unwrap_or_default();
 
+    let allow_code_execution = value
+        .get("code_execution")
+        .and_then(|section| section.get("allow"))
+        .and_then(|allow| allow.as_bool())
+        .unwrap_or(true);
+    let code_execution_confirm_shown = value
+        .get("code_execution")
+        .and_then(|section| section.get("confirm_shown"))
+        .and_then(|confirm| confirm.as_bool())
+        .unwrap_or(false);
+
     AppPreferences {
         startup_open,
         default_language_id,
         default_theme_id,
         keybindings,
+        allow_code_execution,
+        code_execution_confirm_shown,
     }
+}
+
+pub(crate) fn set_code_execution_confirm_shown() -> anyhow::Result<()> {
+    update_app_preferences(|preferences| {
+        preferences.code_execution_confirm_shown = true;
+    })?;
+    Ok(())
 }
 
 fn detected_language_id_from_locales<I, S>(locales: I) -> &'static str
@@ -310,15 +347,23 @@ pub(crate) fn save_preferences_from_window(
     startup_open: StartupOpenPreference,
     default_theme_id: &str,
     keybindings: BTreeMap<String, Vec<String>>,
+    allow_code_execution: bool,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = VelotypeConfigDirs::from_system()?;
-    save_preferences_from_window_with_dirs(startup_open, default_theme_id, keybindings, &dirs)
+    save_preferences_from_window_with_dirs(
+        startup_open,
+        default_theme_id,
+        keybindings,
+        allow_code_execution,
+        &dirs,
+    )
 }
 
 fn save_preferences_from_window_with_dirs(
     startup_open: StartupOpenPreference,
     default_theme_id: &str,
     keybindings: BTreeMap<String, Vec<String>>,
+    allow_code_execution: bool,
     dirs: &VelotypeConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
     let mut preferences =
@@ -326,6 +371,7 @@ fn save_preferences_from_window_with_dirs(
     preferences.startup_open = startup_open;
     preferences.default_theme_id = default_theme_id.into();
     preferences.keybindings = normalize_shortcut_config(&keybindings);
+    preferences.allow_code_execution = allow_code_execution;
     save_app_preferences_with_dirs(&preferences, dirs)?;
     Ok(preferences)
 }
@@ -350,9 +396,11 @@ enum PreferencesNav {
 pub(crate) struct PreferencesWindow {
     nav: PreferencesNav,
     startup_open: StartupOpenPreference,
+    allow_code_execution: bool,
     selected_theme_id: String,
     keybindings: BTreeMap<String, Vec<String>>,
     saved_startup_open: StartupOpenPreference,
+    saved_allow_code_execution: bool,
     saved_theme_id: String,
     saved_keybindings: BTreeMap<String, Vec<String>>,
     theme_options: Vec<ThemeCatalogEntry>,
@@ -378,13 +426,16 @@ impl PreferencesWindow {
             DEFAULT_THEME_ID.into()
         };
         let startup_open = preferences.startup_open;
+        let allow_code_execution = preferences.allow_code_execution;
         let keybindings = preferences.keybindings;
         Self {
             nav: PreferencesNav::File,
             startup_open,
+            allow_code_execution,
             selected_theme_id: selected_theme_id.clone(),
             keybindings: keybindings.clone(),
             saved_startup_open: startup_open,
+            saved_allow_code_execution: allow_code_execution,
             saved_theme_id: selected_theme_id,
             saved_keybindings: keybindings,
             theme_options,
@@ -406,6 +457,7 @@ impl PreferencesWindow {
 
     fn has_unsaved_changes(&self) -> bool {
         self.startup_open != self.saved_startup_open
+            || self.allow_code_execution != self.saved_allow_code_execution
             || self.selected_theme_id != self.saved_theme_id
             || normalize_shortcut_config(&self.keybindings)
                 != normalize_shortcut_config(&self.saved_keybindings)
@@ -471,6 +523,7 @@ impl PreferencesWindow {
             self.startup_open,
             &self.selected_theme_id,
             self.keybindings.clone(),
+            self.allow_code_execution,
         ) {
             Ok(preferences) => preferences,
             Err(err) => {
@@ -512,6 +565,7 @@ impl PreferencesWindow {
         window.activate_window();
         self.focus_handle.focus(window);
         self.saved_startup_open = self.startup_open;
+        self.saved_allow_code_execution = self.allow_code_execution;
         self.saved_theme_id = self.selected_theme_id.clone();
         self.saved_keybindings = normalize_shortcut_config(&self.keybindings);
         cx.notify();
@@ -696,7 +750,34 @@ impl PreferencesWindow {
                     cx,
                 ));
         }
-        self.labeled_row(&strings.preferences_startup_option, dropdown, theme)
+        let allow_label = if self.allow_code_execution {
+            strings.preferences_allow_code_execution_on.clone()
+        } else {
+            strings.preferences_allow_code_execution_off.clone()
+        };
+        let allow_toggle = Self::dropdown_button(
+            "preferences-allow-code-execution",
+            allow_label,
+            theme,
+            |this, _, _, cx| {
+                this.allow_code_execution = !this.allow_code_execution;
+                cx.notify();
+            },
+            cx,
+        );
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .child(self.labeled_row(&strings.preferences_startup_option, dropdown, theme))
+            .child(
+                self.labeled_row(
+                    &strings.preferences_allow_code_execution_label,
+                    allow_toggle,
+                    theme,
+                ),
+            )
     }
 
     fn render_theme_page(
@@ -1488,6 +1569,8 @@ mod tests {
             default_language_id: "zh-CN".into(),
             default_theme_id: "velotype-light".into(),
             keybindings: BTreeMap::new(),
+            allow_code_execution: true,
+            code_execution_confirm_shown: false,
         };
 
         save_app_preferences_with_dirs(&preferences, &dirs)
@@ -1567,6 +1650,8 @@ mod tests {
             default_language_id: "zh-CN".into(),
             default_theme_id: "velotype".into(),
             keybindings: BTreeMap::new(),
+            allow_code_execution: true,
+            code_execution_confirm_shown: false,
         };
         save_app_preferences_with_dirs(&preferences, &dirs)
             .expect("preferences should save to config.toml");
@@ -1575,6 +1660,7 @@ mod tests {
             StartupOpenPreference::LastOpenedFile,
             "velotype-light",
             BTreeMap::from([("save_document".to_string(), vec!["ctrl-alt-s".to_string()])]),
+            false,
             &dirs,
         )
         .expect("window preferences should save");

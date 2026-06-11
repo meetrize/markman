@@ -182,6 +182,7 @@ pub struct Block {
     pub(crate) list_group_separator_candidate: bool,
     numbered_list_restart_requested: bool,
     quote_reparse_requested: bool,
+    pub(crate) code_run_snapshot: crate::code_runner::CodeBlockRunSnapshot,
 }
 
 /// Cached standalone image presentation state for a block.
@@ -280,6 +281,7 @@ impl Block {
             list_group_separator_candidate: false,
             numbered_list_restart_requested: false,
             quote_reparse_requested: false,
+            code_run_snapshot: crate::code_runner::CodeBlockRunSnapshot::default(),
         };
         block.sync_code_highlight();
         block.refresh_cached_display_text();

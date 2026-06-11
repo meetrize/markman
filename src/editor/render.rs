@@ -1386,6 +1386,7 @@ impl Render for Editor {
         let theme = cx.global::<ThemeManager>().current_arc();
         let strings = cx.global::<I18nManager>().strings_arc();
         self.sync_window_title(window, &strings);
+        self.sync_code_run_visuals(cx);
 
         let d = &theme.dimensions;
         let visible_blocks = self.document.visible_blocks().to_vec();
@@ -1842,15 +1843,18 @@ impl Render for Editor {
         } else {
             base
         };
-        if let Some(kind) = self.info_dialog {
+        let base = if let Some(kind) = self.info_dialog {
             base.child(self.render_info_dialog_overlay(&theme, kind, cx))
+        } else if let Some(dialog) = self.render_code_run_dialog_overlay(&theme, cx) {
+            base.child(dialog)
         } else if self.show_drop_replace_dialog {
             base.child(self.render_drop_replace_overlay(&theme, cx))
         } else if self.show_unsaved_changes_dialog {
             base.child(self.render_unsaved_changes_overlay(&theme, cx))
         } else {
             base
-        }
+        };
+        base
     }
 }
 

@@ -350,6 +350,48 @@ pub struct I18nStrings {
     pub image_loading_with_alt_template: String,
     /// Placeholder shown in the code-block language input when no language is set.
     pub code_language_placeholder: String,
+    /// Title for the first-run code execution confirmation dialog.
+    pub code_run_confirm_title: String,
+    /// Body text for the first-run code execution confirmation dialog.
+    pub code_run_confirm_message: String,
+    /// Confirm button in the first-run code execution dialog.
+    pub code_run_confirm_allow: String,
+    /// Cancel button in the first-run code execution dialog.
+    pub code_run_confirm_cancel: String,
+    /// Title when running code from an unsaved document.
+    pub code_run_unsaved_title: String,
+    /// Body text when running code from an unsaved document.
+    pub code_run_unsaved_message: String,
+    /// Confirm button for running from an unsaved document.
+    pub code_run_unsaved_confirm: String,
+    /// Cancel button for running from an unsaved document.
+    pub code_run_unsaved_cancel: String,
+    /// Title when code execution is disabled in preferences.
+    pub code_run_disabled_title: String,
+    /// Body text when code execution is disabled in preferences.
+    pub code_run_disabled_message: String,
+    /// Title when the code-block language cannot be executed.
+    pub code_run_unsupported_title: String,
+    /// Body text when the code-block language cannot be executed.
+    pub code_run_unsupported_message: String,
+    /// Header label for the collapsible run-output panel.
+    pub code_run_output_title: String,
+    /// Expand label for the run-output panel.
+    pub code_run_output_expand: String,
+    /// Collapse label for the run-output panel.
+    pub code_run_output_collapse: String,
+    /// Stop button label while a run is active.
+    pub code_run_stop: String,
+    /// Footer template for exit code and duration; `{exit}` and `{duration}` are replaced.
+    pub code_run_meta_template: String,
+    /// Placeholder exit code when the process did not report one.
+    pub code_run_exit_none: String,
+    /// Preferences label for allowing code execution.
+    pub preferences_allow_code_execution_label: String,
+    /// Preferences value when code execution is enabled.
+    pub preferences_allow_code_execution_on: String,
+    /// Preferences value when code execution is disabled.
+    pub preferences_allow_code_execution_off: String,
 }
 
 /// Partial string set used by JSON language packs.
@@ -548,6 +590,27 @@ struct I18nStringsDe {
     image_loading_without_alt: Option<String>,
     image_loading_with_alt_template: Option<String>,
     code_language_placeholder: Option<String>,
+    code_run_confirm_title: Option<String>,
+    code_run_confirm_message: Option<String>,
+    code_run_confirm_allow: Option<String>,
+    code_run_confirm_cancel: Option<String>,
+    code_run_unsaved_title: Option<String>,
+    code_run_unsaved_message: Option<String>,
+    code_run_unsaved_confirm: Option<String>,
+    code_run_unsaved_cancel: Option<String>,
+    code_run_disabled_title: Option<String>,
+    code_run_disabled_message: Option<String>,
+    code_run_unsupported_title: Option<String>,
+    code_run_unsupported_message: Option<String>,
+    code_run_output_title: Option<String>,
+    code_run_output_expand: Option<String>,
+    code_run_output_collapse: Option<String>,
+    code_run_stop: Option<String>,
+    code_run_meta_template: Option<String>,
+    code_run_exit_none: Option<String>,
+    preferences_allow_code_execution_label: Option<String>,
+    preferences_allow_code_execution_on: Option<String>,
+    preferences_allow_code_execution_off: Option<String>,
 }
 
 const I18N_STRING_KEYS: &[&str] = &[
@@ -744,6 +807,27 @@ const I18N_STRING_KEYS: &[&str] = &[
     "image_loading_without_alt",
     "image_loading_with_alt_template",
     "code_language_placeholder",
+    "code_run_confirm_title",
+    "code_run_confirm_message",
+    "code_run_confirm_allow",
+    "code_run_confirm_cancel",
+    "code_run_unsaved_title",
+    "code_run_unsaved_message",
+    "code_run_unsaved_confirm",
+    "code_run_unsaved_cancel",
+    "code_run_disabled_title",
+    "code_run_disabled_message",
+    "code_run_unsupported_title",
+    "code_run_unsupported_message",
+    "code_run_output_title",
+    "code_run_output_expand",
+    "code_run_output_collapse",
+    "code_run_stop",
+    "code_run_meta_template",
+    "code_run_exit_none",
+    "preferences_allow_code_execution_label",
+    "preferences_allow_code_execution_on",
+    "preferences_allow_code_execution_off",
 ];
 
 impl I18nStringsDe {
@@ -1274,6 +1358,67 @@ impl I18nStringsDe {
             code_language_placeholder: self
                 .code_language_placeholder
                 .unwrap_or(defaults.code_language_placeholder),
+            code_run_confirm_title: self
+                .code_run_confirm_title
+                .unwrap_or(defaults.code_run_confirm_title),
+            code_run_confirm_message: self
+                .code_run_confirm_message
+                .unwrap_or(defaults.code_run_confirm_message),
+            code_run_confirm_allow: self
+                .code_run_confirm_allow
+                .unwrap_or(defaults.code_run_confirm_allow),
+            code_run_confirm_cancel: self
+                .code_run_confirm_cancel
+                .unwrap_or(defaults.code_run_confirm_cancel),
+            code_run_unsaved_title: self
+                .code_run_unsaved_title
+                .unwrap_or(defaults.code_run_unsaved_title),
+            code_run_unsaved_message: self
+                .code_run_unsaved_message
+                .unwrap_or(defaults.code_run_unsaved_message),
+            code_run_unsaved_confirm: self
+                .code_run_unsaved_confirm
+                .unwrap_or(defaults.code_run_unsaved_confirm),
+            code_run_unsaved_cancel: self
+                .code_run_unsaved_cancel
+                .unwrap_or(defaults.code_run_unsaved_cancel),
+            code_run_disabled_title: self
+                .code_run_disabled_title
+                .unwrap_or(defaults.code_run_disabled_title),
+            code_run_disabled_message: self
+                .code_run_disabled_message
+                .unwrap_or(defaults.code_run_disabled_message),
+            code_run_unsupported_title: self
+                .code_run_unsupported_title
+                .unwrap_or(defaults.code_run_unsupported_title),
+            code_run_unsupported_message: self
+                .code_run_unsupported_message
+                .unwrap_or(defaults.code_run_unsupported_message),
+            code_run_output_title: self
+                .code_run_output_title
+                .unwrap_or(defaults.code_run_output_title),
+            code_run_output_expand: self
+                .code_run_output_expand
+                .unwrap_or(defaults.code_run_output_expand),
+            code_run_output_collapse: self
+                .code_run_output_collapse
+                .unwrap_or(defaults.code_run_output_collapse),
+            code_run_stop: self.code_run_stop.unwrap_or(defaults.code_run_stop),
+            code_run_meta_template: self
+                .code_run_meta_template
+                .unwrap_or(defaults.code_run_meta_template),
+            code_run_exit_none: self
+                .code_run_exit_none
+                .unwrap_or(defaults.code_run_exit_none),
+            preferences_allow_code_execution_label: self
+                .preferences_allow_code_execution_label
+                .unwrap_or(defaults.preferences_allow_code_execution_label),
+            preferences_allow_code_execution_on: self
+                .preferences_allow_code_execution_on
+                .unwrap_or(defaults.preferences_allow_code_execution_on),
+            preferences_allow_code_execution_off: self
+                .preferences_allow_code_execution_off
+                .unwrap_or(defaults.preferences_allow_code_execution_off),
         }
     }
 }
@@ -1490,6 +1635,30 @@ impl I18nStrings {
             image_loading_without_alt: "正在加载图片...".into(),
             image_loading_with_alt_template: "正在加载 {alt}".into(),
             code_language_placeholder: "语言".into(),
+            code_run_confirm_title: "允许运行代码？".into(),
+            code_run_confirm_message:
+                "Velotype 会在本机执行代码块中的脚本。请仅在信任的来源上运行代码。".into(),
+            code_run_confirm_allow: "允许运行".into(),
+            code_run_confirm_cancel: "取消".into(),
+            code_run_unsaved_title: "从未保存的文档运行代码？".into(),
+            code_run_unsaved_message:
+                "当前文档尚未保存到磁盘。运行结果基于编辑器中的内容，可能与已保存文件不一致。".into(),
+            code_run_unsaved_confirm: "仍然运行".into(),
+            code_run_unsaved_cancel: "取消".into(),
+            code_run_disabled_title: "代码运行已禁用".into(),
+            code_run_disabled_message: "可在「偏好设置 → 文件」中开启“允许运行代码”。".into(),
+            code_run_unsupported_title: "无法运行此语言".into(),
+            code_run_unsupported_message:
+                "当前仅支持 bash、sh、python 和 javascript 代码块。".into(),
+            code_run_output_title: "运行结果".into(),
+            code_run_output_expand: "展开".into(),
+            code_run_output_collapse: "收起".into(),
+            code_run_stop: "停止".into(),
+            code_run_meta_template: "退出码：{exit} · 耗时：{duration} ms".into(),
+            code_run_exit_none: "—".into(),
+            preferences_allow_code_execution_label: "允许运行代码".into(),
+            preferences_allow_code_execution_on: "已开启".into(),
+            preferences_allow_code_execution_off: "已关闭".into(),
         }
     }
 
@@ -1704,6 +1873,33 @@ impl I18nStrings {
             image_loading_without_alt: "Loading image...".into(),
             image_loading_with_alt_template: "Loading {alt}".into(),
             code_language_placeholder: "language".into(),
+            code_run_confirm_title: "Allow Code Execution?".into(),
+            code_run_confirm_message:
+                "Velotype will run scripts from code blocks on this machine. Only run code you trust."
+                    .into(),
+            code_run_confirm_allow: "Allow".into(),
+            code_run_confirm_cancel: "Cancel".into(),
+            code_run_unsaved_title: "Run Code from Unsaved Document?".into(),
+            code_run_unsaved_message:
+                "This document has not been saved to disk. The run uses the current editor content, which may differ from any saved file."
+                    .into(),
+            code_run_unsaved_confirm: "Run Anyway".into(),
+            code_run_unsaved_cancel: "Cancel".into(),
+            code_run_disabled_title: "Code Execution Disabled".into(),
+            code_run_disabled_message:
+                "Enable “Allow code execution” in Preferences → File to run code blocks.".into(),
+            code_run_unsupported_title: "Language Not Runnable".into(),
+            code_run_unsupported_message:
+                "Only bash, sh, python, and javascript code blocks can be run.".into(),
+            code_run_output_title: "Run Output".into(),
+            code_run_output_expand: "Expand".into(),
+            code_run_output_collapse: "Collapse".into(),
+            code_run_stop: "Stop".into(),
+            code_run_meta_template: "Exit code: {exit} · Duration: {duration} ms".into(),
+            code_run_exit_none: "—".into(),
+            preferences_allow_code_execution_label: "Allow code execution".into(),
+            preferences_allow_code_execution_on: "Enabled".into(),
+            preferences_allow_code_execution_off: "Disabled".into(),
         }
     }
 

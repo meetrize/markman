@@ -25,6 +25,7 @@ use crate::components::{
 };
 mod close;
 mod code_language_menu;
+mod code_run;
 mod context_menu;
 mod document;
 mod events;
@@ -152,6 +153,9 @@ pub struct Editor {
     image_reference_definitions: Arc<ImageReferenceDefinitions>,
     link_reference_definitions: Arc<LinkReferenceDefinitions>,
     footnote_registry: Arc<FootnoteRegistry>,
+    code_runs: HashMap<EntityId, code_run::CodeBlockRunState>,
+    active_code_run: Option<code_run::ActiveCodeRunControl>,
+    code_run_dialog: Option<code_run::CodeRunDialogKind>,
 }
 
 /// Runtime binding between a table block and one cell editor.
@@ -351,6 +355,9 @@ impl Editor {
             image_reference_definitions: Arc::default(),
             link_reference_definitions: Arc::default(),
             footnote_registry: Arc::default(),
+            code_runs: HashMap::new(),
+            active_code_run: None,
+            code_run_dialog: None,
         };
         editor.rebuild_table_runtimes(cx);
         editor.rebuild_image_runtimes(cx);

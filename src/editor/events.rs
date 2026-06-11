@@ -811,6 +811,10 @@ impl Editor {
             return;
         }
 
+        if self.handle_block_code_run_event(&block, event, cx) {
+            return;
+        }
+
         if let BlockEvent::RequestReplaceCrossBlockSelection {
             text,
             selected_range_relative,
@@ -1466,6 +1470,9 @@ impl Editor {
                 cx.notify();
             }
             BlockEvent::PrepareUndo { .. } => {}
+            BlockEvent::RequestRunCodeBlock
+            | BlockEvent::RequestStopCodeBlock
+            | BlockEvent::RequestToggleCodeRunOutput => {}
         }
     }
 }

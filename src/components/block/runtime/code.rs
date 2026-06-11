@@ -210,4 +210,11 @@ impl Block {
             false
         }
     }
+
+    pub(crate) fn set_code_run_snapshot(
+        &mut self,
+        snapshot: crate::code_runner::CodeBlockRunSnapshot,
+    ) {
+        self.code_run_snapshot = snapshot;
+    }
 }

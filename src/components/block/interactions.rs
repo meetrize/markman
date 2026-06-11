@@ -803,6 +803,36 @@ impl Block {
         ));
     }
 
+    pub(crate) fn on_code_block_run_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestRunCodeBlock);
+    }
+
+    pub(crate) fn on_code_block_run_stop_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestStopCodeBlock);
+    }
+
+    pub(crate) fn on_code_block_run_output_toggle_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestToggleCodeRunOutput);
+    }
+
     pub(crate) fn on_code_block_collapse_toggle(
         &mut self,
         _: &MouseDownEvent,
