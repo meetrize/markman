@@ -870,6 +870,7 @@ impl PreferencesWindow {
             ShortcutCommand::Cut => strings.preferences_shortcut_cut.clone(),
             ShortcutCommand::Paste => strings.preferences_shortcut_paste.clone(),
             ShortcutCommand::Undo => strings.preferences_shortcut_undo.clone(),
+            ShortcutCommand::Redo => strings.preferences_shortcut_redo.clone(),
             ShortcutCommand::BoldSelection => strings.preferences_shortcut_bold_selection.clone(),
             ShortcutCommand::ItalicSelection => {
                 strings.preferences_shortcut_italic_selection.clone()

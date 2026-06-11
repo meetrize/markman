@@ -9,6 +9,8 @@ use crate::theme::Theme;
 use super::Editor;
 use super::ViewMode;
 
+const ICON_UNDO: &str = "icon/toolbar/undo-2.svg";
+const ICON_REDO: &str = "icon/toolbar/redo-2.svg";
 const ICON_BOLD: &str = "icon/toolbar/bold.svg";
 const ICON_ITALIC: &str = "icon/toolbar/italic.svg";
 const ICON_HEADING_1: &str = "icon/toolbar/heading-1.svg";
@@ -170,6 +172,8 @@ impl Editor {
         } else {
             c.dialog_secondary_button_hover
         };
+        let can_undo = self.can_undo();
+        let can_redo = self.can_redo();
 
         div()
             .id("markdown-format-toolbar")
@@ -188,6 +192,31 @@ impl Editor {
                     .flex()
                     .items_center()
                     .gap(px(d.format_toolbar_gap))
+                    .child(Self::render_history_toolbar_button(
+                        "undo-toolbar-button",
+                        ICON_UNDO,
+                        can_undo,
+                        theme,
+                        editor.clone(),
+                        Self::undo_document,
+                    ))
+                    .child(Self::render_history_toolbar_button(
+                        "redo-toolbar-button",
+                        ICON_REDO,
+                        can_redo,
+                        theme,
+                        editor.clone(),
+                        Self::redo_document,
+                    ))
+                    .child(
+                        div()
+                            .id("markdown-format-history-separator")
+                            .w(px(d.format_toolbar_separator_width))
+                            .h(px(d.format_toolbar_separator_height))
+                            .mx(px(d.format_toolbar_separator_margin_x))
+                            .flex_shrink_0()
+                            .bg(c.dialog_border.opacity(0.45)),
+                    )
                     .children(items.into_iter().enumerate().map(|(index, item)| {
                         match item {
                             FormatToolbarItem::Separator => div()
@@ -303,6 +332,53 @@ impl Editor {
                             .on_click(cx.listener(Self::on_toggle_view_mode)),
                     ),
             )
+    }
+
+    fn render_history_toolbar_button(
+        id: &'static str,
+        icon_path: &'static str,
+        enabled: bool,
+        theme: &Theme,
+        editor: WeakEntity<Self>,
+        action: fn(&mut Self, &mut Context<Self>),
+    ) -> impl IntoElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let icon_color = c.dialog_secondary_button_text;
+        let icon_size = px(d.format_toolbar_icon_size);
+        let mut button = div()
+            .id(id)
+            .w(px(d.format_toolbar_button_height))
+            .h(px(d.format_toolbar_button_height))
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .rounded(px(d.format_toolbar_button_radius))
+            .bg(c.dialog_surface)
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(icon_size)
+                    .text_color(icon_color),
+            );
+
+        if enabled {
+            button = button
+                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                .active(|this| this.opacity(0.92))
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = editor.update(cx, |editor, cx| {
+                        action(editor, cx);
+                    });
+                });
+        } else {
+            button = button.opacity(0.45);
+        }
+
+        button
     }
 
     fn append_code_block_from_toolbar(&mut self, cx: &mut Context<Self>) {

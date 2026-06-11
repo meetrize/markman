@@ -3,6 +3,15 @@
 These SVG icons are sourced from Iconify and stored locally so the app can embed
 them through the GPUI asset source at build time.
 
+## Adding a new icon
+
+1. Save the SVG under `assets/icon/<category>/<name>.svg`.
+2. Register it in `src/main.rs` inside `VelotypeAssets::load()` with `include_bytes!`.
+3. Reference the same path string from UI code, e.g. `svg().path("icon/toolbar/foo.svg")`.
+
+The match key in `load()` must exactly match the path passed to `svg().path(...)`.
+Without step 2, the icon will not render.
+
 | Local file | Iconify icon | Icon set | License |
 | --- | --- | --- | --- |
 | `workspace/folder.svg` | [`material-symbols:folder`](https://icon-sets.iconify.design/material-symbols/folder/) | Material Symbols | Apache-2.0 |

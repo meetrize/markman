@@ -124,6 +124,7 @@ impl Editor {
         self.active_entity_id = self.pending_focus;
 
         self.undo_history.clear();
+        self.redo_history.clear();
         self.pending_undo_capture = None;
         self.last_selection_snapshot = Self::empty_selection_snapshot();
         self.last_stable_source_text = normalized;

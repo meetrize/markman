@@ -125,6 +125,7 @@ impl Editor {
             });
         if !should_merge {
             self.undo_history.push(pending.snapshot);
+            self.redo_history.clear();
             if self.undo_history.len() > Self::HISTORY_LIMIT {
                 let overflow = self.undo_history.len() - Self::HISTORY_LIMIT;
                 self.undo_history.drain(0..overflow);
@@ -313,6 +314,32 @@ impl Editor {
         self.last_scroll_viewport_size = None;
     }
 
+    pub(super) fn can_undo(&self) -> bool {
+        !self.undo_history.is_empty()
+    }
+
+    pub(super) fn can_redo(&self) -> bool {
+        !self.redo_history.is_empty()
+    }
+
+    fn push_redo_entry(&mut self, cx: &App) {
+        self.redo_history
+            .push(self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx));
+        if self.redo_history.len() > Self::HISTORY_LIMIT {
+            let overflow = self.redo_history.len() - Self::HISTORY_LIMIT;
+            self.redo_history.drain(0..overflow);
+        }
+    }
+
+    fn push_undo_entry(&mut self, cx: &App) {
+        self.undo_history
+            .push(self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx));
+        if self.undo_history.len() > Self::HISTORY_LIMIT {
+            let overflow = self.undo_history.len() - Self::HISTORY_LIMIT;
+            self.undo_history.drain(0..overflow);
+        }
+    }
+
     pub(super) fn undo_document(&mut self, cx: &mut Context<Self>) {
         let Some(entry) = self.undo_history.pop() else {
             return;
@@ -321,6 +348,24 @@ impl Editor {
         self.pending_undo_capture = None;
         self.history_restore_in_progress = true;
         self.clear_cross_block_selection(cx);
+        self.push_redo_entry(cx);
+        self.restore_history_entry(&entry, cx);
+        self.history_restore_in_progress = false;
+        self.mark_dirty(cx);
+        self.sync_table_axis_visuals(cx);
+        self.dismiss_contextual_overlays(cx);
+        cx.notify();
+    }
+
+    pub(super) fn redo_document(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.redo_history.pop() else {
+            return;
+        };
+
+        self.pending_undo_capture = None;
+        self.history_restore_in_progress = true;
+        self.clear_cross_block_selection(cx);
+        self.push_undo_entry(cx);
         self.restore_history_entry(&entry, cx);
         self.history_restore_in_progress = false;
         self.mark_dirty(cx);

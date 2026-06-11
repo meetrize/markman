@@ -202,6 +202,7 @@ pub struct I18nStrings {
     pub preferences_shortcut_cut: String,
     pub preferences_shortcut_paste: String,
     pub preferences_shortcut_undo: String,
+    pub preferences_shortcut_redo: String,
     pub preferences_shortcut_bold_selection: String,
     pub preferences_shortcut_italic_selection: String,
     pub preferences_shortcut_underline_selection: String,
@@ -511,6 +512,7 @@ struct I18nStringsDe {
     preferences_shortcut_cut: Option<String>,
     preferences_shortcut_paste: Option<String>,
     preferences_shortcut_undo: Option<String>,
+    preferences_shortcut_redo: Option<String>,
     preferences_shortcut_bold_selection: Option<String>,
     preferences_shortcut_italic_selection: Option<String>,
     preferences_shortcut_underline_selection: Option<String>,
@@ -730,6 +732,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_cut",
     "preferences_shortcut_paste",
     "preferences_shortcut_undo",
+    "preferences_shortcut_redo",
     "preferences_shortcut_bold_selection",
     "preferences_shortcut_italic_selection",
     "preferences_shortcut_underline_selection",
@@ -1127,6 +1130,9 @@ impl I18nStringsDe {
             preferences_shortcut_undo: self
                 .preferences_shortcut_undo
                 .unwrap_or(defaults.preferences_shortcut_undo),
+            preferences_shortcut_redo: self
+                .preferences_shortcut_redo
+                .unwrap_or(defaults.preferences_shortcut_redo),
             preferences_shortcut_bold_selection: self
                 .preferences_shortcut_bold_selection
                 .unwrap_or(defaults.preferences_shortcut_bold_selection),
@@ -1563,6 +1569,7 @@ impl I18nStrings {
             preferences_shortcut_cut: "剪切".into(),
             preferences_shortcut_paste: "粘贴".into(),
             preferences_shortcut_undo: "撤销".into(),
+            preferences_shortcut_redo: "重做".into(),
             preferences_shortcut_bold_selection: "加粗".into(),
             preferences_shortcut_italic_selection: "斜体".into(),
             preferences_shortcut_underline_selection: "下划线".into(),
@@ -1801,6 +1808,7 @@ impl I18nStrings {
             preferences_shortcut_cut: "Cut".into(),
             preferences_shortcut_paste: "Paste".into(),
             preferences_shortcut_undo: "Undo".into(),
+            preferences_shortcut_redo: "Redo".into(),
             preferences_shortcut_bold_selection: "Bold".into(),
             preferences_shortcut_italic_selection: "Italic".into(),
             preferences_shortcut_underline_selection: "Underline".into(),

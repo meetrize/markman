@@ -132,6 +132,15 @@ impl Editor {
         self.undo_document(cx);
     }
 
+    pub(crate) fn on_redo(
+        &mut self,
+        _: &crate::components::Redo,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.redo_document(cx);
+    }
+
     pub(crate) fn on_save_document(
         &mut self,
         _: &crate::components::SaveDocument,
