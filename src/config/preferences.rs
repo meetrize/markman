@@ -58,6 +58,8 @@ pub(crate) struct AppPreferences {
     pub(crate) allow_code_execution: bool,
     /// Set after the user accepts the first-run code execution warning.
     pub(crate) code_execution_confirm_shown: bool,
+    /// When true, inline code runs open in the system terminal instead of the in-app popover runner.
+    pub(crate) inline_code_run_in_system_terminal: bool,
 }
 
 impl Default for AppPreferences {
@@ -69,6 +71,7 @@ impl Default for AppPreferences {
             keybindings: BTreeMap::new(),
             allow_code_execution: true,
             code_execution_confirm_shown: false,
+            inline_code_run_in_system_terminal: false,
         }
     }
 }
@@ -101,6 +104,7 @@ struct ThemePreferencesFile {
 struct CodeExecutionPreferencesFile {
     allow: bool,
     confirm_shown: bool,
+    inline_code_system_terminal: bool,
 }
 
 impl From<&AppPreferences> for PreferencesFile {
@@ -119,6 +123,7 @@ impl From<&AppPreferences> for PreferencesFile {
             code_execution: CodeExecutionPreferencesFile {
                 allow: value.allow_code_execution,
                 confirm_shown: value.code_execution_confirm_shown,
+                inline_code_system_terminal: value.inline_code_run_in_system_terminal,
             },
         }
     }
@@ -208,6 +213,11 @@ fn app_preferences_from_toml_value(
         .and_then(|section| section.get("confirm_shown"))
         .and_then(|confirm| confirm.as_bool())
         .unwrap_or(false);
+    let inline_code_run_in_system_terminal = value
+        .get("code_execution")
+        .and_then(|section| section.get("inline_code_system_terminal"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     AppPreferences {
         startup_open,
@@ -216,6 +226,7 @@ fn app_preferences_from_toml_value(
         keybindings,
         allow_code_execution,
         code_execution_confirm_shown,
+        inline_code_run_in_system_terminal,
     }
 }
 
@@ -348,6 +359,7 @@ pub(crate) fn save_preferences_from_window(
     default_theme_id: &str,
     keybindings: BTreeMap<String, Vec<String>>,
     allow_code_execution: bool,
+    inline_code_run_in_system_terminal: bool,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = VelotypeConfigDirs::from_system()?;
     save_preferences_from_window_with_dirs(
@@ -355,6 +367,7 @@ pub(crate) fn save_preferences_from_window(
         default_theme_id,
         keybindings,
         allow_code_execution,
+        inline_code_run_in_system_terminal,
         &dirs,
     )
 }
@@ -364,6 +377,7 @@ fn save_preferences_from_window_with_dirs(
     default_theme_id: &str,
     keybindings: BTreeMap<String, Vec<String>>,
     allow_code_execution: bool,
+    inline_code_run_in_system_terminal: bool,
     dirs: &VelotypeConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
     let mut preferences =
@@ -372,6 +386,7 @@ fn save_preferences_from_window_with_dirs(
     preferences.default_theme_id = default_theme_id.into();
     preferences.keybindings = normalize_shortcut_config(&keybindings);
     preferences.allow_code_execution = allow_code_execution;
+    preferences.inline_code_run_in_system_terminal = inline_code_run_in_system_terminal;
     save_app_preferences_with_dirs(&preferences, dirs)?;
     Ok(preferences)
 }
@@ -397,10 +412,12 @@ pub(crate) struct PreferencesWindow {
     nav: PreferencesNav,
     startup_open: StartupOpenPreference,
     allow_code_execution: bool,
+    inline_code_run_in_system_terminal: bool,
     selected_theme_id: String,
     keybindings: BTreeMap<String, Vec<String>>,
     saved_startup_open: StartupOpenPreference,
     saved_allow_code_execution: bool,
+    saved_inline_code_run_in_system_terminal: bool,
     saved_theme_id: String,
     saved_keybindings: BTreeMap<String, Vec<String>>,
     theme_options: Vec<ThemeCatalogEntry>,
@@ -427,15 +444,18 @@ impl PreferencesWindow {
         };
         let startup_open = preferences.startup_open;
         let allow_code_execution = preferences.allow_code_execution;
+        let inline_code_run_in_system_terminal = preferences.inline_code_run_in_system_terminal;
         let keybindings = preferences.keybindings;
         Self {
             nav: PreferencesNav::File,
             startup_open,
             allow_code_execution,
+            inline_code_run_in_system_terminal,
             selected_theme_id: selected_theme_id.clone(),
             keybindings: keybindings.clone(),
             saved_startup_open: startup_open,
             saved_allow_code_execution: allow_code_execution,
+            saved_inline_code_run_in_system_terminal: inline_code_run_in_system_terminal,
             saved_theme_id: selected_theme_id,
             saved_keybindings: keybindings,
             theme_options,
@@ -458,6 +478,8 @@ impl PreferencesWindow {
     fn has_unsaved_changes(&self) -> bool {
         self.startup_open != self.saved_startup_open
             || self.allow_code_execution != self.saved_allow_code_execution
+            || self.inline_code_run_in_system_terminal
+                != self.saved_inline_code_run_in_system_terminal
             || self.selected_theme_id != self.saved_theme_id
             || normalize_shortcut_config(&self.keybindings)
                 != normalize_shortcut_config(&self.saved_keybindings)
@@ -544,6 +566,7 @@ impl PreferencesWindow {
             &self.selected_theme_id,
             self.keybindings.clone(),
             self.allow_code_execution,
+            self.inline_code_run_in_system_terminal,
         ) {
             Ok(preferences) => preferences,
             Err(err) => {
@@ -586,6 +609,7 @@ impl PreferencesWindow {
         self.focus_handle.focus(window);
         self.saved_startup_open = self.startup_open;
         self.saved_allow_code_execution = self.allow_code_execution;
+        self.saved_inline_code_run_in_system_terminal = self.inline_code_run_in_system_terminal;
         self.saved_theme_id = self.selected_theme_id.clone();
         self.saved_keybindings = normalize_shortcut_config(&self.keybindings);
         cx.notify();
@@ -775,29 +799,50 @@ impl PreferencesWindow {
         } else {
             strings.preferences_allow_code_execution_off.clone()
         };
-        let allow_toggle = Self::dropdown_button(
-            "preferences-allow-code-execution",
-            allow_label,
-            theme,
-            |this, _, _, cx| {
-                this.allow_code_execution = !this.allow_code_execution;
-                cx.notify();
-            },
-            cx,
-        );
+        let system_terminal_label = if self.inline_code_run_in_system_terminal {
+            strings.preferences_allow_code_execution_on.clone()
+        } else {
+            strings.preferences_allow_code_execution_off.clone()
+        };
 
         div()
             .flex()
             .flex_col()
             .gap(px(16.0))
             .child(self.labeled_row(&strings.preferences_startup_option, dropdown, theme))
-            .child(
+            .child({
                 self.labeled_row(
                     &strings.preferences_allow_code_execution_label,
-                    allow_toggle,
+                    Self::dropdown_button(
+                        "preferences-allow-code-execution",
+                        allow_label,
+                        theme,
+                        |this, _, _, cx| {
+                            this.allow_code_execution = !this.allow_code_execution;
+                            cx.notify();
+                        },
+                        cx,
+                    ),
                     theme,
-                ),
-            )
+                )
+            })
+            .child({
+                self.labeled_row(
+                    &strings.preferences_inline_code_system_terminal_label,
+                    Self::dropdown_button(
+                        "preferences-inline-code-system-terminal",
+                        system_terminal_label,
+                        theme,
+                        |this, _, _, cx| {
+                            this.inline_code_run_in_system_terminal =
+                                !this.inline_code_run_in_system_terminal;
+                            cx.notify();
+                        },
+                        cx,
+                    ),
+                    theme,
+                )
+            })
     }
 
     fn render_theme_page(
@@ -1594,6 +1639,7 @@ mod tests {
             keybindings: BTreeMap::new(),
             allow_code_execution: true,
             code_execution_confirm_shown: false,
+            inline_code_run_in_system_terminal: false,
         };
 
         save_app_preferences_with_dirs(&preferences, &dirs)
@@ -1675,6 +1721,7 @@ mod tests {
             keybindings: BTreeMap::new(),
             allow_code_execution: true,
             code_execution_confirm_shown: false,
+            inline_code_run_in_system_terminal: false,
         };
         save_app_preferences_with_dirs(&preferences, &dirs)
             .expect("preferences should save to config.toml");
@@ -1684,6 +1731,7 @@ mod tests {
             "velotype-light",
             BTreeMap::from([("save_document".to_string(), vec!["ctrl-alt-s".to_string()])]),
             false,
+            true,
             &dirs,
         )
         .expect("window preferences should save");
@@ -1694,6 +1742,30 @@ mod tests {
             saved.keybindings.get("save_document"),
             Some(&vec!["ctrl-alt-s".to_string()])
         );
+        assert!(saved.inline_code_run_in_system_terminal);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_and_reads_inline_code_system_terminal_preference() {
+        let root = std::env::temp_dir().join(format!(
+            "velotype-preferences-inline-terminal-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let dirs = VelotypeConfigDirs::from_root(&root);
+        let preferences = AppPreferences {
+            inline_code_run_in_system_terminal: true,
+            ..AppPreferences::default()
+        };
+
+        save_app_preferences_with_dirs(&preferences, &dirs)
+            .expect("preferences should save to config.toml");
+        let loaded = read_app_preferences_with_dirs(&dirs).expect("preferences should read back");
+        assert!(loaded.inline_code_run_in_system_terminal);
+
+        let text =
+            std::fs::read_to_string(dirs.app_config_file()).expect("config.toml should exist");
+        assert!(text.contains("inline_code_system_terminal = true"));
         let _ = std::fs::remove_dir_all(root);
     }
 

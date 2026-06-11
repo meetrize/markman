@@ -1,5 +1,7 @@
 //! Code-block and inline-code execution for supported scripting languages.
 
+mod system_terminal;
+
 use std::io::{BufRead, BufReader, Read};
 use std::ops::Range;
 use std::path::Path;
@@ -11,6 +13,8 @@ use std::time::Instant;
 
 use futures::channel::mpsc::UnboundedSender;
 use uuid::Uuid;
+
+pub use system_terminal::open_in_system_terminal;
 
 /// Snapshot of one code block's run state, synced to blocks for rendering.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

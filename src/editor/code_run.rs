@@ -13,8 +13,8 @@ use gpui::*;
 
 use crate::code_runner::{
     CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES, CodeBlockRunSnapshot, CodeRunOutcome, CodeRunProgress,
-    CodeRunStatus, code_run_output_line_count, kill_child,
-    resolve_runner, spawn_code_run, spawn_inline_shell_run,
+    CodeRunStatus, code_run_output_line_count, kill_child, open_in_system_terminal, resolve_runner,
+    spawn_code_run, spawn_inline_shell_run,
 };
 use crate::components::{Block, BlockEvent, BlockKind};
 use crate::config::{read_app_preferences, set_code_execution_confirm_shown};
@@ -355,6 +355,32 @@ impl Editor {
         }
 
         let work_dir = self.code_run_work_dir();
+        let preferences = read_app_preferences().unwrap_or_default();
+        if preferences.inline_code_run_in_system_terminal {
+            let strings = cx.global::<I18nManager>().strings();
+            let state = self.inline_code_runs.entry(target.clone()).or_default();
+            state.stdout.clear();
+            state.stderr.clear();
+            state.exit_code = None;
+            state.duration_ms = 0;
+            state.error_message = None;
+            state.output_expanded = true;
+            state.output_content_expanded = false;
+            self.inline_code_run_popover = Some(target.clone());
+            match open_in_system_terminal(&source, &work_dir) {
+                Ok(()) => {
+                    state.status = CodeRunStatus::Done;
+                    state.stdout = strings.inline_code_run_opened_in_terminal.clone();
+                    state.exit_code = Some(0);
+                }
+                Err(err) => {
+                    state.status = CodeRunStatus::Failed;
+                    state.error_message = Some(err.to_string());
+                }
+            }
+            cx.notify();
+            return;
+        }
 
         let state = self.inline_code_runs.entry(target.clone()).or_default();
         state.reset_for_run();
