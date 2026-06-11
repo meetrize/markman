@@ -803,6 +803,22 @@ impl Block {
         ));
     }
 
+    pub(crate) fn on_code_block_collapse_toggle(
+        &mut self,
+        _: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.code_block_is_collapsible() {
+            return;
+        }
+        let focused = self.focus_handle.is_focused(window);
+        let collapsed = self.code_block_collapsed(focused);
+        self.code_block_collapsed_override = Some(!collapsed);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
     pub(crate) fn on_code_language_badge_mouse_down(
         &mut self,
         _: &MouseDownEvent,
@@ -918,6 +934,9 @@ impl Block {
         }
 
         let was_focused = self.focus_handle.is_focused(window);
+        if self.kind().is_code_block() && self.code_block_is_collapsible() && !was_focused {
+            self.code_block_collapsed_override = None;
+        }
         if event.click_count >= 2
             && self.try_select_word_or_line_at_click_count(
                 event.position,

@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Number of code lines shown before a collapsible block folds.
+pub(crate) const CODE_BLOCK_COLLAPSED_VISIBLE_LINES: usize = 3;
+
 /// Common code-block languages shown in the floating language picker.
 pub(crate) const CODE_LANGUAGE_MENU_OPTIONS: &[&str] = &[
     "javascript",
@@ -28,6 +31,34 @@ fn normalize_code_language_input(text: &str) -> String {
 }
 
 impl Block {
+    pub(crate) fn code_block_line_count(text: &str) -> usize {
+        if text.is_empty() {
+            1
+        } else {
+            text.split('\n').count()
+        }
+    }
+
+    pub(crate) fn code_block_is_collapsible(&self) -> bool {
+        self.kind().is_code_block()
+            && Self::code_block_line_count(self.display_text()) > CODE_BLOCK_COLLAPSED_VISIBLE_LINES
+    }
+
+    pub(crate) fn code_block_collapsed(&self, focused: bool) -> bool {
+        if !self.code_block_is_collapsible() {
+            return false;
+        }
+        match self.code_block_collapsed_override {
+            Some(collapsed) => collapsed,
+            None => !focused,
+        }
+    }
+
+    pub(crate) fn code_block_hidden_line_count(&self) -> usize {
+        Self::code_block_line_count(self.display_text())
+            .saturating_sub(CODE_BLOCK_COLLAPSED_VISIBLE_LINES)
+    }
+
     pub(crate) fn code_highlight_result(&self) -> Option<&CodeHighlightResult> {
         self.code_highlight.as_ref()
     }

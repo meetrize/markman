@@ -9,6 +9,7 @@ use gpui::*;
 use unicode_segmentation::*;
 
 mod code;
+pub(crate) use code::CODE_BLOCK_COLLAPSED_VISIBLE_LINES;
 pub(crate) use code::CODE_LANGUAGE_MENU_OPTIONS;
 mod image;
 mod projection;
@@ -110,6 +111,7 @@ pub struct Block {
     pub(crate) code_language_selection_reversed: bool,
     pub(crate) code_language_marked_range: Option<Range<usize>>,
     pub(crate) code_language_menu_open: bool,
+    pub(crate) code_block_collapsed_override: Option<bool>,
     pub selected_range: Range<usize>,
     pub selection_reversed: bool,
     pub(crate) editor_selection_range: Option<Range<usize>>,
@@ -218,6 +220,7 @@ impl Block {
             code_language_selection_reversed: false,
             code_language_marked_range: None,
             code_language_menu_open: false,
+            code_block_collapsed_override: None,
             selected_range: 0..0,
             selection_reversed: false,
             editor_selection_range: None,

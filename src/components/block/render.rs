@@ -25,6 +25,8 @@ const BULLET_HOLLOW: &str = "\u{25E6}";
 const BULLET_SQUARE: &str = "\u{25A1}";
 const TASK_CHECKMARK: &str = "\u{2713}";
 const ICON_CODE_BLOCK_COPY: &str = "icon/toolbar/copy.svg";
+const ICON_CODE_BLOCK_COLLAPSE: &str = "icon/toolbar/chevrons-down-up.svg";
+const ICON_CODE_BLOCK_EXPAND: &str = "icon/toolbar/chevrons-up-down.svg";
 
 fn bulleted_list_marker(depth: usize) -> &'static str {
     match depth {
@@ -2236,19 +2238,113 @@ impl Render for Block {
                     + d.code_language_input_padding_y * 2.0
                     + d.code_language_input_border_width * 2.0;
                 let icon_size = px((t.code_size - 1.0).max(10.0));
+                let collapsible = self.code_block_is_collapsible();
+                let collapsed = self.code_block_collapsed(focused);
+                let code_line_height = t.code_size * t.text_line_height;
+                let collapsed_max_height =
+                    px(code_line_height * super::CODE_BLOCK_COLLAPSED_VISIBLE_LINES as f32);
+                let mut text_wrapper = div().min_w(px(0.0)).w_full();
+                if collapsed {
+                    text_wrapper = text_wrapper
+                        .max_h(collapsed_max_height)
+                        .overflow_hidden();
+                }
                 let mut code_content = div()
                     .relative()
                     .min_w(px(0.0))
                     .w_full()
                     .child(
-                        div()
-                            .min_w(px(0.0))
-                            .w_full()
-                            .child(BlockTextElement::new(cx.entity(), is_placeholder)),
+                        text_wrapper.child(BlockTextElement::new(cx.entity(), is_placeholder)),
                     );
+
+                if collapsed {
+                    code_content = code_content.pb(px(code_line_height));
+                    let hidden_lines = self.code_block_hidden_line_count();
+                    code_content = code_content.child(
+                        div()
+                            .id("code-block-expand-bar")
+                            .absolute()
+                            .bottom_0()
+                            .left_0()
+                            .right_0()
+                            .h(px(code_line_height))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .gap(px(4.0))
+                            .bg(c.code_bg.opacity(0.94))
+                            .border_t(px(1.0))
+                            .border_color(c.code_language_input_border.opacity(0.35))
+                            .cursor_pointer()
+                            .occlude()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(Self::on_code_block_collapse_toggle),
+                            )
+                            .child(
+                                svg()
+                                    .path(ICON_CODE_BLOCK_EXPAND)
+                                    .size(icon_size)
+                                    .text_color(c.code_language_input_text),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px((t.code_size - 1.5).max(9.0)))
+                                    .text_color(c.code_language_input_text.opacity(0.85))
+                                    .child(SharedString::from(format!(
+                                        "展开 {hidden_lines} 行"
+                                    ))),
+                            ),
+                    );
+                }
 
                 {
                     let block = cx.entity().downgrade();
+                    let collapse_icon = if collapsed {
+                        ICON_CODE_BLOCK_EXPAND
+                    } else {
+                        ICON_CODE_BLOCK_COLLAPSE
+                    };
+                    let mut controls = div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .flex()
+                        .items_center()
+                        .justify_end()
+                        .gap(px(d.code_language_input_gap));
+
+                    if collapsible {
+                        controls = controls.child(
+                            div()
+                                .id("code-block-collapse")
+                                .w(px(badge_height))
+                                .h(px(badge_height))
+                                .flex()
+                                .flex_shrink_0()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(d.code_language_input_radius))
+                                .border(px(d.code_language_input_border_width))
+                                .border_color(c.code_language_input_border.opacity(0.65))
+                                .bg(c.code_language_input_bg.opacity(0.92))
+                                .hover(|this| this.bg(c.code_language_input_border.opacity(0.35)))
+                                .active(|this| this.opacity(0.92))
+                                .cursor_pointer()
+                                .occlude()
+                                .child(
+                                    svg()
+                                        .path(collapse_icon)
+                                        .size(icon_size)
+                                        .text_color(c.code_language_input_text),
+                                )
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(Self::on_code_block_collapse_toggle),
+                                ),
+                        );
+                    }
+
                     let language_badge = div()
                         .id("code-block-language")
                         .h(px(badge_height))
@@ -2273,14 +2369,7 @@ impl Render for Block {
                         );
 
                     code_content = code_content.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .right_0()
-                            .flex()
-                            .items_center()
-                            .justify_end()
-                            .gap(px(d.code_language_input_gap))
+                        controls
                             .child(language_badge)
                             .child(
                                 div()
