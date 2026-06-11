@@ -803,6 +803,17 @@ impl Block {
         ));
     }
 
+    pub(crate) fn on_code_language_badge_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.code_language_menu_open = !self.code_language_menu_open;
+        cx.stop_propagation();
+        cx.notify();
+    }
+
     pub(crate) fn on_cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
@@ -881,6 +892,11 @@ impl Block {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.code_language_menu_open {
+            self.code_language_menu_open = false;
+            cx.notify();
+        }
+
         if self.showing_rendered_image() {
             self.is_selecting = false;
             self.request_image_edit_expansion();

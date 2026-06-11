@@ -2,6 +2,24 @@
 
 use super::*;
 
+/// Common code-block languages shown in the floating language picker.
+pub(crate) const CODE_LANGUAGE_MENU_OPTIONS: &[&str] = &[
+    "javascript",
+    "typescript",
+    "python",
+    "bash",
+    "rust",
+    "go",
+    "json",
+    "markdown",
+    "html",
+    "css",
+    "java",
+    "cpp",
+    "yaml",
+    "text",
+];
+
 fn normalize_code_language_input(text: &str) -> String {
     text.replace("\r\n", " ")
         .replace(['\r', '\n'], " ")
@@ -124,5 +142,33 @@ impl Block {
             cx.emit(BlockEvent::Changed);
         }
         cx.notify();
+    }
+
+    pub(crate) fn set_code_language(&mut self, language: &str, cx: &mut Context<Self>) {
+        if !self.kind().is_code_block() {
+            return;
+        }
+
+        let range = 0..self.code_language_text().len();
+        self.replace_code_language_text_in_range(range, language, None, false, cx);
+        self.code_language_menu_open = false;
+    }
+
+    pub(crate) fn dismiss_code_language_menu(&mut self) -> bool {
+        if self.code_language_menu_open {
+            self.code_language_menu_open = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn sync_code_language_menu_for_focus(&mut self, active: bool) -> bool {
+        if !active && self.code_language_menu_open {
+            self.code_language_menu_open = false;
+            true
+        } else {
+            false
+        }
     }
 }

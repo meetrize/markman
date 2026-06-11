@@ -202,12 +202,41 @@ impl Editor {
         let had_submenu_close = self.context_menu_submenu_close_task.take().is_some();
         let had_file_menu = self.workspace_file_context_menu.take().is_some();
         let had_name_dialog = self.workspace_name_dialog.take().is_some();
+        let had_code_language_menu = self.close_all_code_language_menus(cx);
         if had_document_search {
             self.close_document_search(cx);
         }
-        if had_menu || had_dialog || had_submenu_close || had_file_menu || had_name_dialog || had_document_search {
+        if had_menu
+            || had_dialog
+            || had_submenu_close
+            || had_file_menu
+            || had_name_dialog
+            || had_document_search
+            || had_code_language_menu
+        {
             cx.notify();
         }
+    }
+
+    fn close_all_code_language_menus(&mut self, cx: &mut Context<Self>) -> bool {
+        let mut changed = false;
+        for visible in self.document.flatten_visible_blocks() {
+            visible.entity.update(cx, |block, cx| {
+                if block.dismiss_code_language_menu() {
+                    changed = true;
+                    cx.notify();
+                }
+            });
+        }
+        for binding in self.table_cells.values() {
+            binding.cell.update(cx, |block, cx| {
+                if block.dismiss_code_language_menu() {
+                    changed = true;
+                    cx.notify();
+                }
+            });
+        }
+        changed
     }
 
     fn schedule_context_menu_submenu_close(&mut self, cx: &mut Context<Self>) {
