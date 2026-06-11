@@ -147,6 +147,9 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/redo-2.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/redo-2.svg"
             )))),
+            "icon/toolbar/ellipsis-vertical.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/ellipsis-vertical.svg"
+            )))),
             _ => Ok(None),
         }
     }
