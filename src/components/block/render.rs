@@ -36,6 +36,7 @@ const ICON_CODE_BLOCK_CLOSE: &str = "icon/toolbar/x.svg";
 const ICON_CODE_RUN_OUTPUT_CHEVRON_DOWN: &str = "icon/toolbar/chevron-down.svg";
 const ICON_CODE_RUN_OUTPUT_CHEVRON_UP: &str = "icon/toolbar/chevron-up.svg";
 const ICON_TABLE_COLUMN_MENU: &str = "icon/toolbar/ellipsis-vertical.svg";
+const TABLE_COLUMN_RESIZE_HANDLE_WIDTH: f32 = 8.0;
 
 fn style_native_table_cell_borders(
     mut cell: Stateful<Div>,
@@ -2827,12 +2828,16 @@ impl Render for Block {
 
                 let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
                 let table_width = effective_table_width(self, viewport_width, d);
+                let column_count = runtime.header.len();
                 let column_layout = self
                     .record
                     .table
                     .as_ref()
-                    .map(|table| TableColumnLayout::measure(table, table_width, window, &theme))
-                    .unwrap_or_else(|| TableColumnLayout::equal(runtime.header.len()));
+                    .map(|table| TableColumnLayout::for_table(table, table_width, window, &theme))
+                    .unwrap_or_else(|| TableColumnLayout::equal(column_count));
+                let column_fractions = (0..column_count)
+                    .map(|column| column_layout.fraction(column))
+                    .collect::<Vec<_>>();
                 let preview_marker = self.table_axis_preview;
                 let selected_marker = self.table_axis_selection;
                 let body_row_count = runtime.rows.len();
@@ -2858,10 +2863,16 @@ impl Render for Block {
 
                 let header_cells = runtime.header;
 
+                let resize_handle_offset = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH * 0.5);
+                let resize_handle_width = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH);
+
                 let header_row = div().w_full().flex().gap(px(0.0)).children(
                     header_cells.into_iter().enumerate().map(|(column, cell)| {
                         let menu_block = weak_table_block.clone();
-                        div()
+                        let resize_block = weak_table_block.clone();
+                        let resize_fractions = column_fractions.clone();
+                        let can_resize_column = column + 1 < column_count;
+                        let mut column_shell = div()
                             .relative()
                             .flex_none()
                             .flex_basis(relative(column_layout.fraction(column)))
@@ -2881,7 +2892,11 @@ impl Render for Block {
                                     .absolute()
                                     .top_0()
                                     .bottom_0()
-                                    .right_0()
+                                    .right(if can_resize_column {
+                                        resize_handle_width
+                                    } else {
+                                        px(0.0)
+                                    })
                                     .w(column_menu_handle_width)
                                     .flex()
                                     .items_center()
@@ -2909,7 +2924,46 @@ impl Render for Block {
                                             .size(column_menu_icon_size)
                                             .text_color(c.text_default),
                                     ),
-                            )
+                            );
+
+                        if can_resize_column {
+                            column_shell = column_shell.child(
+                                div()
+                                    .id(ElementId::Name(
+                                        format!(
+                                            "table-column-resize-handle-{}-{}",
+                                            self.record.id, column
+                                        )
+                                        .into(),
+                                    ))
+                                    .absolute()
+                                    .top_0()
+                                    .bottom_0()
+                                    .right(-resize_handle_offset)
+                                    .w(resize_handle_width)
+                                    .cursor_col_resize()
+                                    .hover(|this| this.bg(c.table_border.opacity(0.55)))
+                                    .occlude()
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        move |event, _window, cx| {
+                                            let _ = resize_block.update(cx, |_block, cx| {
+                                                cx.stop_propagation();
+                                                cx.emit(
+                                                    BlockEvent::RequestStartTableColumnResize {
+                                                        boundary_index: column,
+                                                        pointer_x: f32::from(event.position.x),
+                                                        table_width,
+                                                        fractions: resize_fractions.clone(),
+                                                    },
+                                                );
+                                            });
+                                        },
+                                    ),
+                            );
+                        }
+
+                        column_shell
                     }),
                 );
 

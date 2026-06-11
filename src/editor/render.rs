@@ -422,7 +422,7 @@ impl Editor {
     }
 
     fn apply_pending_scroll_into_view(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.scrollbar_drag.is_some() {
+        if self.scrollbar_drag.is_some() || self.table_column_resize_drag.is_some() {
             return;
         }
 
@@ -1865,7 +1865,55 @@ impl Render for Editor {
         } else {
             base
         };
-        base
+        if self.table_column_resize_drag.is_some() {
+            let drag_editor = cx.entity().downgrade();
+            base.child(
+                div()
+                    .id("table-column-resize-capture")
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .cursor_col_resize()
+                    .occlude()
+                    .child(
+                        canvas(
+                            |_, _, _| (),
+                            move |_, _, window, _| {
+                                window.on_mouse_event({
+                                    let editor = drag_editor.clone();
+                                    move |_event: &MouseUpEvent, phase, _window, cx| {
+                                        if !phase.bubble() {
+                                            return;
+                                        }
+                                        let _ = editor.update(cx, |editor, cx| {
+                                            editor.end_table_column_resize_drag(cx);
+                                        });
+                                    }
+                                });
+
+                                window.on_mouse_event({
+                                    let editor = drag_editor.clone();
+                                    move |event: &MouseMoveEvent, phase, _window, cx| {
+                                        if !phase.bubble() || !event.dragging() {
+                                            return;
+                                        }
+                                        let _ = editor.update(cx, |editor, cx| {
+                                            editor.update_table_column_resize_drag(
+                                                f32::from(event.position.x),
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                });
+                            },
+                        )
+                        .size_full(),
+                    ),
+            )
+        } else {
+            base
+        }
     }
 }
 

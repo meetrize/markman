@@ -21,8 +21,10 @@ use crate::components::{
 };
 use crate::components::{
     TableAxisHighlight, TableAxisKind, TableAxisMarker, TableCellPosition, TableColumnAlignment,
-    TableData, TableRuntime, UndoCaptureKind, serialize_table_cell_markdown,
+    TableData, TableRuntime, UndoCaptureKind, minimum_table_column_width,
+    serialize_table_cell_markdown,
 };
+use crate::theme::ThemeManager;
 mod close;
 mod code_language_menu;
 mod code_run;
@@ -147,6 +149,7 @@ pub struct Editor {
     scrollbar_fade_task: Option<Task<()>>,
     scrollbar_drag: Option<ScrollbarDragSession>,
     workspace_resize_drag: Option<WorkspaceResizeDragSession>,
+    table_column_resize_drag: Option<TableColumnResizeDragSession>,
     undo_history: Vec<HistoryEntry>,
     redo_history: Vec<HistoryEntry>,
     pending_undo_capture: Option<PendingUndoCapture>,
@@ -195,6 +198,17 @@ struct WorkspaceResizeDragSession {
     start_pointer_x: f32,
     start_width: f32,
     viewport_width: f32,
+}
+
+/// Active drag session for resizing adjacent native table columns.
+#[derive(Clone, Debug, PartialEq)]
+struct TableColumnResizeDragSession {
+    table_block: Entity<Block>,
+    boundary_index: usize,
+    start_pointer_x: f32,
+    start_fractions: Vec<f32>,
+    table_width: f32,
+    min_column_width: f32,
 }
 
 /// Active drag session for the custom scrollbar thumb.
@@ -355,6 +369,7 @@ impl Editor {
             scrollbar_fade_task: None,
             scrollbar_drag: None,
             workspace_resize_drag: None,
+            table_column_resize_drag: None,
             undo_history: Vec::new(),
             redo_history: Vec::new(),
             pending_undo_capture: None,

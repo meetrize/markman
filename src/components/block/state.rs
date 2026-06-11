@@ -751,6 +751,13 @@ pub enum BlockEvent {
         index: usize,
         position: Point<Pixels>,
     },
+    /// Begin resizing the boundary between two native table header columns.
+    RequestStartTableColumnResize {
+        boundary_index: usize,
+        pointer_x: f32,
+        table_width: f32,
+        fractions: Vec<f32>,
+    },
     /// Cursor reached the top of this block; move focus to the previous
     /// visible block, preserving the preferred horizontal position.
     RequestFocusPrev { preferred_x: Option<f32> },

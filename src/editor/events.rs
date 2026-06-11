@@ -1330,6 +1330,23 @@ impl Editor {
                     self.open_table_axis_menu(block.entity_id(), *kind, *index, *position, cx);
                 }
             }
+            BlockEvent::RequestStartTableColumnResize {
+                boundary_index,
+                pointer_x,
+                table_width,
+                fractions,
+            } => {
+                if block.read(cx).kind() == BlockKind::Table {
+                    self.start_table_column_resize_drag(
+                        &block,
+                        *boundary_index,
+                        *pointer_x,
+                        *table_width,
+                        fractions.clone(),
+                        cx,
+                    );
+                }
+            }
             BlockEvent::RequestTableCellMoveHorizontal { .. }
             | BlockEvent::RequestTableCellMoveVertical { .. } => {}
             BlockEvent::RequestFocusPrev { preferred_x } => {

@@ -55,6 +55,8 @@ pub struct TableData {
     pub header: Vec<InlineTextTree>,
     pub rows: Vec<Vec<InlineTextTree>>,
     pub alignments: Vec<TableColumnAlignment>,
+    /// User-resized column width fractions. Empty means auto layout.
+    pub column_width_fractions: Vec<f32>,
 }
 
 impl PartialEq for TableData {
@@ -62,6 +64,7 @@ impl PartialEq for TableData {
         self.header == other.header
             && self.rows == other.rows
             && self.alignments == other.alignments
+            && self.column_width_fractions == other.column_width_fractions
     }
 }
 
@@ -87,6 +90,18 @@ impl TableData {
             header,
             rows,
             alignments,
+            column_width_fractions: Vec::new(),
+        }
+    }
+
+    fn renormalize_column_width_fractions(&mut self) {
+        let sum = self.column_width_fractions.iter().sum::<f32>();
+        if sum <= f32::EPSILON {
+            self.column_width_fractions.clear();
+            return;
+        }
+        for fraction in &mut self.column_width_fractions {
+            *fraction /= sum;
         }
     }
 
@@ -132,6 +147,12 @@ impl TableData {
         for row in &mut self.rows {
             row.push(InlineTextTree::plain(String::new()));
         }
+        if !self.column_width_fractions.is_empty() {
+            let average = self.column_width_fractions.iter().sum::<f32>()
+                / self.column_width_fractions.len().max(1) as f32;
+            self.column_width_fractions.push(average);
+            self.renormalize_column_width_fractions();
+        }
     }
 
     /// Sets the alignment of one column if it exists.
@@ -160,6 +181,9 @@ impl TableData {
 
         self.header.swap(col_a, col_b);
         self.alignments.swap(col_a, col_b);
+        if self.column_width_fractions.len() == columns {
+            self.column_width_fractions.swap(col_a, col_b);
+        }
         for row in &mut self.rows {
             row.swap(col_a, col_b);
         }
@@ -184,9 +208,22 @@ impl TableData {
 
         self.header.remove(col_index);
         self.alignments.remove(col_index);
+        if col_index < self.column_width_fractions.len() {
+            self.column_width_fractions.remove(col_index);
+            self.renormalize_column_width_fractions();
+        }
         for row in &mut self.rows {
             row.remove(col_index);
         }
+    }
+
+    pub(crate) fn set_column_width_fractions(&mut self, fractions: Vec<f32>) {
+        let columns = self.column_count();
+        if fractions.len() != columns {
+            return;
+        }
+        self.column_width_fractions = fractions;
+        self.renormalize_column_width_fractions();
     }
 }
 
@@ -208,6 +245,33 @@ impl TableColumnLayout {
     #[cfg(test)]
     pub(crate) fn fractions(&self) -> &[f32] {
         &self.fractions
+    }
+
+    pub fn from_fractions(fractions: &[f32]) -> Self {
+        if fractions.is_empty() {
+            return Self::equal(1);
+        }
+        let sum = fractions.iter().sum::<f32>();
+        if sum <= f32::EPSILON {
+            return Self::equal(fractions.len());
+        }
+        Self {
+            fractions: fractions.iter().map(|fraction| fraction / sum).collect(),
+        }
+    }
+
+    pub fn for_table(
+        table: &TableData,
+        table_width: f32,
+        window: &mut Window,
+        theme: &Theme,
+    ) -> Self {
+        let columns = table.column_count();
+        if table.column_width_fractions.len() == columns {
+            Self::from_fractions(&table.column_width_fractions)
+        } else {
+            Self::measure(table, table_width, window, theme)
+        }
     }
 
     pub fn fraction(&self, column: usize) -> f32 {
@@ -475,8 +539,12 @@ fn cell_chrome_width(theme: &Theme) -> Pixels {
     px(theme.dimensions.table_cell_padding_x * 2.0 + 2.0)
 }
 
-fn minimum_column_width(theme: &Theme) -> f32 {
+pub(crate) fn minimum_table_column_width(theme: &Theme) -> f32 {
     theme.dimensions.table_cell_padding_x * 2.0 + theme.typography.text_size * 4.0 + 2.0
+}
+
+fn minimum_column_width(theme: &Theme) -> f32 {
+    minimum_table_column_width(theme)
 }
 
 fn strip_table_indent(line: &str) -> Option<&str> {
@@ -620,6 +688,7 @@ pub fn parse_table_region(lines: &[String]) -> Option<TableData> {
             .collect(),
         rows,
         alignments,
+        column_width_fractions: Vec::new(),
     })
 }
 
@@ -709,6 +778,7 @@ mod tests {
                 InlineTextTree::plain("value".to_string()),
             ]],
             alignments: vec![TableColumnAlignment::Left, TableColumnAlignment::Right],
+            column_width_fractions: Vec::new(),
         };
         assert_eq!(
             serialize_table_markdown_lines(&table),
@@ -806,6 +876,7 @@ mod tests {
                 ],
             ],
             alignments: vec![TableColumnAlignment::Left, TableColumnAlignment::Right],
+            column_width_fractions: Vec::new(),
         };
 
         table.append_column(TableColumnAlignment::Right);
@@ -832,6 +903,7 @@ mod tests {
             header: vec![InlineTextTree::plain("A".to_string())],
             rows: vec![vec![InlineTextTree::plain("1".to_string())]],
             alignments: Vec::new(),
+            column_width_fractions: Vec::new(),
         };
 
         table.append_column(TableColumnAlignment::Left);
@@ -867,6 +939,7 @@ mod tests {
                 vec![InlineTextTree::plain("2".to_string())],
             ],
             alignments: vec![TableColumnAlignment::Left],
+            column_width_fractions: Vec::new(),
         };
         table.swap_body_rows(0, 1);
         assert_eq!(table.rows[0][0].serialize_markdown(), "2");
@@ -885,6 +958,7 @@ mod tests {
                 InlineTextTree::plain("2".to_string()),
             ]],
             alignments: vec![TableColumnAlignment::Left, TableColumnAlignment::Right],
+            column_width_fractions: Vec::new(),
         };
         table.swap_columns(0, 1);
         assert_eq!(table.header[0].serialize_markdown(), "B");
@@ -902,6 +976,25 @@ mod tests {
         assert_eq!(table.rows.len(), 1);
         table.remove_body_row(0);
         assert_eq!(table.rows.len(), 1);
+    }
+
+    #[test]
+    fn stored_column_fractions_drive_layout() {
+        let table = TableData {
+            header: vec![
+                InlineTextTree::plain("A".to_string()),
+                InlineTextTree::plain("B".to_string()),
+            ],
+            rows: vec![vec![
+                InlineTextTree::plain("1".to_string()),
+                InlineTextTree::plain("2".to_string()),
+            ]],
+            alignments: vec![TableColumnAlignment::Left, TableColumnAlignment::Left],
+            column_width_fractions: vec![0.25, 0.75],
+        };
+        let layout = TableColumnLayout::from_fractions(&table.column_width_fractions);
+        assert_close(layout.fraction(0), 0.25);
+        assert_close(layout.fraction(1), 0.75);
     }
 
     #[test]

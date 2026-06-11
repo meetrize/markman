@@ -111,12 +111,17 @@ impl Editor {
         let Some(runtime) = table_block.read(cx).table_runtime.clone() else {
             return;
         };
-        let alignments = table_block
+        let (alignments, column_width_fractions) = table_block
             .read(cx)
             .record
             .table
             .as_ref()
-            .map(|table| table.alignments.clone())
+            .map(|table| {
+                (
+                    table.alignments.clone(),
+                    table.column_width_fractions.clone(),
+                )
+            })
             .unwrap_or_default();
         let header = runtime
             .header
@@ -137,8 +142,86 @@ impl Editor {
                 header,
                 rows,
                 alignments,
+                column_width_fractions,
             });
         });
+    }
+
+    pub(crate) fn start_table_column_resize_drag(
+        &mut self,
+        table_block: &Entity<Block>,
+        boundary_index: usize,
+        pointer_x: f32,
+        table_width: f32,
+        start_fractions: Vec<f32>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(table) = table_block.read(cx).record.table.as_ref() else {
+            return;
+        };
+        let columns = table.column_count();
+        if columns <= 1
+            || boundary_index + 1 >= columns
+            || start_fractions.len() != columns
+        {
+            return;
+        }
+
+        let theme = cx.global::<ThemeManager>().current_arc();
+        table_block.update(cx, |block, _cx| {
+            if let Some(table) = block.record.table.as_mut() {
+                table.set_column_width_fractions(start_fractions.clone());
+            }
+        });
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        self.table_column_resize_drag = Some(super::TableColumnResizeDragSession {
+            table_block: table_block.clone(),
+            boundary_index,
+            start_pointer_x: pointer_x,
+            start_fractions,
+            table_width: table_width.max(1.0),
+            min_column_width: minimum_table_column_width(&theme),
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn update_table_column_resize_drag(
+        &mut self,
+        pointer_x: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(drag) = self.table_column_resize_drag.clone() else {
+            return;
+        };
+        let left = drag.boundary_index;
+        let right = left + 1;
+        let min_fraction = (drag.min_column_width / drag.table_width).clamp(0.05, 0.95);
+        let combined = drag.start_fractions[left] + drag.start_fractions[right];
+        let delta_fraction = (pointer_x - drag.start_pointer_x) / drag.table_width;
+        let next_left =
+            (drag.start_fractions[left] + delta_fraction).clamp(min_fraction, combined - min_fraction);
+        let next_right = combined - next_left;
+
+        let mut fractions = drag.start_fractions.clone();
+        fractions[left] = next_left;
+        fractions[right] = next_right;
+
+        drag.table_block.update(cx, |block, _cx| {
+            if let Some(table) = block.record.table.as_mut() {
+                table.set_column_width_fractions(fractions);
+            }
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn end_table_column_resize_drag(&mut self, cx: &mut Context<Self>) {
+        let Some(drag) = self.table_column_resize_drag.take() else {
+            return;
+        };
+        self.mark_dirty(cx);
+        self.finalize_pending_undo_capture(cx);
+        let _ = drag;
+        cx.notify();
     }
 
     pub(super) fn append_table_column(
