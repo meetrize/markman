@@ -67,11 +67,11 @@ fn centered_column_ratio_stays_full_before_shrink_start() {
 }
 
 #[test]
-fn centered_column_ratio_reaches_new_minimum() {
+fn centered_column_ratio_stays_full_at_large_viewports() {
     let theme = Theme::default_theme();
     let ratio =
         Editor::centered_column_ratio(theme.dimensions.centered_shrink_end, &theme.dimensions);
-    assert!((ratio - 0.58).abs() < f32::EPSILON);
+    assert!((ratio - 1.0).abs() < f32::EPSILON);
 }
 
 #[test]

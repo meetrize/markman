@@ -1257,7 +1257,7 @@ impl Theme {
                 scrollbar_right: 6.0,
                 centered_shrink_start: 1100.0,
                 centered_shrink_end: 2200.0,
-                centered_min_ratio: 0.58,
+                centered_min_ratio: 1.0,
                 dialog_width: 460.0,
                 dialog_padding: 20.0,
                 dialog_gap: 14.0,

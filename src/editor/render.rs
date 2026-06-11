@@ -1401,10 +1401,8 @@ impl Render for Editor {
         let scroll_trigger_padding = (d.block_min_height * 0.75).max(16.0);
         let max_scroll_y = f32::from(self.scroll_handle.max_offset().height.max(px(0.0)));
         let viewport_height = f32::from(viewport_bounds.size.height.max(px(1.0)));
-        let viewport_width = f32::from(viewport_bounds.size.width.max(px(1.0)));
         let has_overflow = max_scroll_y > 0.5;
 
-        let centered_width = Self::centered_column_width(viewport_width, &theme.dimensions);
         let current_scroll_y = (-f32::from(self.scroll_handle.offset().y)).clamp(0.0, max_scroll_y);
         let scrollbar_geometry =
             Self::scrollbar_geometry(viewport_height, max_scroll_y, current_scroll_y);
@@ -1520,8 +1518,7 @@ impl Render for Editor {
                 let (accent, background) = callout_colors(callout_variant, &theme);
                 block_rows.push(
                     div()
-                        .w(px(centered_width))
-                        .max_w(relative(1.0))
+                        .w_full()
                         .flex_shrink_0()
                         .mt(px(top_gap))
                         .flex()
@@ -1572,8 +1569,7 @@ impl Render for Editor {
 
                 block_rows.push(
                     div()
-                        .w(px(centered_width))
-                        .max_w(relative(1.0))
+                        .w_full()
                         .flex_shrink_0()
                         .mt(px(top_gap))
                         .child(footnote_group_shell(group_children, &theme, d))
@@ -1586,8 +1582,7 @@ impl Render for Editor {
 
             let entity = first_visible.entity.clone();
             let row = div()
-                .w(px(centered_width))
-                .max_w(relative(1.0))
+                .w_full()
                 .flex_shrink_0()
                 .mt(px(top_gap))
                 .child(entity.clone());
@@ -1611,7 +1606,6 @@ impl Render for Editor {
             .flex_col()
             .flex_grow()
             .h_full()
-            .items_center()
             .bg(theme.colors.editor_background)
             .overflow_y_scroll()
             .scrollbar_width(px(0.0))
