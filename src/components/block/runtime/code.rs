@@ -59,6 +59,14 @@ impl Block {
             .saturating_sub(CODE_BLOCK_COLLAPSED_VISIBLE_LINES)
     }
 
+    pub(crate) fn show_code_block_line_number_gutter(&self) -> bool {
+        self.kind().is_code_block() && !self.is_source_raw_mode()
+    }
+
+    pub(crate) fn show_line_number_gutter(&self) -> bool {
+        self.show_source_line_numbers || self.show_code_block_line_number_gutter()
+    }
+
     pub(crate) fn code_highlight_result(&self) -> Option<&CodeHighlightResult> {
         self.code_highlight.as_ref()
     }

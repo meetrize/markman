@@ -27,6 +27,7 @@ const TASK_CHECKMARK: &str = "\u{2713}";
 const ICON_CODE_BLOCK_COPY: &str = "icon/toolbar/copy.svg";
 const ICON_CODE_BLOCK_COLLAPSE: &str = "icon/toolbar/chevrons-down-up.svg";
 const ICON_CODE_BLOCK_EXPAND: &str = "icon/toolbar/chevrons-up-down.svg";
+const ICON_CODE_BLOCK_RUN: &str = "icon/toolbar/circle-play.svg";
 
 fn bulleted_list_marker(depth: usize) -> &'static str {
     match depth {
@@ -2238,6 +2239,10 @@ impl Render for Block {
                     + d.code_language_input_padding_y * 2.0
                     + d.code_language_input_border_width * 2.0;
                 let icon_size = px((t.code_size - 1.0).max(10.0));
+                let gutter_width = super::element::code_line_number_gutter_width(
+                    Self::code_block_line_count(self.display_text()),
+                    px(t.code_size),
+                );
                 let collapsible = self.code_block_is_collapsible();
                 let collapsed = self.code_block_collapsed(focused);
                 let code_line_height = t.code_size * t.text_line_height;
@@ -2408,15 +2413,46 @@ impl Render for Block {
                 }
 
                 focused_base
-                    .bg(c.code_bg)
                     .rounded_sm()
-                    .pl(px(d.code_block_padding_x))
-                    .pr(px(d.code_block_padding_x))
-                    .py(px(d.code_block_padding_y))
+                    .overflow_hidden()
                     .text_size(px(t.code_size))
                     .text_color(c.code_text)
                     .line_height(rems(t.text_line_height))
-                    .child(code_content)
+                    .child(
+                        div()
+                            .relative()
+                            .w_full()
+                            .child(
+                                div()
+                                    .w_full()
+                                    .pt(px(badge_height))
+                                    .py(px(d.code_block_padding_y))
+                                    .pr(px(d.code_block_padding_x))
+                                    .child(code_content),
+                            )
+                            .child(
+                                div()
+                                    .id("code-block-run")
+                                    .absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .w(gutter_width)
+                                    .h(px(badge_height))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(c.code_language_input_bg)
+                                    .border_b(px(1.0))
+                                    .border_color(c.code_language_input_border.opacity(0.35))
+                                    .opacity(0.72)
+                                    .child(
+                                        svg()
+                                            .path(ICON_CODE_BLOCK_RUN)
+                                            .size(icon_size)
+                                            .text_color(c.code_language_input_text),
+                                    ),
+                            ),
+                    )
                     .into_any_element()
             }
             BlockKind::Table => {

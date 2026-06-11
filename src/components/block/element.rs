@@ -16,6 +16,10 @@ fn source_line_count(text: &str) -> usize {
     text.split('\n').count().max(1)
 }
 
+pub(super) fn code_line_number_gutter_width(line_count: usize, font_size: Pixels) -> Pixels {
+    source_line_number_gutter_width(line_count, font_size)
+}
+
 fn source_line_number_gutter_width(line_count: usize, font_size: Pixels) -> Pixels {
     let digits = line_count
         .max(1)
@@ -733,7 +737,7 @@ impl Element for BlockTextElement {
         let shared_text = input.shared_display_text();
         let is_placeholder = self.is_placeholder;
         let show_inline_code_backgrounds = !input.is_source_raw_mode();
-        let show_source_line_numbers = input.show_source_line_numbers();
+        let show_line_number_gutter = input.show_line_number_gutter();
         let source_line_count = source_line_count(shared_text.as_ref());
         let style = window.text_style();
 
@@ -791,7 +795,7 @@ impl Element for BlockTextElement {
 
         let font_size = style.font_size.to_pixels(window.rem_size());
         let line_height = window.line_height();
-        let source_line_number_gutter_width = show_source_line_numbers
+        let source_line_number_gutter_width = show_line_number_gutter
             .then(|| source_line_number_gutter_width(source_line_count, font_size))
             .unwrap_or(px(0.0));
 
@@ -869,18 +873,23 @@ impl Element for BlockTextElement {
         let line_height = window.line_height();
         let focused = input.focus_handle.is_focused(window);
         let show_inline_code_backgrounds = !input.is_source_raw_mode();
-        let show_source_line_numbers = input.show_source_line_numbers();
+        let show_line_number_gutter = input.show_line_number_gutter();
+        let show_code_block_gutter = input.show_code_block_line_number_gutter();
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
 
         let lines = request_layout.borrow_mut().take().unwrap_or_default();
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-        let source_line_number_gutter_width = show_source_line_numbers
+        let source_line_number_gutter_width = show_line_number_gutter
             .then(|| source_line_number_gutter_width(lines.len().max(1), font_size))
             .unwrap_or(px(0.0));
         let text_bounds = source_text_bounds(bounds, source_line_number_gutter_width);
-        let source_line_numbers = if show_source_line_numbers {
-            let run_color = theme.colors.text_placeholder;
+        let source_line_numbers = if show_line_number_gutter {
+            let run_color = if show_code_block_gutter {
+                theme.colors.code_language_input_text.opacity(0.55)
+            } else {
+                theme.colors.text_placeholder
+            };
             (1..=lines.len().max(1))
                 .map(|line_number| {
                     let label = line_number.to_string();
@@ -1114,6 +1123,32 @@ impl Element for BlockTextElement {
                 });
             }
         });
+
+        let theme = cx.global::<ThemeManager>().current_arc();
+        let input = self.input.read(cx);
+        if input.show_code_block_line_number_gutter()
+            && prepaint.source_line_number_gutter_width > px(0.0)
+        {
+            let gutter_bounds = Bounds::new(
+                bounds.origin,
+                size(prepaint.source_line_number_gutter_width, bounds.size.height),
+            );
+            window.paint_quad(fill(
+                gutter_bounds,
+                theme.colors.code_language_input_bg,
+            ));
+            let code_bounds = Bounds::new(
+                point(
+                    bounds.origin.x + prepaint.source_line_number_gutter_width,
+                    bounds.origin.y,
+                ),
+                size(
+                    (bounds.size.width - prepaint.source_line_number_gutter_width).max(px(0.0)),
+                    bounds.size.height,
+                ),
+            );
+            window.paint_quad(fill(code_bounds, theme.colors.code_bg));
+        }
 
         // Paint code backgrounds behind text.
         for code_bg in prepaint.code_backgrounds.drain(..) {
