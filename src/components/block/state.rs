@@ -772,6 +772,10 @@ pub enum BlockEvent {
     RequestStopCodeBlock,
     /// Toggle the collapsible run-output panel below this code block.
     RequestToggleCodeRunOutput,
+    /// Toggle full expansion of long run-output body text.
+    RequestToggleCodeRunOutputContent,
+    /// Dismiss the run-output panel below this code block.
+    RequestCloseCodeRunOutput,
 }
 
 /// Undo coalescing category captured before a mutation.

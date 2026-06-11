@@ -1472,7 +1472,9 @@ impl Editor {
             BlockEvent::PrepareUndo { .. } => {}
             BlockEvent::RequestRunCodeBlock
             | BlockEvent::RequestStopCodeBlock
-            | BlockEvent::RequestToggleCodeRunOutput => {}
+            | BlockEvent::RequestToggleCodeRunOutput
+            | BlockEvent::RequestToggleCodeRunOutputContent
+            | BlockEvent::RequestCloseCodeRunOutput => {}
         }
     }
 }

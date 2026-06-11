@@ -833,6 +833,26 @@ impl Block {
         cx.emit(BlockEvent::RequestToggleCodeRunOutput);
     }
 
+    pub(crate) fn on_code_block_run_output_content_toggle_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestToggleCodeRunOutputContent);
+    }
+
+    pub(crate) fn on_code_block_run_output_close_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestCloseCodeRunOutput);
+    }
+
     pub(crate) fn on_code_block_collapse_toggle(
         &mut self,
         _: &MouseDownEvent,

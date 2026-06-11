@@ -29,6 +29,7 @@ pub(crate) struct CodeBlockRunState {
     pub exit_code: Option<i32>,
     pub duration_ms: u64,
     pub output_expanded: bool,
+    pub output_content_expanded: bool,
     pub error_message: Option<String>,
 }
 
@@ -41,6 +42,7 @@ impl Default for CodeBlockRunState {
             exit_code: None,
             duration_ms: 0,
             output_expanded: false,
+            output_content_expanded: false,
             error_message: None,
         }
     }
@@ -55,6 +57,7 @@ impl CodeBlockRunState {
             exit_code: self.exit_code,
             duration_ms: self.duration_ms,
             output_expanded: self.output_expanded,
+            output_content_expanded: self.output_content_expanded,
             error_message: self.error_message.clone(),
         }
     }
@@ -67,6 +70,7 @@ impl CodeBlockRunState {
         self.duration_ms = 0;
         self.error_message = None;
         self.output_expanded = true;
+        self.output_content_expanded = false;
     }
 
     fn apply_outcome(&mut self, outcome: CodeRunOutcome) {
@@ -197,6 +201,16 @@ impl Editor {
         cx.notify();
     }
 
+    pub(crate) fn on_toggle_code_run_output_content(
+        &mut self,
+        block_id: EntityId,
+        cx: &mut Context<Self>,
+    ) {
+        let entry = self.code_runs.entry(block_id).or_default();
+        entry.output_content_expanded = !entry.output_content_expanded;
+        cx.notify();
+    }
+
     pub(crate) fn on_stop_code_block_run(
         &mut self,
         block_id: EntityId,
@@ -209,6 +223,22 @@ impl Editor {
         {
             self.stop_active_code_run(cx);
         }
+    }
+
+    pub(crate) fn on_close_code_block_run_output(
+        &mut self,
+        block_id: EntityId,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .active_code_run
+            .as_ref()
+            .is_some_and(|active| active.block_id == block_id)
+        {
+            self.stop_active_code_run(cx);
+        }
+        self.code_runs.remove(&block_id);
+        cx.notify();
     }
 
     fn start_code_block_run(&mut self, block_id: EntityId, cx: &mut Context<Self>) {
@@ -490,6 +520,14 @@ impl Editor {
             }
             BlockEvent::RequestToggleCodeRunOutput => {
                 self.on_toggle_code_run_output(block.entity_id(), cx);
+                true
+            }
+            BlockEvent::RequestToggleCodeRunOutputContent => {
+                self.on_toggle_code_run_output_content(block.entity_id(), cx);
+                true
+            }
+            BlockEvent::RequestCloseCodeRunOutput => {
+                self.on_close_code_block_run_output(block.entity_id(), cx);
                 true
             }
             _ => false,

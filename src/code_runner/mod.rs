@@ -20,7 +20,26 @@ pub struct CodeBlockRunSnapshot {
     pub exit_code: Option<i32>,
     pub duration_ms: u64,
     pub output_expanded: bool,
+    pub output_content_expanded: bool,
     pub error_message: Option<String>,
+}
+
+/// Number of output lines shown before the body auto-collapses.
+pub const CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES: usize = 3;
+
+/// Counts logical lines across run-output text sections.
+pub fn code_run_output_line_count(stdout: &str, stderr: &str, error_message: Option<&str>) -> usize {
+    let mut line_count = 0usize;
+    for section in [stdout, stderr] {
+        if section.is_empty() {
+            continue;
+        }
+        line_count += section.split('\n').count();
+    }
+    if let Some(error) = error_message.filter(|value| !value.is_empty()) {
+        line_count += error.split('\n').count();
+    }
+    line_count
 }
 
 impl CodeBlockRunSnapshot {

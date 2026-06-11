@@ -382,6 +382,10 @@ pub struct I18nStrings {
     pub code_run_output_collapse: String,
     /// Stop button label while a run is active.
     pub code_run_stop: String,
+    /// Close button label for the run-output panel.
+    pub code_run_close: String,
+    /// Expand-long-output label; `{count}` is replaced with hidden line count.
+    pub code_run_output_expand_lines_template: String,
     /// Footer template for exit code and duration; `{exit}` and `{duration}` are replaced.
     pub code_run_meta_template: String,
     /// Placeholder exit code when the process did not report one.
@@ -606,6 +610,8 @@ struct I18nStringsDe {
     code_run_output_expand: Option<String>,
     code_run_output_collapse: Option<String>,
     code_run_stop: Option<String>,
+    code_run_close: Option<String>,
+    code_run_output_expand_lines_template: Option<String>,
     code_run_meta_template: Option<String>,
     code_run_exit_none: Option<String>,
     preferences_allow_code_execution_label: Option<String>,
@@ -823,6 +829,8 @@ const I18N_STRING_KEYS: &[&str] = &[
     "code_run_output_expand",
     "code_run_output_collapse",
     "code_run_stop",
+    "code_run_close",
+    "code_run_output_expand_lines_template",
     "code_run_meta_template",
     "code_run_exit_none",
     "preferences_allow_code_execution_label",
@@ -1404,6 +1412,10 @@ impl I18nStringsDe {
                 .code_run_output_collapse
                 .unwrap_or(defaults.code_run_output_collapse),
             code_run_stop: self.code_run_stop.unwrap_or(defaults.code_run_stop),
+            code_run_close: self.code_run_close.unwrap_or(defaults.code_run_close),
+            code_run_output_expand_lines_template: self
+                .code_run_output_expand_lines_template
+                .unwrap_or(defaults.code_run_output_expand_lines_template),
             code_run_meta_template: self
                 .code_run_meta_template
                 .unwrap_or(defaults.code_run_meta_template),
@@ -1654,6 +1666,8 @@ impl I18nStrings {
             code_run_output_expand: "展开".into(),
             code_run_output_collapse: "收起".into(),
             code_run_stop: "停止".into(),
+            code_run_close: "关闭".into(),
+            code_run_output_expand_lines_template: "展开 {count} 行".into(),
             code_run_meta_template: "退出码：{exit} · 耗时：{duration} ms".into(),
             code_run_exit_none: "—".into(),
             preferences_allow_code_execution_label: "允许运行代码".into(),
@@ -1895,6 +1909,8 @@ impl I18nStrings {
             code_run_output_expand: "Expand".into(),
             code_run_output_collapse: "Collapse".into(),
             code_run_stop: "Stop".into(),
+            code_run_close: "Close".into(),
+            code_run_output_expand_lines_template: "Expand {count} lines".into(),
             code_run_meta_template: "Exit code: {exit} · Duration: {duration} ms".into(),
             code_run_exit_none: "—".into(),
             preferences_allow_code_execution_label: "Allow code execution".into(),
