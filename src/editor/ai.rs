@@ -41,7 +41,6 @@ enum AiOperation {
     Expand,
     Explain,
     Tasks,
-    Custom(String),
 }
 
 #[derive(Clone, Debug)]
@@ -59,7 +58,6 @@ enum AiTarget {
 
 #[derive(Clone, Debug)]
 struct AiPreview {
-    operation: AiOperation,
     target: AiTarget,
     result_markdown: String,
 }
@@ -93,12 +91,20 @@ pub(super) struct AiState {
     prompt_has_selection_context: bool,
     prompt_context_dropdown_position: Option<Point<Pixels>>,
     prompt_selection_context: Option<AiContext>,
+    prompt_dialog_position: Option<Point<Pixels>>,
+    prompt_dialog_drag: Option<AiPromptDialogDrag>,
 }
 
 #[derive(Clone, Debug)]
 struct AiContext {
     target: AiTarget,
     context_markdown: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AiPromptDialogDrag {
+    pointer_start: Point<Pixels>,
+    dialog_start: Point<Pixels>,
 }
 
 impl AiState {
@@ -125,22 +131,13 @@ impl AiState {
             prompt_has_selection_context: false,
             prompt_context_dropdown_position: None,
             prompt_selection_context: None,
+            prompt_dialog_position: None,
+            prompt_dialog_drag: None,
         }
     }
 }
 
 impl AiOperation {
-    fn label(&self) -> Cow<'static, str> {
-        match self {
-            Self::Improve => Cow::Borrowed("润色"),
-            Self::Summarize => Cow::Borrowed("总结"),
-            Self::Expand => Cow::Borrowed("扩写"),
-            Self::Explain => Cow::Borrowed("解释"),
-            Self::Tasks => Cow::Borrowed("转任务"),
-            Self::Custom(_) => Cow::Borrowed("自定义 AI"),
-        }
-    }
-
     fn instruction(&self) -> Cow<'_, str> {
         match self {
             Self::Improve => Cow::Borrowed(
@@ -152,7 +149,6 @@ impl AiOperation {
             Self::Tasks => Cow::Borrowed(
                 "Convert the Markdown into an actionable task list using GitHub-flavored task items."
             ),
-            Self::Custom(prompt) => Cow::Owned(prompt.clone()),
         }
     }
 }
@@ -244,6 +240,7 @@ impl Editor {
         self.ai.prompt_context_dropdown_position = None;
         self.ai.prompt_has_selection_context = has_selection;
         self.ai.prompt_selection_context = selection_context;
+        self.ai.prompt_dialog_drag = None;
         window.focus(&self.ai.prompt_focus);
         cx.notify();
     }
@@ -266,6 +263,7 @@ impl Editor {
         self.ai.prompt_context_dropdown_open = false;
         self.ai.prompt_context_dropdown_position = None;
         self.ai.prompt_selection_context = None;
+        self.ai.prompt_dialog_drag = None;
         cx.notify();
     }
 
@@ -304,11 +302,63 @@ impl Editor {
 
     fn on_ai_prompt_panel_mouse_down(
         &mut self,
-        _: &MouseDownEvent,
-        _window: &mut Window,
+        event: &MouseDownEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
+        if event.button != MouseButton::Left {
+            return;
+        }
+        let dialog_size = size(px(560.0), px(190.0));
+        let viewport = window.viewport_size();
+        let current = self.ai.prompt_dialog_position.unwrap_or_else(|| {
+            point(
+                (viewport.width - dialog_size.width) / 2.0,
+                (viewport.height - dialog_size.height) / 2.0,
+            )
+        });
+        self.ai.prompt_dialog_drag = Some(AiPromptDialogDrag {
+            pointer_start: event.position,
+            dialog_start: current,
+        });
+        self.ai.prompt_dialog_position = Some(current);
+        cx.notify();
+    }
+
+    pub(super) fn on_ai_prompt_dialog_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(drag) = self.ai.prompt_dialog_drag else {
+            return;
+        };
+        if !event.dragging() {
+            self.ai.prompt_dialog_drag = None;
+            cx.notify();
+            return;
+        }
+        let viewport = window.viewport_size();
+        let delta = event.position - drag.pointer_start;
+        let next = point(
+            (drag.dialog_start.x + delta.x).clamp(px(8.0), viewport.width - px(80.0)),
+            (drag.dialog_start.y + delta.y).clamp(px(8.0), viewport.height - px(80.0)),
+        );
+        self.ai.prompt_dialog_position = Some(next);
+        cx.notify();
+    }
+
+    pub(super) fn on_ai_prompt_dialog_mouse_up(
+        &mut self,
+        _event: &MouseUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai.prompt_dialog_drag.take().is_some() {
+            cx.notify();
+        }
     }
 
     pub(super) fn ai_prompt_focus_handle(&self) -> FocusHandle {
@@ -802,7 +852,6 @@ impl Editor {
         self.ai.error = None;
         let weak_editor = cx.entity().downgrade();
         let target = context.target;
-        let operation = AiOperation::Custom(prompt.clone());
         let (tx, rx) = oneshot::channel();
         std::thread::spawn(move || {
             let result = ai_client::complete_markdown(AiCompletionRequest {
@@ -823,7 +872,6 @@ impl Editor {
                 match result {
                     Ok(result_markdown) => {
                         editor.ai.preview = Some(AiPreview {
-                            operation,
                             target,
                             result_markdown,
                         });
@@ -1011,7 +1059,6 @@ impl Editor {
                 match result {
                     Ok(result_markdown) => {
                         editor.ai.preview = Some(AiPreview {
-                            operation,
                             target,
                             result_markdown,
                         });
@@ -1309,6 +1356,7 @@ impl Editor {
     pub(super) fn render_ai_prompt_dialog_overlay(
         &self,
         theme: &Theme,
+        _window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if !self.ai.prompt_open {
@@ -1326,13 +1374,11 @@ impl Editor {
             .right_0()
             .bottom_0()
             .occlude()
-            .flex()
-            .items_center()
-            .justify_center()
             .bg(c.dialog_backdrop)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_ai_prompt_backdrop_mouse_down))
-            .child(
-                    div()
+            .on_mouse_move(cx.listener(Self::on_ai_prompt_dialog_mouse_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_ai_prompt_dialog_mouse_up));
+        let dialog = div()
                         .id("ai-prompt-dialog")
                         .w(px(d.dialog_width.max(560.0)))
                         .max_w(relative(0.86))
@@ -1448,8 +1494,16 @@ impl Editor {
                                             ai_dialog_disabled_button("ai-prompt-submit-disabled", "发送", theme)
                                         }),
                                 ),
-                        ),
-            );
+                        );
+        let overlay = if let Some(position) = self.ai.prompt_dialog_position {
+            overlay.child(dialog.absolute().left(position.x).top(position.y))
+        } else {
+            overlay
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(dialog)
+        };
         let overlay = if let Some(menu) = self.render_ai_prompt_context_menu(theme, cx) {
             overlay.child(menu)
         } else {
@@ -1579,15 +1633,9 @@ impl Editor {
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
-        let title = if self.ai.in_flight {
-            "AI 正在思考".to_string()
-        } else if let Some(preview) = &self.ai.preview {
-            preview.operation.label().to_string()
-        } else if self.ai.error.is_some() {
-            "AI 请求失败".to_string()
-        } else {
+        if !self.ai.in_flight && self.ai.preview.is_none() && self.ai.error.is_none() {
             return None;
-        };
+        }
         let body = if self.ai.in_flight {
             "正在生成 Markdown 预览...".to_string()
         } else if let Some(preview) = &self.ai.preview {
@@ -1616,22 +1664,15 @@ impl Editor {
                         .w(px(d.dialog_width.max(560.0)))
                         .max_w(relative(0.86))
                         .max_h(relative(0.82))
-                        .p(px(d.dialog_padding))
+                        .p(px(10.0))
                         .flex()
                         .flex_col()
-                        .gap(px(d.dialog_gap))
+                        .gap(px(8.0))
                         .bg(c.dialog_surface)
                         .border(px(d.dialog_border_width))
                         .border_color(c.dialog_border)
                         .rounded(px(d.dialog_radius))
                         .shadow_lg()
-                        .child(
-                            div()
-                                .text_size(px(t.dialog_title_size))
-                                .font_weight(t.dialog_title_weight.to_font_weight())
-                                .text_color(c.dialog_title)
-                                .child(title),
-                        )
                         .child(
                             div()
                                 .id("ai-preview-result-scroll")

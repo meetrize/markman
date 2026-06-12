@@ -1874,7 +1874,7 @@ impl Render for Editor {
         } else {
             base
         };
-        let base = if let Some(ai_prompt) = self.render_ai_prompt_dialog_overlay(&theme, cx) {
+        let base = if let Some(ai_prompt) = self.render_ai_prompt_dialog_overlay(&theme, window, cx) {
             base.child(ai_prompt)
         } else {
             base
