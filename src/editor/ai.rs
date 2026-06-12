@@ -91,8 +91,11 @@ pub(super) struct AiState {
     prompt_context_mode: AiPromptContextMode,
     prompt_context_dropdown_open: bool,
     prompt_has_selection_context: bool,
+    prompt_context_dropdown_position: Option<Point<Pixels>>,
+    prompt_selection_context: Option<AiContext>,
 }
 
+#[derive(Clone, Debug)]
 struct AiContext {
     target: AiTarget,
     context_markdown: String,
@@ -120,6 +123,8 @@ impl AiState {
             prompt_context_mode: AiPromptContextMode::FullDocument,
             prompt_context_dropdown_open: false,
             prompt_has_selection_context: false,
+            prompt_context_dropdown_position: None,
+            prompt_selection_context: None,
         }
     }
 }
@@ -218,7 +223,8 @@ impl Editor {
     }
 
     fn open_ai_prompt_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let has_selection = self.ai_has_text_selection(window, cx);
+        let selection_context = self.collect_selected_ai_context(window, cx);
+        let has_selection = selection_context.is_some();
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
         self.ai.prompt_open = true;
@@ -235,7 +241,9 @@ impl Editor {
             AiPromptContextMode::FullDocument
         };
         self.ai.prompt_context_dropdown_open = false;
+        self.ai.prompt_context_dropdown_position = None;
         self.ai.prompt_has_selection_context = has_selection;
+        self.ai.prompt_selection_context = selection_context;
         window.focus(&self.ai.prompt_focus);
         cx.notify();
     }
@@ -256,6 +264,8 @@ impl Editor {
         self.ai.prompt_cursor_blink_task = None;
         self.ai.prompt_context_menu = None;
         self.ai.prompt_context_dropdown_open = false;
+        self.ai.prompt_context_dropdown_position = None;
+        self.ai.prompt_selection_context = None;
         cx.notify();
     }
 
@@ -703,11 +713,33 @@ impl Editor {
         cx.stop_propagation();
     }
 
-    fn ai_has_text_selection(&self, window: &Window, cx: &App) -> bool {
-        self.cross_block_selected_markdown(cx).is_some()
-            || self
-                .focused_edit_target(window, cx)
-                .is_some_and(|block| !block.read(cx).selected_range.is_empty())
+    fn collect_selected_ai_context(&self, window: &Window, cx: &App) -> Option<AiContext> {
+        if let Some(selection) = self.cross_block_selection
+            && let Some(markdown) = self.cross_block_selected_markdown(cx)
+        {
+            return Some(AiContext {
+                target: AiTarget::CrossBlockSelection(selection),
+                context_markdown: markdown,
+            });
+        }
+        if let Some(block) = self.focused_edit_target(window, cx) {
+            let block_ref = block.read(cx);
+            if !block_ref.selected_range.is_empty() {
+                let text = block_ref.display_text().to_string();
+                let range = block_ref.selected_range.start.min(text.len())
+                    ..block_ref.selected_range.end.min(text.len());
+                if let Some(selected) = text.get(range.clone()) {
+                    return Some(AiContext {
+                        target: AiTarget::SingleBlockSelection {
+                            entity_id: block.entity_id(),
+                            range,
+                        },
+                        context_markdown: selected.to_string(),
+                    });
+                }
+            }
+        }
+        None
     }
 
     fn collect_custom_ai_context(
@@ -718,32 +750,11 @@ impl Editor {
     ) -> Result<AiContext, String> {
         match mode {
             AiPromptContextMode::Selection => {
-                if let Some(selection) = self.cross_block_selection
-                    && let Some(markdown) = self.cross_block_selected_markdown(cx)
-                {
-                    return Ok(AiContext {
-                        target: AiTarget::CrossBlockSelection(selection),
-                        context_markdown: markdown,
-                    });
-                }
-                if let Some(block) = self.focused_edit_target(window, cx) {
-                    let block_ref = block.read(cx);
-                    if !block_ref.selected_range.is_empty() {
-                        let text = block_ref.display_text().to_string();
-                        let range = block_ref.selected_range.start.min(text.len())
-                            ..block_ref.selected_range.end.min(text.len());
-                        if let Some(selected) = text.get(range.clone()) {
-                            return Ok(AiContext {
-                                target: AiTarget::SingleBlockSelection {
-                                    entity_id: block.entity_id(),
-                                    range,
-                                },
-                                context_markdown: selected.to_string(),
-                            });
-                        }
-                    }
-                }
-                Err("当前没有选中文本。".into())
+                self.ai
+                    .prompt_selection_context
+                    .clone()
+                    .or_else(|| self.collect_selected_ai_context(window, cx))
+                    .ok_or_else(|| "当前没有选中文本。".to_string())
             }
             AiPromptContextMode::FullDocument => Ok(AiContext {
                 target: AiTarget::FullDocument,
@@ -853,11 +864,15 @@ impl Editor {
 
     fn toggle_ai_prompt_context_dropdown(
         &mut self,
-        _: &ClickEvent,
+        event: &ClickEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.ai.prompt_context_dropdown_open = !self.ai.prompt_context_dropdown_open;
+        if self.ai.prompt_context_dropdown_open {
+            let position = event.position();
+            self.ai.prompt_context_dropdown_position = Some(point(position.x, position.y + px(30.0)));
+        }
         cx.notify();
     }
 
@@ -872,6 +887,7 @@ impl Editor {
         }
         self.ai.prompt_context_mode = AiPromptContextMode::Selection;
         self.ai.prompt_context_dropdown_open = false;
+        self.ai.prompt_context_dropdown_position = None;
         cx.notify();
     }
 
@@ -883,6 +899,7 @@ impl Editor {
     ) {
         self.ai.prompt_context_mode = AiPromptContextMode::FullDocument;
         self.ai.prompt_context_dropdown_open = false;
+        self.ai.prompt_context_dropdown_position = None;
         cx.notify();
     }
 
@@ -894,6 +911,7 @@ impl Editor {
     ) {
         self.ai.prompt_context_mode = AiPromptContextMode::Blank;
         self.ai.prompt_context_dropdown_open = false;
+        self.ai.prompt_context_dropdown_position = None;
         cx.notify();
     }
 
@@ -1300,7 +1318,6 @@ impl Editor {
         let d = &theme.dimensions;
         let t = &theme.typography;
         let can_submit = !self.ai.prompt_text.trim().is_empty();
-        let selection_enabled = self.ai.prompt_has_selection_context;
         let overlay = div()
             .id("ai-prompt-overlay")
             .absolute()
@@ -1414,49 +1431,6 @@ impl Editor {
                                         )
                                         .on_click(cx.listener(Self::toggle_ai_prompt_context_dropdown)),
                                 )
-                                .when(self.ai.prompt_context_dropdown_open, |this| {
-                                    this.child(
-                                        div()
-                                            .id("ai-prompt-context-options")
-                                            .absolute()
-                                            .left(px(10.0))
-                                            .bottom(px(-92.0))
-                                            .w(px(180.0))
-                                            .p(px(d.menu_panel_padding))
-                                            .flex()
-                                            .flex_col()
-                                            .gap(px(d.menu_panel_gap))
-                                            .rounded(px(d.menu_panel_radius))
-                                            .border(px(d.dialog_border_width))
-                                            .border_color(c.dialog_border)
-                                            .bg(c.dialog_surface)
-                                            .shadow_lg()
-                                            .child(ai_prompt_dropdown_item(
-                                                "ai-context-selection",
-                                                "引用选中文本",
-                                                self.ai.prompt_context_mode == AiPromptContextMode::Selection,
-                                                selection_enabled,
-                                                theme,
-                                                cx.listener(Self::select_ai_prompt_context_selection),
-                                            ))
-                                            .child(ai_prompt_dropdown_item(
-                                                "ai-context-full-document",
-                                                "引用全文",
-                                                self.ai.prompt_context_mode == AiPromptContextMode::FullDocument,
-                                                true,
-                                                theme,
-                                                cx.listener(Self::select_ai_prompt_context_full_document),
-                                            ))
-                                            .child(ai_prompt_dropdown_item(
-                                                "ai-context-blank",
-                                                "全新对话",
-                                                self.ai.prompt_context_mode == AiPromptContextMode::Blank,
-                                                true,
-                                                theme,
-                                                cx.listener(Self::select_ai_prompt_context_blank),
-                                            )),
-                                    )
-                                })
                                 .child(
                                     div()
                                         .absolute()
@@ -1476,11 +1450,73 @@ impl Editor {
                                 ),
                         ),
             );
-        Some(if let Some(menu) = self.render_ai_prompt_context_menu(theme, cx) {
-            overlay.child(menu).into_any_element()
+        let overlay = if let Some(menu) = self.render_ai_prompt_context_menu(theme, cx) {
+            overlay.child(menu)
         } else {
-            overlay.into_any_element()
-        })
+            overlay
+        };
+        let overlay = if let Some(dropdown) = self.render_ai_prompt_context_dropdown(theme, cx) {
+            overlay.child(dropdown)
+        } else {
+            overlay
+        };
+        Some(overlay.into_any_element())
+    }
+
+    fn render_ai_prompt_context_dropdown(
+        &self,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !self.ai.prompt_context_dropdown_open {
+            return None;
+        }
+        let position = self.ai.prompt_context_dropdown_position?;
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        Some(
+            div()
+                .id("ai-prompt-context-options")
+                .absolute()
+                .left(position.x)
+                .top(position.y)
+                .w(px(180.0))
+                .p(px(d.menu_panel_padding))
+                .flex()
+                .flex_col()
+                .gap(px(d.menu_panel_gap))
+                .occlude()
+                .rounded(px(d.menu_panel_radius))
+                .border(px(d.dialog_border_width))
+                .border_color(c.dialog_border)
+                .bg(c.dialog_surface)
+                .shadow_lg()
+                .child(ai_prompt_dropdown_item(
+                    "ai-context-selection",
+                    "引用选中文本",
+                    self.ai.prompt_context_mode == AiPromptContextMode::Selection,
+                    self.ai.prompt_has_selection_context,
+                    theme,
+                    cx.listener(Self::select_ai_prompt_context_selection),
+                ))
+                .child(ai_prompt_dropdown_item(
+                    "ai-context-full-document",
+                    "引用全文",
+                    self.ai.prompt_context_mode == AiPromptContextMode::FullDocument,
+                    true,
+                    theme,
+                    cx.listener(Self::select_ai_prompt_context_full_document),
+                ))
+                .child(ai_prompt_dropdown_item(
+                    "ai-context-blank",
+                    "全新对话",
+                    self.ai.prompt_context_mode == AiPromptContextMode::Blank,
+                    true,
+                    theme,
+                    cx.listener(Self::select_ai_prompt_context_blank),
+                ))
+                .into_any_element(),
+        )
     }
 
     fn render_ai_prompt_context_menu(
