@@ -1740,6 +1740,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::on_export_pdf))
             .on_action(cx.listener(Self::on_toggle_view_mode_action))
             .on_action(cx.listener(Self::on_toggle_workspace_action))
+            .on_action(cx.listener(Self::on_open_workspace_search_action))
             .on_action(cx.listener(Self::on_toggle_document_search))
             .on_action(cx.listener(Self::on_find_next_in_document))
             .on_action(cx.listener(Self::on_find_previous_in_document))

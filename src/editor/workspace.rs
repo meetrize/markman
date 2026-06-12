@@ -155,6 +155,34 @@ impl Editor {
         self.toggle_workspace_drawer(window, cx);
     }
 
+    pub(crate) fn on_open_workspace_search_action(
+        &mut self,
+        _: &crate::components::OpenWorkspaceSearch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_workspace_search(window, cx);
+    }
+
+    pub(super) fn open_workspace_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menu_bar(cx);
+        self.dismiss_contextual_overlays(cx);
+
+        let was_open = self.workspace.is_open;
+        self.workspace.is_open = true;
+        if !was_open {
+            self.sync_workspace_models(cx);
+        }
+
+        self.workspace.active_tab = WorkspaceTab::Files;
+        self.workspace.search_open = true;
+        self.sync_workspace_search_selection();
+        self.run_workspace_search();
+        window.focus(&self.workspace_search_focus);
+        window.activate_window();
+        cx.notify();
+    }
+
     pub(super) fn sync_workspace_after_document_path_change(&mut self, cx: &mut Context<Self>) {
         if self.workspace.folder_root.is_none() {
             self.workspace.root = None;

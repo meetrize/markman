@@ -975,6 +975,9 @@ impl PreferencesWindow {
             ShortcutCommand::QuickFileOpen => {
                 strings.preferences_shortcut_quick_file_open.clone()
             }
+            ShortcutCommand::OpenWorkspaceSearch => {
+                strings.preferences_shortcut_open_workspace_search.clone()
+            }
         }
     }
 

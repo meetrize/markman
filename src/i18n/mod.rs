@@ -222,6 +222,7 @@ pub struct I18nStrings {
     pub preferences_shortcut_find_next_in_document: String,
     pub preferences_shortcut_find_previous_in_document: String,
     pub preferences_shortcut_quick_file_open: String,
+    pub preferences_shortcut_open_workspace_search: String,
     /// Workspace drawer Files tab.
     pub workspace_tab_files: String,
     /// Workspace drawer Outline tab.
@@ -550,6 +551,7 @@ struct I18nStringsDe {
     preferences_shortcut_find_next_in_document: Option<String>,
     preferences_shortcut_find_previous_in_document: Option<String>,
     preferences_shortcut_quick_file_open: Option<String>,
+    preferences_shortcut_open_workspace_search: Option<String>,
     workspace_tab_files: Option<String>,
     workspace_tab_outline: Option<String>,
     workspace_search_placeholder: Option<String>,
@@ -780,6 +782,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_find_next_in_document",
     "preferences_shortcut_find_previous_in_document",
     "preferences_shortcut_quick_file_open",
+    "preferences_shortcut_open_workspace_search",
     "workspace_tab_files",
     "workspace_tab_outline",
     "workspace_search_placeholder",
@@ -1228,6 +1231,9 @@ impl I18nStringsDe {
             preferences_shortcut_quick_file_open: self
                 .preferences_shortcut_quick_file_open
                 .unwrap_or(defaults.preferences_shortcut_quick_file_open),
+            preferences_shortcut_open_workspace_search: self
+                .preferences_shortcut_open_workspace_search
+                .unwrap_or(defaults.preferences_shortcut_open_workspace_search),
             workspace_tab_files: self
                 .workspace_tab_files
                 .unwrap_or(defaults.workspace_tab_files),
@@ -1657,6 +1663,7 @@ impl I18nStrings {
             preferences_shortcut_find_next_in_document: "查找下一个".into(),
             preferences_shortcut_find_previous_in_document: "查找上一个".into(),
             preferences_shortcut_quick_file_open: "快速打开文件".into(),
+            preferences_shortcut_open_workspace_search: "打开全局搜索".into(),
             workspace_tab_files: "文件".into(),
             workspace_tab_outline: "大纲".into(),
             workspace_search_placeholder: "搜索文件名或内容…".into(),
@@ -1906,6 +1913,7 @@ impl I18nStrings {
             preferences_shortcut_find_next_in_document: "Find Next".into(),
             preferences_shortcut_find_previous_in_document: "Find Previous".into(),
             preferences_shortcut_quick_file_open: "Quick File Open".into(),
+            preferences_shortcut_open_workspace_search: "Open Global Search".into(),
             workspace_tab_files: "Files".into(),
             workspace_tab_outline: "Outline".into(),
             workspace_search_placeholder: "Search file names or content…".into(),
