@@ -176,7 +176,7 @@ impl Editor {
         self.file_path.as_ref()?.parent().map(Path::to_path_buf)
     }
 
-    fn effective_workspace_root(&self) -> Option<PathBuf> {
+    pub(super) fn effective_workspace_root(&self) -> Option<PathBuf> {
         self.workspace
             .folder_root
             .clone()
@@ -2163,6 +2163,13 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
+        if self.quick_file_open_input_active(window) {
+            let text = self.quick_file_open.query.clone();
+            let range = range_utf16.start.min(text.len())..range_utf16.end.min(text.len());
+            actual_range.replace(range.clone());
+            return Some(text[range].to_string());
+        }
+
         if self.workspace_name_input_active(window) {
             let text = self.workspace_name_dialog.as_ref()?.name.clone();
             let range = workspace_search_range_from_utf16(&text, &range_utf16);
@@ -2193,6 +2200,14 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if self.quick_file_open_input_active(window) {
+            let len = self.quick_file_open.query.len();
+            return Some(UTF16Selection {
+                range: len..len,
+                reversed: false,
+            });
+        }
+
         if self.workspace_name_input_active(window) {
             let dialog = self.workspace_name_dialog.as_ref()?;
             return Some(UTF16Selection {
@@ -2221,6 +2236,10 @@ impl EntityInputHandler for Editor {
     }
 
     fn marked_text_range(&self, window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+        if self.quick_file_open_input_active(window) {
+            return None;
+        }
+
         if self.workspace_name_input_active(window) {
             let dialog = self.workspace_name_dialog.as_ref()?;
             return dialog
@@ -2248,6 +2267,10 @@ impl EntityInputHandler for Editor {
     }
 
     fn unmark_text(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        if self.quick_file_open_input_active(window) {
+            return;
+        }
+
         if self.workspace_name_input_active(window) {
             if let Some(dialog) = self.workspace_name_dialog.as_mut() {
                 dialog.marked_range = None;
@@ -2272,6 +2295,16 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.quick_file_open_input_active(window) {
+            let len = self.quick_file_open.query.len();
+            let range = range_utf16
+                .as_ref()
+                .map(|r| r.start.min(len)..r.end.min(len))
+                .unwrap_or(len..len);
+            self.replace_quick_file_open_text(range, new_text, cx);
+            return;
+        }
+
         if self.workspace_name_input_active(window) {
             let Some(dialog) = self.workspace_name_dialog.as_ref() else {
                 return;
@@ -2319,6 +2352,16 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.quick_file_open_input_active(window) {
+            let len = self.quick_file_open.query.len();
+            let range = range_utf16
+                .as_ref()
+                .map(|r| r.start.min(len)..r.end.min(len))
+                .unwrap_or(len..len);
+            self.replace_quick_file_open_text(range, new_text, cx);
+            return;
+        }
+
         if self.workspace_name_input_active(window) {
             let Some(dialog) = self.workspace_name_dialog.as_ref() else {
                 return;
@@ -2377,6 +2420,10 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
+        if self.quick_file_open_input_active(window) {
+            return Some(bounds);
+        }
+
         if self.workspace_name_input_active(window) {
             let line = self.workspace_name_last_layout.as_ref()?;
             let text = self.workspace_name_text();
@@ -2415,6 +2462,10 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
+        if self.quick_file_open_input_active(window) {
+            return Some(self.quick_file_open.query.len());
+        }
+
         if self.workspace_name_input_active(window) {
             let bounds = self.workspace_name_last_bounds?;
             let line = self.workspace_name_last_layout.as_ref()?;

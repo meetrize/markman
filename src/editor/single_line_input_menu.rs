@@ -19,6 +19,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceSearch => self.workspace_search_is_open(),
             SingleLineInputTarget::DocumentSearch => self.document_search.open,
             SingleLineInputTarget::WorkspaceName => self.workspace_name_dialog.is_some(),
+            SingleLineInputTarget::QuickFileOpen => self.quick_file_open.open,
         }
     }
 
@@ -30,6 +31,7 @@ impl Editor {
                 .workspace_name_dialog
                 .as_ref()
                 .is_some_and(|dialog| !dialog.selected_range.is_empty()),
+            SingleLineInputTarget::QuickFileOpen => false,
         }
     }
 
@@ -71,6 +73,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceName => {
                 self.workspace_name_prepare_context_menu(event.position);
             }
+            SingleLineInputTarget::QuickFileOpen => {}
         }
 
         self.single_line_input_context_menu = Some(SingleLineInputContextMenuState {
@@ -100,6 +103,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceName => {
                 self.workspace_name_copy_to_clipboard(cx);
             }
+            SingleLineInputTarget::QuickFileOpen => {}
         }
     }
 
@@ -114,6 +118,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceName => {
                 self.workspace_name_cut_to_clipboard(cx);
             }
+            SingleLineInputTarget::QuickFileOpen => {}
         }
     }
 
@@ -128,6 +133,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceName => {
                 self.workspace_name_paste_from_clipboard(cx);
             }
+            SingleLineInputTarget::QuickFileOpen => {}
         }
     }
 

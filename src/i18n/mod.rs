@@ -221,6 +221,8 @@ pub struct I18nStrings {
     pub preferences_shortcut_toggle_workspace: String,
     pub preferences_shortcut_find_next_in_document: String,
     pub preferences_shortcut_find_previous_in_document: String,
+    /// Label for the quick-file-open shortcut in the preferences window.
+    pub preferences_shortcut_quick_file_open: String,
     /// Workspace drawer Files tab.
     pub workspace_tab_files: String,
     /// Workspace drawer Outline tab.
@@ -413,6 +415,8 @@ pub struct I18nStrings {
     pub preferences_allow_code_execution_off: String,
     /// Preferences label for running inline code in the system terminal.
     pub preferences_inline_code_system_terminal_label: String,
+    /// Placeholder shown in the quick-file-open (Cmd+P) search input.
+    pub quick_file_open_placeholder: String,
 }
 
 /// Partial string set used by JSON language packs.
@@ -547,6 +551,7 @@ struct I18nStringsDe {
     preferences_shortcut_toggle_workspace: Option<String>,
     preferences_shortcut_find_next_in_document: Option<String>,
     preferences_shortcut_find_previous_in_document: Option<String>,
+    preferences_shortcut_quick_file_open: Option<String>,
     workspace_tab_files: Option<String>,
     workspace_tab_outline: Option<String>,
     workspace_search_placeholder: Option<String>,
@@ -643,6 +648,7 @@ struct I18nStringsDe {
     preferences_allow_code_execution_on: Option<String>,
     preferences_allow_code_execution_off: Option<String>,
     preferences_inline_code_system_terminal_label: Option<String>,
+    quick_file_open_placeholder: Option<String>,
 }
 
 const I18N_STRING_KEYS: &[&str] = &[
@@ -775,6 +781,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_toggle_workspace",
     "preferences_shortcut_find_next_in_document",
     "preferences_shortcut_find_previous_in_document",
+    "preferences_shortcut_quick_file_open",
     "workspace_tab_files",
     "workspace_tab_outline",
     "workspace_search_placeholder",
@@ -871,6 +878,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_allow_code_execution_on",
     "preferences_allow_code_execution_off",
     "preferences_inline_code_system_terminal_label",
+    "quick_file_open_placeholder",
 ];
 
 impl I18nStringsDe {
@@ -1219,6 +1227,9 @@ impl I18nStringsDe {
             preferences_shortcut_find_previous_in_document: self
                 .preferences_shortcut_find_previous_in_document
                 .unwrap_or(defaults.preferences_shortcut_find_previous_in_document),
+            preferences_shortcut_quick_file_open: self
+                .preferences_shortcut_quick_file_open
+                .unwrap_or(defaults.preferences_shortcut_quick_file_open),
             workspace_tab_files: self
                 .workspace_tab_files
                 .unwrap_or(defaults.workspace_tab_files),
@@ -1493,6 +1504,9 @@ impl I18nStringsDe {
             preferences_inline_code_system_terminal_label: self
                 .preferences_inline_code_system_terminal_label
                 .unwrap_or(defaults.preferences_inline_code_system_terminal_label),
+            quick_file_open_placeholder: self
+                .quick_file_open_placeholder
+                .unwrap_or(defaults.quick_file_open_placeholder),
         }
     }
 }
@@ -1644,6 +1658,7 @@ impl I18nStrings {
             preferences_shortcut_toggle_workspace: "切换工作区".into(),
             preferences_shortcut_find_next_in_document: "查找下一个".into(),
             preferences_shortcut_find_previous_in_document: "查找上一个".into(),
+            preferences_shortcut_quick_file_open: "快速打开文件".into(),
             workspace_tab_files: "文件".into(),
             workspace_tab_outline: "大纲".into(),
             workspace_search_placeholder: "搜索文件名或内容…".into(),
@@ -1744,6 +1759,7 @@ impl I18nStrings {
             preferences_allow_code_execution_on: "已开启".into(),
             preferences_allow_code_execution_off: "已关闭".into(),
             preferences_inline_code_system_terminal_label: "行内代码在系统终端中执行".into(),
+            quick_file_open_placeholder: "搜索文件名…".into(),
         }
     }
 
@@ -1891,6 +1907,7 @@ impl I18nStrings {
             preferences_shortcut_toggle_workspace: "Toggle Workspace".into(),
             preferences_shortcut_find_next_in_document: "Find Next".into(),
             preferences_shortcut_find_previous_in_document: "Find Previous".into(),
+            preferences_shortcut_quick_file_open: "Quick File Open".into(),
             workspace_tab_files: "Files".into(),
             workspace_tab_outline: "Outline".into(),
             workspace_search_placeholder: "Search file names or content…".into(),
@@ -1996,9 +2013,11 @@ impl I18nStrings {
             preferences_allow_code_execution_on: "Enabled".into(),
             preferences_allow_code_execution_off: "Disabled".into(),
             preferences_inline_code_system_terminal_label: "Run inline code in the system terminal".into(),
+            quick_file_open_placeholder: "Search files by name…".into(),
         }
     }
 
+    /// Serialize the built-in English strings as a reference
     /// Returns a built-in string set for a supported language id.
     pub fn for_language_id(language_id: &str) -> Option<Self> {
         match language_id {

@@ -129,6 +129,33 @@ impl Element for SingleLineInputElement {
                         editor.workspace_name_cursor_offset(),
                     )
                 }
+                SingleLineInputTarget::QuickFileOpen => {
+                    let is_placeholder = editor.quick_file_open_query_is_empty();
+                    let text_color = if is_placeholder {
+                        Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.55,
+                            a: 1.0,
+                        }
+                    } else {
+                        Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.15,
+                            a: 1.0,
+                        }
+                    };
+                    (
+                        editor.quick_file_open_display_text(&self.placeholder),
+                        is_placeholder,
+                        text_color,
+                        editor.quick_file_open_input_active(window),
+                        None,
+                        0..0,
+                        editor.quick_file_open_query().len(),
+                    )
+                }
             };
 
         let content_len = content.len();
@@ -277,6 +304,7 @@ impl Element for SingleLineInputElement {
             SingleLineInputTarget::WorkspaceName => {
                 editor.set_workspace_name_layout(line.clone(), bounds);
             }
+            SingleLineInputTarget::QuickFileOpen => {}
         });
 
         SingleLineInputPrepaintState {
@@ -346,6 +374,7 @@ impl Element for SingleLineInputElement {
                     SingleLineInputTarget::WorkspaceName => {
                         editor.on_workspace_name_mouse_down(event, window, cx);
                     }
+                    SingleLineInputTarget::QuickFileOpen => {}
                 });
             }
         });
@@ -364,6 +393,7 @@ impl Element for SingleLineInputElement {
                     SingleLineInputTarget::WorkspaceName => {
                         editor.on_workspace_name_mouse_up(event, _window, cx);
                     }
+                    SingleLineInputTarget::QuickFileOpen => {}
                 });
             }
         });
@@ -382,6 +412,7 @@ impl Element for SingleLineInputElement {
                     SingleLineInputTarget::WorkspaceName => {
                         editor.on_workspace_name_mouse_move(event, window, cx);
                     }
+                    SingleLineInputTarget::QuickFileOpen => {}
                 });
             }
         });

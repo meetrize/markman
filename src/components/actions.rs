@@ -72,6 +72,7 @@ actions!(
         ToggleDocumentSearch,
         FindNextInDocument,
         FindPreviousInDocument,
+        QuickFileOpen,
     ]
 );
 
@@ -160,6 +161,7 @@ pub(crate) enum ShortcutCommand {
     ToggleWorkspace,
     FindNextInDocument,
     FindPreviousInDocument,
+    QuickFileOpen,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -501,6 +503,13 @@ const SHORTCUT_DEFINITIONS: &[ShortcutDefinition] = &[
         default_keys: &["shift-f3"],
         context: None,
     },
+    ShortcutDefinition {
+        command: ShortcutCommand::QuickFileOpen,
+        id: "quick_file_open",
+        category: ShortcutCategory::File,
+        default_keys: &["cmd-p", "ctrl-p"],
+        context: None,
+    },
 ];
 
 pub(crate) fn shortcut_definitions() -> &'static [ShortcutDefinition] {
@@ -683,6 +692,7 @@ fn key_binding_for(
         ShortcutCommand::FindPreviousInDocument => {
             KeyBinding::new(key, FindPreviousInDocument, context)
         }
+        ShortcutCommand::QuickFileOpen => KeyBinding::new(key, QuickFileOpen, context),
     }
 }
 

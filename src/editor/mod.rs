@@ -36,6 +36,7 @@ mod file_drop;
 mod format_toolbar;
 mod history;
 mod persistence;
+mod quick_file_open;
 mod render;
 mod runtime_context;
 mod document_search;
@@ -165,6 +166,7 @@ pub struct Editor {
     active_inline_code_run: Option<code_run::ActiveInlineCodeRunControl>,
     inline_code_run_popover: Option<code_run::InlineCodeRunTarget>,
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
+    quick_file_open: quick_file_open::QuickFileOpenState,
 }
 
 /// Runtime binding between a table block and one cell editor.
@@ -385,6 +387,7 @@ impl Editor {
             active_inline_code_run: None,
             inline_code_run_popover: None,
             code_run_dialog: None,
+            quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
         };
         editor.rebuild_table_runtimes(cx);
         editor.rebuild_image_runtimes(cx);

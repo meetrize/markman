@@ -972,6 +972,9 @@ impl PreferencesWindow {
             ShortcutCommand::FindPreviousInDocument => {
                 strings.preferences_shortcut_find_previous_in_document.clone()
             }
+            ShortcutCommand::QuickFileOpen => {
+                strings.preferences_shortcut_quick_file_open.clone()
+            }
         }
     }
 

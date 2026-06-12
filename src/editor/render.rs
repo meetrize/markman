@@ -1745,7 +1745,8 @@ impl Render for Editor {
             .on_action(cx.listener(Self::on_find_previous_in_document))
             .on_action(cx.listener(Self::on_dismiss_transient_ui))
             .on_action(cx.listener(Self::on_install_cli_tool))
-            .on_action(cx.listener(Self::on_uninstall_cli_tool));
+            .on_action(cx.listener(Self::on_uninstall_cli_tool))
+            .on_action(cx.listener(Self::on_quick_file_open));
         // Fetch menus + collect labels once for both renderers; previously each
         // of render_in_window_menu_bar / render_in_window_menu_panel called
         // cx.get_menus() and walked menus.iter().map(|m| m.name.to_string())
@@ -1862,6 +1863,8 @@ impl Render for Editor {
             base.child(self.render_drop_replace_overlay(&theme, cx))
         } else if self.show_unsaved_changes_dialog {
             base.child(self.render_unsaved_changes_overlay(&theme, cx))
+        } else if let Some(qfo) = self.render_quick_file_open_overlay(&theme, &strings, cx) {
+            base.child(qfo)
         } else {
             base
         };

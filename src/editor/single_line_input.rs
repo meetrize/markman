@@ -12,6 +12,7 @@ pub(super) enum SingleLineInputTarget {
     WorkspaceSearch,
     DocumentSearch,
     WorkspaceName,
+    QuickFileOpen,
 }
 
 impl SingleLineInputTarget {
@@ -19,6 +20,7 @@ impl SingleLineInputTarget {
         match self {
             Self::WorkspaceName => 0.9,
             Self::WorkspaceSearch | Self::DocumentSearch => 0.78,
+            Self::QuickFileOpen => 1.0,
         }
     }
 
@@ -26,6 +28,7 @@ impl SingleLineInputTarget {
         match self {
             Self::WorkspaceName => "",
             Self::WorkspaceSearch | Self::DocumentSearch => "…",
+            Self::QuickFileOpen => "",
         }
     }
 }
@@ -266,6 +269,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceSearch => self.workspace_search_focus.clone(),
             SingleLineInputTarget::DocumentSearch => self.document_search_focus.clone(),
             SingleLineInputTarget::WorkspaceName => self.workspace_name_focus.clone(),
+            SingleLineInputTarget::QuickFileOpen => self.quick_file_open.focus_handle.clone(),
         }
     }
 }
