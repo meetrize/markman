@@ -2493,21 +2493,14 @@ impl EntityInputHandler for Editor {
     ) -> Option<Bounds<Pixels>> {
         if self.ai_prompt_input_active(window) {
             let range = document_search_range_from_utf16(self.ai_prompt_text(), &range_utf16);
-            let line_height = self.ai_prompt_line_height();
-            let mut y = bounds.top();
-            for (start, line) in self.ai_prompt_line_layouts() {
-                let end = start + line.len();
-                if range.start <= end {
-                    let local_start = range.start.saturating_sub(*start).min(line.len());
-                    let local_end = range.end.saturating_sub(*start).min(line.len());
-                    return Some(Bounds::from_corners(
-                        point(bounds.left() + line.x_for_index(local_start), y),
-                        point(bounds.left() + line.x_for_index(local_end), y + line_height),
-                    ));
-                }
-                y += line_height;
-            }
-            return Some(bounds);
+            return super::ai::ai_range_bounds(
+                self.ai_prompt_line_layouts(),
+                bounds,
+                self.ai_prompt_line_height(),
+                self.ai_prompt_text(),
+                range,
+            )
+            .or(Some(bounds));
         }
 
         if self.quick_file_open_input_active(window) {

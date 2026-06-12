@@ -75,11 +75,12 @@ pub(super) struct AiState {
     prompt_selection_reversed: bool,
     prompt_marked_range: Option<Range<usize>>,
     prompt_is_selecting: bool,
-    prompt_line_layouts: Vec<(usize, ShapedLine)>,
+    prompt_line_layouts: Vec<WrappedLine>,
     prompt_line_height: Pixels,
     prompt_last_bounds: Option<Bounds<Pixels>>,
     prompt_cursor_blink_epoch: Instant,
     prompt_cursor_blink_task: Option<Task<()>>,
+    prompt_context_menu: Option<Point<Pixels>>,
 }
 
 struct AiContext {
@@ -105,6 +106,7 @@ impl AiState {
             prompt_last_bounds: None,
             prompt_cursor_blink_epoch: Instant::now(),
             prompt_cursor_blink_task: None,
+            prompt_context_menu: None,
         }
     }
 }
@@ -202,6 +204,7 @@ impl Editor {
         self.ai.prompt_marked_range = None;
         self.ai.prompt_is_selecting = false;
         self.ai.prompt_cursor_blink_epoch = Instant::now();
+        self.ai.prompt_context_menu = None;
         window.focus(&self.ai.prompt_focus);
         cx.notify();
     }
@@ -211,6 +214,7 @@ impl Editor {
         self.ai.prompt_marked_range = None;
         self.ai.prompt_is_selecting = false;
         self.ai.prompt_cursor_blink_task = None;
+        self.ai.prompt_context_menu = None;
         cx.notify();
     }
 
@@ -316,7 +320,7 @@ impl Editor {
 
     pub(super) fn set_ai_prompt_layout(
         &mut self,
-        lines: Vec<(usize, ShapedLine)>,
+        lines: Vec<WrappedLine>,
         line_height: Pixels,
         bounds: Bounds<Pixels>,
     ) {
@@ -325,7 +329,7 @@ impl Editor {
         self.ai.prompt_last_bounds = Some(bounds);
     }
 
-    pub(super) fn ai_prompt_line_layouts(&self) -> &[(usize, ShapedLine)] {
+    pub(super) fn ai_prompt_line_layouts(&self) -> &[WrappedLine] {
         &self.ai.prompt_line_layouts
     }
 
@@ -340,15 +344,13 @@ impl Editor {
         if self.ai.prompt_line_layouts.is_empty() {
             return self.ai.prompt_text.len();
         }
-        let local_y = (position.y - bounds.top()).max(px(0.0));
-        let line_index = (f32::from(local_y) / f32::from(self.ai.prompt_line_height.max(px(1.0))))
-            .floor()
-            .max(0.0) as usize;
-        let line_index = line_index.min(self.ai.prompt_line_layouts.len().saturating_sub(1));
-        let (start, line) = &self.ai.prompt_line_layouts[line_index];
-        let local_x = position.x - bounds.left();
-        let line_offset = line.closest_index_for_x(local_x.max(px(0.0)));
-        (*start + line_offset).min(self.ai.prompt_text.len())
+        ai_text_offset_for_position(
+            &self.ai.prompt_line_layouts,
+            bounds,
+            self.ai.prompt_line_height,
+            &self.ai.prompt_text,
+            position,
+        )
     }
 
     pub(super) fn unmark_ai_prompt_text(&mut self) {
@@ -638,6 +640,61 @@ impl Editor {
             .unwrap_or_else(|| self.ai.prompt_selected_range.clone());
         self.replace_ai_prompt_text(range, &text, false, None, cx);
         cx.stop_propagation();
+    }
+
+    fn open_ai_prompt_context_menu(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.ai.prompt_focus);
+        let offset = self.ai_prompt_offset_for_position(event.position);
+        if self.ai.prompt_selected_range.is_empty()
+            || !self.ai.prompt_selected_range.contains(&offset)
+        {
+            self.ai.prompt_selected_range = offset..offset;
+            self.ai.prompt_selection_reversed = false;
+            self.ai.prompt_marked_range = None;
+        }
+        self.ai.prompt_context_menu = Some(event.position);
+        cx.notify();
+    }
+
+    fn close_ai_prompt_context_menu(&mut self, cx: &mut Context<Self>) {
+        if self.ai.prompt_context_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn on_ai_prompt_context_menu_copy(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_ai_prompt_copy(&Copy, window, cx);
+        self.close_ai_prompt_context_menu(cx);
+    }
+
+    fn on_ai_prompt_context_menu_cut(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_ai_prompt_cut(&Cut, window, cx);
+        self.close_ai_prompt_context_menu(cx);
+    }
+
+    fn on_ai_prompt_context_menu_paste(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_ai_prompt_paste(&Paste, window, cx);
+        self.close_ai_prompt_context_menu(cx);
     }
 
     fn request_ai_operation(
@@ -1006,20 +1063,19 @@ impl Editor {
         let d = &theme.dimensions;
         let t = &theme.typography;
         let can_submit = !self.ai.prompt_text.trim().is_empty();
-        Some(
-            div()
-                .id("ai-prompt-overlay")
-                .absolute()
-                .top_0()
-                .left_0()
-                .right_0()
-                .bottom_0()
-                .occlude()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(c.dialog_backdrop)
-                .child(
+        let overlay = div()
+            .id("ai-prompt-overlay")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .occlude()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(c.dialog_backdrop)
+            .child(
                     div()
                         .id("ai-prompt-dialog")
                         .w(px(d.dialog_width.max(560.0)))
@@ -1072,6 +1128,7 @@ impl Editor {
                                 .id("ai-prompt-input")
                                 .h(px(140.0))
                                 .px(px(12.0))
+                                .py(px(10.0))
                                 .flex()
                                 .items_center()
                                 .rounded(px(d.menu_item_radius))
@@ -1114,7 +1171,62 @@ impl Editor {
                                     ai_dialog_disabled_button("ai-prompt-submit-disabled", "发送", theme)
                                 }),
                         ),
-                )
+            );
+        Some(if let Some(menu) = self.render_ai_prompt_context_menu(theme, cx) {
+            overlay.child(menu).into_any_element()
+        } else {
+            overlay.into_any_element()
+        })
+    }
+
+    fn render_ai_prompt_context_menu(
+        &self,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let position = self.ai.prompt_context_menu?;
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let has_selection = !self.ai.prompt_selected_range.is_empty();
+        let can_paste = cx.read_from_clipboard().and_then(|item| item.text()).is_some();
+        Some(
+            div()
+                .id("ai-prompt-context-menu")
+                .absolute()
+                .left(position.x)
+                .top(position.y)
+                .w(px(d.context_menu_panel_width.max(168.0)))
+                .p(px(d.menu_panel_padding))
+                .flex()
+                .flex_col()
+                .gap(px(d.menu_panel_gap))
+                .occlude()
+                .bg(c.dialog_surface)
+                .border(px(d.dialog_border_width))
+                .border_color(c.dialog_border)
+                .rounded(px(d.menu_panel_radius))
+                .shadow_lg()
+                .child(ai_prompt_menu_item(
+                    "ai-prompt-menu-copy",
+                    "复制",
+                    has_selection,
+                    theme,
+                    cx.listener(Self::on_ai_prompt_context_menu_copy),
+                ))
+                .child(ai_prompt_menu_item(
+                    "ai-prompt-menu-cut",
+                    "剪切",
+                    has_selection,
+                    theme,
+                    cx.listener(Self::on_ai_prompt_context_menu_cut),
+                ))
+                .child(ai_prompt_menu_item(
+                    "ai-prompt-menu-paste",
+                    "粘贴",
+                    can_paste,
+                    theme,
+                    cx.listener(Self::on_ai_prompt_context_menu_paste),
+                ))
                 .into_any_element(),
         )
     }
@@ -1305,6 +1417,260 @@ fn ai_dialog_disabled_button(id: &'static str, label: &'static str, theme: &Them
         .into_any_element()
 }
 
+fn ai_prompt_menu_item(
+    id: &'static str,
+    label: &'static str,
+    enabled: bool,
+    theme: &Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let c = &theme.colors;
+    let d = &theme.dimensions;
+    let t = &theme.typography;
+    if enabled {
+        div()
+            .id(id)
+            .h(px(d.menu_item_height))
+            .px(px(d.menu_item_padding_x))
+            .flex()
+            .items_center()
+            .rounded(px(d.menu_item_radius))
+            .bg(c.dialog_surface)
+            .text_size(px(d.menu_text_size))
+            .font_weight(t.dialog_body_weight.to_font_weight())
+            .text_color(c.dialog_secondary_button_text)
+            .child(label)
+            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+            .cursor_pointer()
+            .on_click(on_click)
+            .into_any_element()
+    } else {
+        div()
+            .id(id)
+            .h(px(d.menu_item_height))
+            .px(px(d.menu_item_padding_x))
+            .flex()
+            .items_center()
+            .rounded(px(d.menu_item_radius))
+            .bg(c.dialog_surface)
+            .text_size(px(d.menu_text_size))
+            .font_weight(t.dialog_body_weight.to_font_weight())
+            .text_color(c.dialog_muted)
+            .child(label)
+            .into_any_element()
+    }
+}
+
+fn ai_hard_line_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+    for (index, _) in text.match_indices('\n') {
+        ranges.push(start..index);
+        start = index + 1;
+    }
+    ranges.push(start..text.len());
+    ranges
+}
+
+fn ai_line_index_for_offset(ranges: &[Range<usize>], offset: usize) -> (usize, usize) {
+    let clamped = offset.min(ranges.last().map(|range| range.end).unwrap_or(0));
+    for (index, range) in ranges.iter().enumerate() {
+        if clamped <= range.end {
+            return (index, clamped.saturating_sub(range.start));
+        }
+    }
+    (ranges.len().saturating_sub(1), 0)
+}
+
+fn ai_wrapped_line_height(line: &WrappedLine, line_height: Pixels) -> Pixels {
+    line.size(line_height).height
+}
+
+fn ai_wrapped_line_top(lines: &[WrappedLine], line_height: Pixels, line_idx: usize) -> Pixels {
+    lines
+        .iter()
+        .take(line_idx)
+        .fold(px(0.0), |height, line| height + ai_wrapped_line_height(line, line_height))
+}
+
+fn ai_wrap_boundary_offset(line: &WrappedLine, wrap_idx: usize) -> Option<usize> {
+    let boundary = line.wrap_boundaries().get(wrap_idx)?;
+    let run = line.unwrapped_layout.runs.get(boundary.run_ix)?;
+    let glyph = run.glyphs.get(boundary.glyph_ix)?;
+    Some(glyph.index)
+}
+
+fn ai_wrapped_row_offsets(line: &WrappedLine) -> Vec<usize> {
+    let mut offsets = Vec::with_capacity(line.wrap_boundaries().len() + 2);
+    offsets.push(0);
+    for wrap_idx in 0..line.wrap_boundaries().len() {
+        if let Some(offset) = ai_wrap_boundary_offset(line, wrap_idx) {
+            offsets.push(offset.min(line.len()));
+        }
+    }
+    offsets.push(line.len());
+    offsets.dedup();
+    offsets
+}
+
+fn ai_position_for_offset(
+    line: &WrappedLine,
+    offset: usize,
+    line_height: Pixels,
+) -> Option<Point<Pixels>> {
+    let offsets = ai_wrapped_row_offsets(line);
+    for row_idx in 0..offsets.len().saturating_sub(1) {
+        let row_start = offsets[row_idx];
+        let row_end = offsets[row_idx + 1];
+        if offset >= row_start && offset < row_end {
+            let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+            let x = line.unwrapped_layout.x_for_index(offset) - row_start_x;
+            return Some(point(x, line_height * row_idx as f32));
+        }
+    }
+    line.position_for_index(offset, line_height)
+}
+
+fn ai_cursor_bounds(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    offset: usize,
+    cursor_width: Pixels,
+) -> Option<Bounds<Pixels>> {
+    let ranges = ai_hard_line_ranges(text);
+    let (line_idx, local_offset) = ai_line_index_for_offset(&ranges, offset);
+    let line = lines.get(line_idx)?;
+    let cursor = ai_position_for_offset(line, local_offset, line_height)?;
+    let y = bounds.top() + ai_wrapped_line_top(lines, line_height, line_idx);
+    Some(Bounds::new(
+        point(bounds.left() + cursor.x, y + cursor.y),
+        size(cursor_width, line_height),
+    ))
+}
+
+fn ai_range_segments(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    range: Range<usize>,
+) -> Vec<Bounds<Pixels>> {
+    if range.is_empty() || lines.is_empty() {
+        return Vec::new();
+    }
+    let ranges = ai_hard_line_ranges(text);
+    let (start_line, start_offset) = ai_line_index_for_offset(&ranges, range.start);
+    let (end_line, end_offset) = ai_line_index_for_offset(&ranges, range.end);
+    let mut segments = Vec::new();
+    for line_idx in start_line..=end_line {
+        let Some(line) = lines.get(line_idx) else {
+            continue;
+        };
+        let line_start = if line_idx == start_line { start_offset } else { 0 };
+        let line_end = if line_idx == end_line { end_offset } else { line.len() };
+        let offsets = ai_wrapped_row_offsets(line);
+        let line_top = bounds.top() + ai_wrapped_line_top(lines, line_height, line_idx);
+        for row_idx in 0..offsets.len().saturating_sub(1) {
+            let row_start = offsets[row_idx];
+            let row_end = offsets[row_idx + 1];
+            let seg_start = line_start.max(row_start).min(row_end);
+            let seg_end = line_end.min(row_end).max(row_start);
+            if seg_start >= seg_end {
+                continue;
+            }
+            let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+            let start_x = line.unwrapped_layout.x_for_index(seg_start) - row_start_x;
+            let end_x = line.unwrapped_layout.x_for_index(seg_end) - row_start_x;
+            let y = line_top + line_height * row_idx as f32;
+            segments.push(Bounds::from_corners(
+                point(bounds.left() + start_x, y),
+                point(bounds.left() + end_x, y + line_height),
+            ));
+        }
+    }
+    segments
+}
+
+pub(super) fn ai_range_bounds(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    range: Range<usize>,
+) -> Option<Bounds<Pixels>> {
+    let segments = ai_range_segments(lines, bounds, line_height, text, range.clone());
+    if segments.is_empty() {
+        return ai_cursor_bounds(lines, bounds, line_height, text, range.start, px(1.0));
+    }
+    let mut union = segments[0];
+    for segment in segments.iter().skip(1) {
+        union = Bounds::from_corners(
+            point(union.left().min(segment.left()), union.top().min(segment.top())),
+            point(union.right().max(segment.right()), union.bottom().max(segment.bottom())),
+        );
+    }
+    Some(union)
+}
+
+fn ai_wrapped_row_for_y(
+    line: &WrappedLine,
+    line_height: Pixels,
+    relative_y: Pixels,
+) -> usize {
+    let row_count = ai_wrapped_row_offsets(line).len().saturating_sub(1).max(1);
+    ((f32::from(relative_y.max(px(0.0))) / f32::from(line_height.max(px(1.0))))
+        .floor()
+        .max(0.0) as usize)
+        .min(row_count.saturating_sub(1))
+}
+
+fn ai_text_offset_for_position(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    position: Point<Pixels>,
+) -> usize {
+    if lines.is_empty() {
+        return text.len();
+    }
+    let mut top = px(0.0);
+    let relative_y = (position.y - bounds.top()).max(px(0.0));
+    for (line_idx, line) in lines.iter().enumerate() {
+        let height = ai_wrapped_line_height(line, line_height);
+        if relative_y < top + height || line_idx + 1 == lines.len() {
+            let row_idx = ai_wrapped_row_for_y(line, line_height, relative_y - top);
+            let offsets = ai_wrapped_row_offsets(line);
+            let row_start = offsets[row_idx];
+            let row_end = offsets.get(row_idx + 1).copied().unwrap_or(line.len());
+            let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+            let x = (position.x - bounds.left()).max(px(0.0)) + row_start_x;
+            let mut best = row_start;
+            let mut best_dist = Pixels::MAX;
+            for offset in row_start..=row_end {
+                if !line.text.is_char_boundary(offset.min(line.text.len())) {
+                    continue;
+                }
+                let dist = (line.unwrapped_layout.x_for_index(offset) - x).abs();
+                if dist < best_dist {
+                    best = offset;
+                    best_dist = dist;
+                }
+            }
+            let ranges = ai_hard_line_ranges(text);
+            return ranges
+                .get(line_idx)
+                .map(|range| range.start + best.min(range.len()))
+                .unwrap_or(text.len())
+                .min(text.len());
+        }
+        top += height;
+    }
+    text.len()
+}
+
 fn ai_dialog_primary_button(
     id: &'static str,
     label: &'static str,
@@ -1338,8 +1704,9 @@ struct AiPromptTextAreaElement {
 }
 
 struct AiPromptTextAreaPrepaintState {
-    lines: Vec<(usize, ShapedLine)>,
+    lines: Vec<WrappedLine>,
     line_height: Pixels,
+    selection: Vec<PaintQuad>,
     cursor: Option<PaintQuad>,
     hitbox: Option<Hitbox>,
 }
@@ -1414,57 +1781,56 @@ impl Element for AiPromptTextAreaElement {
         let font_size = px(theme.typography.text_size * 0.9);
         let line_height = px((f32::from(font_size) * 1.45).max(18.0));
         let style = window.text_style();
-        let mut offset = 0usize;
-        let mut lines = Vec::new();
-        for line_text in text.split('\n') {
-            let content = SharedString::from(line_text.to_string());
-            let runs = vec![TextRun {
-                len: content.len(),
-                font: style.font(),
-                color: text_color,
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            }];
-            lines.push((offset, window.text_system().shape_line(content, font_size, &runs, None)));
-            offset += line_text.len() + 1;
-        }
-        if lines.is_empty() {
-            let runs = vec![TextRun {
-                len: 0,
-                font: style.font(),
-                color: text_color,
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            }];
-            lines.push((0, window.text_system().shape_line(SharedString::from(""), font_size, &runs, None)));
-        }
+        let runs = vec![TextRun {
+            len: text.len(),
+            font: style.font(),
+            color: text_color,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }];
+        let lines = window
+            .text_system()
+            .shape_text(
+                SharedString::from(text.to_string()),
+                font_size,
+                &runs,
+                Some(bounds.size.width.max(px(1.0))),
+                None,
+            )
+            .map(|lines| lines.into_vec())
+            .unwrap_or_default();
         let cursor_opacity = self.editor.read(cx).ai_prompt_cursor_opacity();
         self.editor.update(cx, |editor, cx| {
             editor.sync_ai_prompt_cursor_blink(focused, cx);
         });
-        let cursor = if focused && !is_placeholder && cursor_opacity > 0.02 {
+        let selected_range = self.editor.read(cx).ai_prompt_selected_range();
+        let selection = if focused && !is_placeholder && !selected_range.is_empty() {
+            ai_range_segments(
+                &lines,
+                bounds,
+                line_height,
+                &prompt_text,
+                selected_range.clone(),
+            )
+            .into_iter()
+            .map(|bounds| fill(bounds, theme.colors.selection))
+            .collect()
+        } else {
+            Vec::new()
+        };
+        let cursor = if focused && selected_range.is_empty() && cursor_opacity > 0.02 {
             let editor = self.editor.read(cx);
             let cursor_offset = editor.ai_prompt_cursor_offset();
-            let mut y = bounds.top();
-            let mut cursor = None;
-            for (start, line) in &lines {
-                let end = start + line.len();
-                if cursor_offset <= end {
-                    let local_offset = cursor_offset.saturating_sub(*start).min(line.len());
-                    cursor = Some(fill(
-                        Bounds::new(
-                            point(bounds.left() + line.x_for_index(local_offset), y),
-                            size(px(theme.dimensions.cursor_width), line_height),
-                        ),
-                        theme.colors.cursor.opacity(cursor_opacity),
-                    ));
-                    break;
-                }
-                y += line_height;
-            }
-            cursor
+            ai_cursor_bounds(
+                &lines,
+                bounds,
+                line_height,
+                &prompt_text,
+                cursor_offset,
+                px(theme.dimensions.cursor_width),
+            )
+            .map(|bounds| fill(bounds, theme.colors.cursor.opacity(cursor_opacity)))
         } else {
             None
         };
@@ -1475,6 +1841,7 @@ impl Element for AiPromptTextAreaElement {
         AiPromptTextAreaPrepaintState {
             lines,
             line_height,
+            selection,
             cursor,
             hitbox,
         }
@@ -1511,6 +1878,13 @@ impl Element for AiPromptTextAreaElement {
             if phase != DispatchPhase::Bubble || !input_bounds.contains(&event.position) {
                 return;
             }
+            if event.button == MouseButton::Right {
+                cx.stop_propagation();
+                let _ = editor_for_down.update(cx, |editor, cx| {
+                    editor.open_ai_prompt_context_menu(event, window, cx);
+                });
+                return;
+            }
             if event.button != MouseButton::Left {
                 return;
             }
@@ -1535,11 +1909,14 @@ impl Element for AiPromptTextAreaElement {
                 editor.on_ai_prompt_mouse_move(event, window, cx);
             });
         });
+        for selection in prepaint.selection.drain(..) {
+            window.paint_quad(selection);
+        }
         let mut y = bounds.top();
-        for (_, line) in prepaint.lines.drain(..) {
-            line.paint(point(bounds.left(), y), prepaint.line_height, window, cx)
+        for line in prepaint.lines.drain(..) {
+            line.paint(point(bounds.left(), y), prepaint.line_height, TextAlign::Left, None, window, cx)
                 .ok();
-            y += prepaint.line_height;
+            y += ai_wrapped_line_height(&line, prepaint.line_height);
         }
         if let Some(cursor) = prepaint.cursor.take() {
             window.paint_quad(cursor);
