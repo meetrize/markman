@@ -27,6 +27,7 @@ use crate::theme::Theme;
 const WORKSPACE_CONTEXT_FILE_LIMIT: usize = 8;
 const WORKSPACE_CONTEXT_BYTES_PER_FILE: usize = 1200;
 
+const ICON_AI_CUSTOM: &str = "icon/toolbar/sparkles.svg";
 const ICON_AI_IMPROVE: &str = "icon/toolbar/wand-sparkles.svg";
 const ICON_AI_SUMMARIZE: &str = "icon/toolbar/list-collapse.svg";
 const ICON_AI_EXPAND: &str = "icon/toolbar/maximize-2.svg";
@@ -237,6 +238,15 @@ impl Editor {
         self.ai.prompt_has_selection_context = has_selection;
         window.focus(&self.ai.prompt_focus);
         cx.notify();
+    }
+
+    fn on_open_ai_prompt_from_click(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_ai_prompt_dialog(window, cx);
     }
 
     fn close_ai_prompt_dialog(&mut self, cx: &mut Context<Self>) {
@@ -1232,6 +1242,13 @@ impl Editor {
                 .border(px(d.dialog_border_width))
                 .border_color(c.dialog_border)
                 .shadow_lg()
+                .child(ai_toolbar_action_button(
+                    "ai-floating-custom",
+                    ICON_AI_CUSTOM,
+                    "自定义",
+                    theme,
+                    cx.listener(Self::on_open_ai_prompt_from_click),
+                ))
                 .child(ai_toolbar_action_button(
                     "ai-floating-improve",
                     ICON_AI_IMPROVE,
