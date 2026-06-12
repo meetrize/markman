@@ -390,7 +390,7 @@ impl Editor {
             inline_code_run_popover: None,
             code_run_dialog: None,
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
-            ai: ai::AiState::default(),
+            ai: ai::AiState::new(cx),
         };
         editor.rebuild_table_runtimes(cx);
         editor.rebuild_image_runtimes(cx);

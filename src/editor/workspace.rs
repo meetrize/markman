@@ -2195,6 +2195,13 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
+        if self.ai_prompt_input_active(window) {
+            let text = self.ai_prompt_text().to_string();
+            let range = document_search_range_from_utf16(&text, &range_utf16);
+            actual_range.replace(document_search_range_to_utf16(&text, &range));
+            return Some(text[range].to_string());
+        }
+
         if self.quick_file_open_input_active(window) {
             let text = self.quick_file_open.query.clone();
             let range = range_utf16.start.min(text.len())..range_utf16.end.min(text.len());
@@ -2232,6 +2239,14 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if self.ai_prompt_input_active(window) {
+            let text = self.ai_prompt_text();
+            return Some(UTF16Selection {
+                range: document_search_range_to_utf16(text, &self.ai_prompt_selected_range()),
+                reversed: self.ai_prompt_selection_reversed(),
+            });
+        }
+
         if self.quick_file_open_input_active(window) {
             let len = self.quick_file_open.query.len();
             return Some(UTF16Selection {
@@ -2268,6 +2283,13 @@ impl EntityInputHandler for Editor {
     }
 
     fn marked_text_range(&self, window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+        if self.ai_prompt_input_active(window) {
+            return self
+                .ai_prompt_marked_range()
+                .as_ref()
+                .map(|range| document_search_range_to_utf16(self.ai_prompt_text(), range));
+        }
+
         if self.quick_file_open_input_active(window) {
             return None;
         }
@@ -2299,6 +2321,11 @@ impl EntityInputHandler for Editor {
     }
 
     fn unmark_text(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        if self.ai_prompt_input_active(window) {
+            self.unmark_ai_prompt_text();
+            return;
+        }
+
         if self.quick_file_open_input_active(window) {
             return;
         }
@@ -2327,6 +2354,16 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.ai_prompt_input_active(window) {
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(self.ai_prompt_text(), range_utf16))
+                .or_else(|| self.ai_prompt_marked_range())
+                .unwrap_or_else(|| self.ai_prompt_selected_range());
+            self.replace_ai_prompt_text(range, new_text, false, None, cx);
+            return;
+        }
+
         if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
@@ -2378,6 +2415,20 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.ai_prompt_input_active(window) {
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(self.ai_prompt_text(), range_utf16))
+                .or_else(|| self.ai_prompt_marked_range())
+                .unwrap_or_else(|| self.ai_prompt_selected_range());
+            let selected = new_selected_range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(new_text, range_utf16))
+                .map(|relative| relative.start + range.start..relative.end + range.start);
+            self.replace_ai_prompt_text(range, new_text, true, selected, cx);
+            return;
+        }
+
         if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
@@ -2440,6 +2491,25 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
+        if self.ai_prompt_input_active(window) {
+            let range = document_search_range_from_utf16(self.ai_prompt_text(), &range_utf16);
+            let line_height = self.ai_prompt_line_height();
+            let mut y = bounds.top();
+            for (start, line) in self.ai_prompt_line_layouts() {
+                let end = start + line.len();
+                if range.start <= end {
+                    let local_start = range.start.saturating_sub(*start).min(line.len());
+                    let local_end = range.end.saturating_sub(*start).min(line.len());
+                    return Some(Bounds::from_corners(
+                        point(bounds.left() + line.x_for_index(local_start), y),
+                        point(bounds.left() + line.x_for_index(local_end), y + line_height),
+                    ));
+                }
+                y += line_height;
+            }
+            return Some(bounds);
+        }
+
         if self.quick_file_open_input_active(window) {
             return Some(bounds);
         }
@@ -2482,6 +2552,13 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
+        if self.ai_prompt_input_active(window) {
+            return Some(document_search_offset_to_utf16(
+                self.ai_prompt_text(),
+                self.ai_prompt_offset_for_position(point),
+            ));
+        }
+
         if self.quick_file_open_input_active(window) {
             return Some(self.quick_file_open.query.len());
         }

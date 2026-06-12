@@ -32,6 +32,7 @@ const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
 const ICON_SAVE: &str = "icon/toolbar/save.svg";
 const ICON_AUTO_SAVE: &str = "icon/toolbar/auto-save.svg";
 const ICON_SEARCH: &str = "icon/toolbar/search.svg";
+const ICON_AI_CUSTOM: &str = "icon/toolbar/sparkles.svg";
 
 enum FormatToolbarItem {
     Action(MarkdownToolbarAction),
@@ -304,6 +305,7 @@ impl Editor {
                             .flex_shrink_0()
                             .items_center()
                             .justify_center()
+                            .gap(px(4.0))
                             .rounded(px(d.format_toolbar_button_radius))
                             .bg(c.dialog_surface)
                             .hover(|this| this.bg(c.dialog_secondary_button_hover))
@@ -312,6 +314,12 @@ impl Editor {
                             .text_size(px(12.0))
                             .font_weight(gpui::FontWeight::BOLD)
                             .text_color(icon_color)
+                            .child(
+                                svg()
+                                    .path(ICON_AI_CUSTOM)
+                                    .size(px(d.format_toolbar_icon_size))
+                                    .text_color(icon_color),
+                            )
                             .child("AI")
                             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                                 cx.stop_propagation();

@@ -930,13 +930,13 @@ fn build_menus(
         Menu {
             name: SharedString::from("AI"),
             items: vec![
-                MenuItem::action("Ask AI".to_string(), AskAi),
+                MenuItem::action("自定义提示词".to_string(), AskAi),
                 MenuItem::separator(),
-                MenuItem::action("Improve Writing".to_string(), AiImproveSelection),
-                MenuItem::action("Summarize".to_string(), AiSummarizeSelection),
-                MenuItem::action("Expand".to_string(), AiExpandSelection),
-                MenuItem::action("Explain".to_string(), AiExplainSelection),
-                MenuItem::action("Turn Into Tasks".to_string(), AiTasksSelection),
+                MenuItem::action("润色".to_string(), AiImproveSelection),
+                MenuItem::action("总结".to_string(), AiSummarizeSelection),
+                MenuItem::action("扩写".to_string(), AiExpandSelection),
+                MenuItem::action("解释".to_string(), AiExplainSelection),
+                MenuItem::action("转任务".to_string(), AiTasksSelection),
             ],
         },
         Menu {

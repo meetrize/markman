@@ -1371,7 +1371,9 @@ impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.install_close_guard(cx, window);
         self.apply_pending_workspace_search_jump(cx);
-        self.apply_pending_focus(window, cx);
+        if !self.ai_prompt_is_open() {
+            self.apply_pending_focus(window, cx);
+        }
         self.apply_pending_scroll_into_view(window, cx);
         self.last_selection_snapshot = self.capture_source_selection_snapshot(cx);
         self.sync_pending_save(window, cx);
@@ -1823,6 +1825,11 @@ impl Render for Editor {
         } else {
             base
         };
+        let base = if let Some(ai_toolbar) = self.render_ai_floating_toolbar(&theme, window, cx) {
+            base.child(ai_toolbar)
+        } else {
+            base
+        };
         let base = if let Some(code_language_menu) =
             self.render_code_language_menu_overlay(&theme, window, cx)
         {
@@ -1864,6 +1871,11 @@ impl Render for Editor {
             };
         let base = if let Some(ai_preview) = self.render_ai_preview_overlay(&theme, cx) {
             base.child(ai_preview)
+        } else {
+            base
+        };
+        let base = if let Some(ai_prompt) = self.render_ai_prompt_dialog_overlay(&theme, cx) {
+            base.child(ai_prompt)
         } else {
             base
         };

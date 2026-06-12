@@ -165,6 +165,24 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/table-of-contents.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/table-of-contents.svg"
             )))),
+            "icon/toolbar/wand-sparkles.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/wand-sparkles.svg"
+            )))),
+            "icon/toolbar/list-collapse.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/list-collapse.svg"
+            )))),
+            "icon/toolbar/maximize-2.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/maximize-2.svg"
+            )))),
+            "icon/toolbar/circle-help.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/circle-help.svg"
+            )))),
+            "icon/toolbar/list-checks.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/list-checks.svg"
+            )))),
+            "icon/toolbar/sparkles.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/sparkles.svg"
+            )))),
             _ => Ok(None),
         }
     }

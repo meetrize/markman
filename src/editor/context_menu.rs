@@ -934,7 +934,7 @@ impl Editor {
                     Self::render_edit_menu_item(
                         theme,
                         "editor-context-menu-ai-improve",
-                        "AI: Improve writing".to_string(),
+                        "AI：润色".to_string(),
                         has_selection,
                         Self::on_context_menu_ai_improve,
                         cx,
@@ -942,7 +942,7 @@ impl Editor {
                     Self::render_edit_menu_item(
                         theme,
                         "editor-context-menu-ai-summarize",
-                        "AI: Summarize".to_string(),
+                        "AI：总结".to_string(),
                         has_selection,
                         Self::on_context_menu_ai_summarize,
                         cx,
@@ -950,7 +950,7 @@ impl Editor {
                     Self::render_edit_menu_item(
                         theme,
                         "editor-context-menu-ai-expand",
-                        "AI: Expand".to_string(),
+                        "AI：扩写".to_string(),
                         has_selection,
                         Self::on_context_menu_ai_expand,
                         cx,
@@ -958,7 +958,7 @@ impl Editor {
                     Self::render_edit_menu_item(
                         theme,
                         "editor-context-menu-ai-explain",
-                        "AI: Explain".to_string(),
+                        "AI：解释".to_string(),
                         has_selection,
                         Self::on_context_menu_ai_explain,
                         cx,
@@ -966,7 +966,7 @@ impl Editor {
                     Self::render_edit_menu_item(
                         theme,
                         "editor-context-menu-ai-tasks",
-                        "AI: Turn into tasks".to_string(),
+                        "AI：转任务".to_string(),
                         has_selection,
                         Self::on_context_menu_ai_tasks,
                         cx,
