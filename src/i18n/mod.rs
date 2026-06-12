@@ -301,6 +301,14 @@ pub struct I18nStrings {
     pub format_toolbar_link: String,
     /// Markdown toolbar button label for blockquote formatting.
     pub format_toolbar_quote: String,
+    /// Markdown toolbar button label for todo/task-list insertion.
+    pub format_toolbar_todo: String,
+    /// Markdown toolbar button label for horizontal rule insertion.
+    pub format_toolbar_horizontal_rule: String,
+    /// Markdown toolbar button label for image insertion.
+    pub format_toolbar_image: String,
+    /// Markdown toolbar button label for table-of-contents insertion.
+    pub format_toolbar_table_of_contents: String,
     /// Placeholder for the in-document search field.
     pub document_search_placeholder: String,
     /// Status text when document search is active: "{current}/{total}".
@@ -579,6 +587,10 @@ struct I18nStringsDe {
     format_toolbar_code: Option<String>,
     format_toolbar_link: Option<String>,
     format_toolbar_quote: Option<String>,
+    format_toolbar_todo: Option<String>,
+    format_toolbar_horizontal_rule: Option<String>,
+    format_toolbar_image: Option<String>,
+    format_toolbar_table_of_contents: Option<String>,
     document_search_placeholder: Option<String>,
     document_search_status: Option<String>,
     document_search_no_matches: Option<String>,
@@ -803,6 +815,10 @@ const I18N_STRING_KEYS: &[&str] = &[
     "format_toolbar_code",
     "format_toolbar_link",
     "format_toolbar_quote",
+    "format_toolbar_todo",
+    "format_toolbar_horizontal_rule",
+    "format_toolbar_image",
+    "format_toolbar_table_of_contents",
     "document_search_placeholder",
     "document_search_status",
     "document_search_no_matches",
@@ -1315,6 +1331,18 @@ impl I18nStringsDe {
             format_toolbar_quote: self
                 .format_toolbar_quote
                 .unwrap_or(defaults.format_toolbar_quote),
+            format_toolbar_todo: self
+                .format_toolbar_todo
+                .unwrap_or(defaults.format_toolbar_todo),
+            format_toolbar_horizontal_rule: self
+                .format_toolbar_horizontal_rule
+                .unwrap_or(defaults.format_toolbar_horizontal_rule),
+            format_toolbar_image: self
+                .format_toolbar_image
+                .unwrap_or(defaults.format_toolbar_image),
+            format_toolbar_table_of_contents: self
+                .format_toolbar_table_of_contents
+                .unwrap_or(defaults.format_toolbar_table_of_contents),
             document_search_placeholder: self
                 .document_search_placeholder
                 .unwrap_or(defaults.document_search_placeholder),
@@ -1657,6 +1685,10 @@ impl I18nStrings {
             format_toolbar_code: "`".into(),
             format_toolbar_link: "[]".into(),
             format_toolbar_quote: ">".into(),
+            format_toolbar_todo: "待办".into(),
+            format_toolbar_horizontal_rule: "分割线".into(),
+            format_toolbar_image: "图片".into(),
+            format_toolbar_table_of_contents: "目录".into(),
             document_search_placeholder: "搜索本文档…".into(),
             document_search_status: "{current}/{total}".into(),
             document_search_no_matches: "无匹配".into(),
@@ -1901,6 +1933,10 @@ impl I18nStrings {
             format_toolbar_code: "`".into(),
             format_toolbar_link: "[]".into(),
             format_toolbar_quote: ">".into(),
+            format_toolbar_todo: "Todo".into(),
+            format_toolbar_horizontal_rule: "---".into(),
+            format_toolbar_image: "Img".into(),
+            format_toolbar_table_of_contents: "TOC".into(),
             document_search_placeholder: "Search this document…".into(),
             document_search_status: "{current}/{total}".into(),
             document_search_no_matches: "No matches".into(),

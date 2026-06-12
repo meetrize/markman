@@ -1,0 +1,13 @@
+{
+  "name": "Git Commit in Chinese",
+  "version": "1.0.0",
+  "description": "确保 Git 提交消息使用简体中文 - 拦截 Git commit message generation",
+  "when": {
+    "type": "preToolUse",
+    "toolTypes": ["read", "write", "shell"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "【重要】即将执行的工具可能与 Git commit message generation 相关。请务必：\n\n1. 如果正在生成 Git 提交消息，必须使用简体中文\n2. 格式：`<type>(<scope>): <简短中文描述>`\n3. type 取值：feat、fix、docs、style、refactor、test、chore\n4. 标题 ≤ 50 字\n5. 不要生成英文提交消息\n\n如果当前不是 Git commit 场景，请忽略此提示。"
+  }
+}

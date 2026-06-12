@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Velotype
+Name=Markman
 Comment=Native Markdown editor built with Rust and GPUI
 Exec=velotype %F
 Icon=com.manyougz.Velotype

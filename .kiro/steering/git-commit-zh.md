@@ -31,3 +31,12 @@ inclusion: always
 - `feat(toolbar): 添加 Markdown 格式工具栏`
 - `fix(block): 修复工具栏加粗标记内输入光标位置`
 - `docs: 更新开发指南`
+
+## Kiro Git Commit 按钮专用规则
+
+当用户点击 Git 面板的 "generate commit message" 按钮时：
+
+1. **强制要求**：必须使用简体中文生成提交消息
+2. **不要**询问用户或提供英文选项
+3. **直接输出**符合格式的中文提交消息
+4. 如果变更内容不明确，基于 git diff 推断后生成中文消息

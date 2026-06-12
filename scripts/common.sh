@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Shared helpers for Velotype build scripts.
+# Shared helpers for Markman build scripts.
 set -euo pipefail
 
 VELOTYPE_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VELOTYPE_BINARY_NAME="velotype"
-VELOTYPE_APP_NAME="Velotype"
+VELOTYPE_APP_NAME="Markman"
 # Must stay in sync with `APP_DISPLAY_NAME` in `src/app_identity.rs`.
 VELOTYPE_DISPLAY_NAME="Markman"
 

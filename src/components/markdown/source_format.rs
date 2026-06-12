@@ -17,6 +17,10 @@ pub(crate) enum MarkdownToolbarAction {
     Link,
     Quote,
     Table,
+    Todo,
+    HorizontalRule,
+    Image,
+    TableOfContents,
 }
 
 /// Applies a toolbar action to `text` at `selection`, returning the updated
@@ -39,6 +43,10 @@ pub(crate) fn apply_markdown_toolbar_action(
         MarkdownToolbarAction::UnorderedList => toggle_line_prefix(text, selection, "- "),
         MarkdownToolbarAction::Quote => toggle_line_prefix(text, selection, "> "),
         MarkdownToolbarAction::Table => insert_markdown_table(text, selection),
+        MarkdownToolbarAction::Todo => insert_todo_template(text, selection),
+        MarkdownToolbarAction::HorizontalRule => insert_horizontal_rule(text, selection),
+        MarkdownToolbarAction::Image => apply_image_format(text, selection),
+        MarkdownToolbarAction::TableOfContents => insert_table_of_contents(text, selection),
     }
 }
 
@@ -343,6 +351,96 @@ fn toggle_quote_line(line: &str) -> (String, isize) {
     )
 }
 
+fn insert_todo_template(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let template = "- [ ] 待办事项 1\n- [ ] 待办事项 2";
+    let prefix = block_insert_prefix(text, &selection);
+    let suffix = block_insert_suffix(text, &selection);
+    let insertion = format!("{prefix}{template}{suffix}");
+
+    let mut next = String::with_capacity(text.len() + insertion.len());
+    next.push_str(&text[..selection.start]);
+    next.push_str(&insertion);
+    next.push_str(&text[selection.end..]);
+
+    let cursor = selection.start + prefix.len() + 6;
+    (next, cursor..cursor)
+}
+
+fn insert_horizontal_rule(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let prefix = block_insert_prefix(text, &selection);
+    let suffix = block_insert_suffix(text, &selection);
+    let insertion = format!("{prefix}---{suffix}");
+
+    let mut next = String::with_capacity(text.len() + insertion.len());
+    next.push_str(&text[..selection.start]);
+    next.push_str(&insertion);
+    next.push_str(&text[selection.end..]);
+
+    let cursor = selection.start + prefix.len() + 3;
+    (next, cursor..cursor)
+}
+
+fn apply_image_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let (alt_text, url) = if selection.is_empty() {
+        (
+            "alt text".to_string(),
+            "https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg".to_string(),
+        )
+    } else {
+        let selected = text[selection.clone()].to_string();
+        (selected.clone(), selected)
+    };
+    let replacement = format!("![{alt_text}]({url})");
+
+    let mut next = String::with_capacity(text.len() + replacement.len() - selection.len());
+    next.push_str(&text[..selection.start]);
+    next.push_str(&replacement);
+    next.push_str(&text[selection.end..]);
+
+    let url_start = selection.start + alt_text.len() + 4;
+    let url_end = url_start + url.len();
+    (next, url_start..url_end)
+}
+
+fn insert_table_of_contents(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+    let selection = clamp_range(text, selection);
+    let template = "## 目录\n\n- [章节 1](#)\n- [章节 2](#)";
+    let prefix = block_insert_prefix(text, &selection);
+    let suffix = block_insert_suffix(text, &selection);
+    let insertion = format!("{prefix}{template}{suffix}");
+
+    let mut next = String::with_capacity(text.len() + insertion.len());
+    next.push_str(&text[..selection.start]);
+    next.push_str(&insertion);
+    next.push_str(&text[selection.end..]);
+
+    let cursor = selection.start + prefix.len() + 6;
+    (next, cursor..cursor)
+}
+
+fn block_insert_prefix(text: &str, selection: &Range<usize>) -> String {
+    if selection.start == 0 {
+        String::new()
+    } else if text[..selection.start].ends_with("\n\n") {
+        String::new()
+    } else if text[..selection.start].ends_with('\n') {
+        "\n".to_string()
+    } else {
+        "\n\n".to_string()
+    }
+}
+
+fn block_insert_suffix(text: &str, selection: &Range<usize>) -> String {
+    if selection.end == text.len() || text[selection.end..].starts_with('\n') {
+        "\n".to_string()
+    } else {
+        "\n\n".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,5 +549,46 @@ mod tests {
             apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::CodeBlock);
         assert_eq!(text, "Hello\n\n```javascript\n\n```\n");
         assert_eq!(range, 21..21);
+    }
+
+    #[test]
+    fn todo_inserts_template() {
+        let (text, _) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::Todo);
+        assert!(text.starts_with("Hello\n\n- [ ]"));
+        assert!(text.contains("待办事项 1"));
+        assert!(text.contains("待办事项 2"));
+    }
+
+    #[test]
+    fn horizontal_rule_inserts_dashes() {
+        let (text, _) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::HorizontalRule);
+        assert!(text.starts_with("Hello\n\n---"));
+    }
+
+    #[test]
+    fn image_wraps_selection_with_alt_and_url() {
+        let (text, range) =
+            apply_markdown_toolbar_action("photo", 0..5, MarkdownToolbarAction::Image);
+        assert_eq!(text, "![photo](photo)");
+        assert_eq!(range, 9..14);
+    }
+
+    #[test]
+    fn image_without_selection_uses_placeholder() {
+        let (text, range) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::Image);
+        assert_eq!(text, "Hello![alt text](https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg)");
+        assert_eq!(range, 17..79);
+    }
+
+    #[test]
+    fn table_of_contents_inserts_template() {
+        let (text, _) =
+            apply_markdown_toolbar_action("Hello", 5..5, MarkdownToolbarAction::TableOfContents);
+        assert!(text.contains("## 目录"));
+        assert!(text.contains("- [章节 1](#)"));
+        assert!(text.contains("- [章节 2](#)"));
     }
 }

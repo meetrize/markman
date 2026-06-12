@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package Velotype for the current platform.
+# Package Markman for the current platform.
 #
 # Usage:
 #   ./scripts/package.sh [macos-app|macos-pkg <version>|linux|windows]
@@ -17,7 +17,7 @@ usage() {
 Usage: $0 [target]
 
 Targets:
-  macos-app              Build release + create Velotype.app
+  macos-app              Build release + create Markman.app
   macos-pkg <version>    Create PKG installer (requires existing .app in dist/)
   linux                  Build release + tarball with desktop entry
   windows                Build release + zip archive

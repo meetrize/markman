@@ -153,6 +153,18 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/ellipsis-vertical.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/ellipsis-vertical.svg"
             )))),
+            "icon/toolbar/square-check-big.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/square-check-big.svg"
+            )))),
+            "icon/toolbar/minus.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/minus.svg"
+            )))),
+            "icon/toolbar/image.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/image.svg"
+            )))),
+            "icon/toolbar/table-of-contents.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/table-of-contents.svg"
+            )))),
             _ => Ok(None),
         }
     }

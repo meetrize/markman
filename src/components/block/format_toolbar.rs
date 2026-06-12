@@ -64,6 +64,12 @@ impl Block {
                 self.convert_block_to_quote(cx);
             }
             MarkdownToolbarAction::Table => {}
+            MarkdownToolbarAction::Todo => {}
+            MarkdownToolbarAction::HorizontalRule => {}
+            MarkdownToolbarAction::Image => {
+                self.insert_image_markdown(cx);
+            }
+            MarkdownToolbarAction::TableOfContents => {}
         }
     }
 
@@ -99,6 +105,31 @@ impl Block {
         };
         let replacement = format!("[{link_text}]({url})");
         let url_start = selection.start + link_text.len() + 3;
+        let url_end = url_start + url.len();
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        self.replace_text_in_visible_range(
+            selection,
+            &replacement,
+            Some(url_start..url_end),
+            false,
+            cx,
+        );
+    }
+
+    pub(crate) fn insert_image_markdown(&mut self, cx: &mut Context<Self>) {
+        let selection = self.selected_range.clone();
+        let text = self.display_text();
+        let (alt_text, url) = if selection.is_empty() {
+            (
+                "alt text".to_string(),
+                "https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg".to_string(),
+            )
+        } else {
+            let selected = text[selection.clone()].to_string();
+            (selected.clone(), selected)
+        };
+        let replacement = format!("![{alt_text}]({url})");
+        let url_start = selection.start + alt_text.len() + 4;
         let url_end = url_start + url.len();
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         self.replace_text_in_visible_range(

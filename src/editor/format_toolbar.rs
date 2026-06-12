@@ -3,7 +3,7 @@
 use gpui::*;
 
 use crate::components::markdown::source_format::{MarkdownToolbarAction, apply_markdown_toolbar_action};
-use crate::components::{BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
+use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
 use crate::theme::Theme;
 
 use super::Editor;
@@ -23,6 +23,10 @@ const ICON_SQUARE_CODE: &str = "icon/toolbar/square-code.svg";
 const ICON_LINK: &str = "icon/toolbar/link.svg";
 const ICON_QUOTE: &str = "icon/toolbar/quote.svg";
 const ICON_TABLE: &str = "icon/toolbar/table.svg";
+const ICON_TODO: &str = "icon/toolbar/square-check-big.svg";
+const ICON_HORIZONTAL_RULE: &str = "icon/toolbar/minus.svg";
+const ICON_IMAGE: &str = "icon/toolbar/image.svg";
+const ICON_TABLE_OF_CONTENTS: &str = "icon/toolbar/table-of-contents.svg";
 const ICON_VIEW_SOURCE: &str = "icon/toolbar/view-source.svg";
 const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
 const ICON_SAVE: &str = "icon/toolbar/save.svg";
@@ -56,6 +60,23 @@ impl Editor {
             }
             self.mark_dirty(cx);
             cx.notify();
+            return;
+        }
+
+        // Block-insertion actions: in rendered mode, insert native blocks;
+        // in source mode, insert raw Markdown text.
+        if matches!(
+            action,
+            MarkdownToolbarAction::Todo
+                | MarkdownToolbarAction::HorizontalRule
+                | MarkdownToolbarAction::Image
+                | MarkdownToolbarAction::TableOfContents
+        ) {
+            if self.view_mode == ViewMode::Rendered {
+                self.apply_rendered_block_insert(action, window, cx);
+            } else {
+                self.apply_source_view_toolbar_format(action, cx);
+            }
             return;
         }
 
@@ -143,6 +164,12 @@ impl Editor {
             FormatToolbarItem::Action(MarkdownToolbarAction::CodeBlock),
             FormatToolbarItem::Action(MarkdownToolbarAction::Link),
             FormatToolbarItem::Action(MarkdownToolbarAction::Quote),
+            FormatToolbarItem::Separator,
+            FormatToolbarItem::Action(MarkdownToolbarAction::Todo),
+            FormatToolbarItem::Action(MarkdownToolbarAction::Image),
+            FormatToolbarItem::Separator,
+            FormatToolbarItem::Action(MarkdownToolbarAction::HorizontalRule),
+            FormatToolbarItem::Action(MarkdownToolbarAction::TableOfContents),
             FormatToolbarItem::Separator,
             FormatToolbarItem::Action(MarkdownToolbarAction::Table),
         ];
@@ -408,6 +435,134 @@ impl Editor {
         self.finalize_pending_undo_capture(cx);
         cx.notify();
     }
+
+    fn apply_rendered_block_insert(
+        &mut self,
+        action: MarkdownToolbarAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            MarkdownToolbarAction::Todo => {
+                self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+                let task1 = Self::new_block(
+                    cx,
+                    BlockRecord::with_plain_text(
+                        BlockKind::TaskListItem { checked: false },
+                        "待办事项 1",
+                    ),
+                );
+                let task2 = Self::new_block(
+                    cx,
+                    BlockRecord::with_plain_text(
+                        BlockKind::TaskListItem { checked: false },
+                        "待办事项 2",
+                    ),
+                );
+                let blocks = vec![task1.clone(), task2];
+                self.insert_blocks_after_focused(blocks, window, cx);
+                self.focus_block(task1.entity_id());
+                self.mark_dirty(cx);
+                self.request_active_block_scroll_into_view(cx);
+                self.finalize_pending_undo_capture(cx);
+                cx.notify();
+            }
+            MarkdownToolbarAction::HorizontalRule => {
+                self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+                let separator = Self::new_block(
+                    cx,
+                    BlockRecord::new(
+                        BlockKind::Separator,
+                        InlineTextTree::plain(String::new()),
+                    ),
+                );
+                let blocks = vec![separator.clone()];
+                self.insert_blocks_after_focused(blocks, window, cx);
+                self.focus_block(separator.entity_id());
+                self.mark_dirty(cx);
+                self.request_active_block_scroll_into_view(cx);
+                self.finalize_pending_undo_capture(cx);
+                cx.notify();
+            }
+            MarkdownToolbarAction::Image => {
+                if let Some(block) = self.focused_edit_target(window, cx) {
+                    block.update(cx, |block, cx| {
+                        block.insert_image_markdown(cx);
+                    });
+                } else {
+                    self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+                    let paragraph = Self::new_block(
+                        cx,
+                        BlockRecord::with_plain_text(
+                            BlockKind::Paragraph,
+                            "![alt text](https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg)",
+                        ),
+                    );
+                    self.document.insert_blocks_at(
+                        None,
+                        self.document.root_count(),
+                        vec![paragraph.clone()],
+                        cx,
+                    );
+                    self.focus_block(paragraph.entity_id());
+                    self.finalize_pending_undo_capture(cx);
+                }
+                self.mark_dirty(cx);
+                cx.notify();
+            }
+            MarkdownToolbarAction::TableOfContents => {
+                self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+                let heading = Self::new_block(
+                    cx,
+                    BlockRecord::with_plain_text(BlockKind::Heading { level: 2 }, "目录"),
+                );
+                let item1 = Self::new_block(
+                    cx,
+                    BlockRecord::with_plain_text(
+                        BlockKind::BulletedListItem,
+                        "[章节 1](#)",
+                    ),
+                );
+                let item2 = Self::new_block(
+                    cx,
+                    BlockRecord::with_plain_text(
+                        BlockKind::BulletedListItem,
+                        "[章节 2](#)",
+                    ),
+                );
+                let blocks = vec![heading.clone(), item1, item2];
+                self.insert_blocks_after_focused(blocks, window, cx);
+                self.focus_block(heading.entity_id());
+                self.mark_dirty(cx);
+                self.request_active_block_scroll_into_view(cx);
+                self.finalize_pending_undo_capture(cx);
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
+
+    fn insert_blocks_after_focused(
+        &mut self,
+        blocks: Vec<Entity<Block>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(focused) = self.focused_edit_target(window, cx) {
+            let focused_id = focused.entity_id();
+            if let Some(location) = self.document.find_block_location(focused_id) {
+                self.document.insert_blocks_at(
+                    location.parent,
+                    location.index + 1,
+                    blocks,
+                    cx,
+                );
+                return;
+            }
+        }
+        self.document
+            .insert_blocks_at(None, self.document.root_count(), blocks, cx);
+    }
 }
 
 fn format_toolbar_icon_path(action: MarkdownToolbarAction) -> &'static str {
@@ -424,5 +579,9 @@ fn format_toolbar_icon_path(action: MarkdownToolbarAction) -> &'static str {
         MarkdownToolbarAction::Link => ICON_LINK,
         MarkdownToolbarAction::Quote => ICON_QUOTE,
         MarkdownToolbarAction::Table => ICON_TABLE,
+        MarkdownToolbarAction::Todo => ICON_TODO,
+        MarkdownToolbarAction::HorizontalRule => ICON_HORIZONTAL_RULE,
+        MarkdownToolbarAction::Image => ICON_IMAGE,
+        MarkdownToolbarAction::TableOfContents => ICON_TABLE_OF_CONTENTS,
     }
 }
