@@ -1406,7 +1406,12 @@ impl Editor {
                                         .text_size(px((t.dialog_body_size - 1.0).max(11.0)))
                                         .text_color(c.dialog_body)
                                         .child(self.ai.prompt_context_mode.label())
-                                        .child("v")
+                                        .child(
+                                            svg()
+                                                .path("icon/toolbar/chevron-down.svg")
+                                                .size(px(14.0))
+                                                .text_color(c.dialog_secondary_button_text),
+                                        )
                                         .on_click(cx.listener(Self::toggle_ai_prompt_context_dropdown)),
                                 )
                                 .when(self.ai.prompt_context_dropdown_open, |this| {
@@ -1415,7 +1420,7 @@ impl Editor {
                                             .id("ai-prompt-context-options")
                                             .absolute()
                                             .left(px(10.0))
-                                            .bottom(px(40.0))
+                                            .bottom(px(-92.0))
                                             .w(px(180.0))
                                             .p(px(d.menu_panel_padding))
                                             .flex()
