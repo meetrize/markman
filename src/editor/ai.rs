@@ -64,6 +64,13 @@ struct AiPreview {
     result_markdown: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AiPromptContextMode {
+    Selection,
+    FullDocument,
+    Blank,
+}
+
 pub(super) struct AiState {
     in_flight: bool,
     preview: Option<AiPreview>,
@@ -81,6 +88,9 @@ pub(super) struct AiState {
     prompt_cursor_blink_epoch: Instant,
     prompt_cursor_blink_task: Option<Task<()>>,
     prompt_context_menu: Option<Point<Pixels>>,
+    prompt_context_mode: AiPromptContextMode,
+    prompt_context_dropdown_open: bool,
+    prompt_has_selection_context: bool,
 }
 
 struct AiContext {
@@ -107,6 +117,9 @@ impl AiState {
             prompt_cursor_blink_epoch: Instant::now(),
             prompt_cursor_blink_task: None,
             prompt_context_menu: None,
+            prompt_context_mode: AiPromptContextMode::FullDocument,
+            prompt_context_dropdown_open: false,
+            prompt_has_selection_context: false,
         }
     }
 }
@@ -135,6 +148,16 @@ impl AiOperation {
                 "Convert the Markdown into an actionable task list using GitHub-flavored task items."
             ),
             Self::Custom(prompt) => Cow::Owned(prompt.clone()),
+        }
+    }
+}
+
+impl AiPromptContextMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Selection => "引用选中文本",
+            Self::FullDocument => "引用全文",
+            Self::Blank => "全新对话",
         }
     }
 }
@@ -195,6 +218,7 @@ impl Editor {
     }
 
     fn open_ai_prompt_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let has_selection = self.ai_has_text_selection(window, cx);
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
         self.ai.prompt_open = true;
@@ -205,6 +229,13 @@ impl Editor {
         self.ai.prompt_is_selecting = false;
         self.ai.prompt_cursor_blink_epoch = Instant::now();
         self.ai.prompt_context_menu = None;
+        self.ai.prompt_context_mode = if has_selection {
+            AiPromptContextMode::Selection
+        } else {
+            AiPromptContextMode::FullDocument
+        };
+        self.ai.prompt_context_dropdown_open = false;
+        self.ai.prompt_has_selection_context = has_selection;
         window.focus(&self.ai.prompt_focus);
         cx.notify();
     }
@@ -215,6 +246,7 @@ impl Editor {
         self.ai.prompt_is_selecting = false;
         self.ai.prompt_cursor_blink_task = None;
         self.ai.prompt_context_menu = None;
+        self.ai.prompt_context_dropdown_open = false;
         cx.notify();
     }
 
@@ -228,8 +260,9 @@ impl Editor {
         if prompt.is_empty() {
             return;
         }
+        let mode = self.ai.prompt_context_mode;
         self.close_ai_prompt_dialog(cx);
-        self.request_ai_operation(AiOperation::Custom(prompt), window, cx);
+        self.request_custom_ai_prompt(prompt, mode, window, cx);
     }
 
     fn cancel_ai_prompt_dialog(
@@ -468,8 +501,9 @@ impl Editor {
         if prompt.is_empty() {
             return;
         }
+        let mode = self.ai.prompt_context_mode;
         self.close_ai_prompt_dialog(cx);
-        self.request_ai_operation(AiOperation::Custom(prompt), window, cx);
+        self.request_custom_ai_prompt(prompt, mode, window, cx);
     }
 
     pub(crate) fn on_ai_prompt_delete_back(
@@ -642,6 +676,129 @@ impl Editor {
         cx.stop_propagation();
     }
 
+    fn ai_has_text_selection(&self, window: &Window, cx: &App) -> bool {
+        self.cross_block_selected_markdown(cx).is_some()
+            || self
+                .focused_edit_target(window, cx)
+                .is_some_and(|block| !block.read(cx).selected_range.is_empty())
+    }
+
+    fn collect_custom_ai_context(
+        &self,
+        mode: AiPromptContextMode,
+        window: &Window,
+        cx: &App,
+    ) -> Result<AiContext, String> {
+        match mode {
+            AiPromptContextMode::Selection => {
+                if let Some(selection) = self.cross_block_selection
+                    && let Some(markdown) = self.cross_block_selected_markdown(cx)
+                {
+                    return Ok(AiContext {
+                        target: AiTarget::CrossBlockSelection(selection),
+                        context_markdown: markdown,
+                    });
+                }
+                if let Some(block) = self.focused_edit_target(window, cx) {
+                    let block_ref = block.read(cx);
+                    if !block_ref.selected_range.is_empty() {
+                        let text = block_ref.display_text().to_string();
+                        let range = block_ref.selected_range.start.min(text.len())
+                            ..block_ref.selected_range.end.min(text.len());
+                        if let Some(selected) = text.get(range.clone()) {
+                            return Ok(AiContext {
+                                target: AiTarget::SingleBlockSelection {
+                                    entity_id: block.entity_id(),
+                                    range,
+                                },
+                                context_markdown: selected.to_string(),
+                            });
+                        }
+                    }
+                }
+                Err("当前没有选中文本。".into())
+            }
+            AiPromptContextMode::FullDocument => Ok(AiContext {
+                target: AiTarget::FullDocument,
+                context_markdown: self.serialized_document_text(cx),
+            }),
+            AiPromptContextMode::Blank => Ok(AiContext {
+                target: AiTarget::InsertOnly {
+                    after: self.active_entity_id.map(|id| self.root_ancestor_entity_id(id)),
+                },
+                context_markdown: String::new(),
+            }),
+        }
+    }
+
+    fn request_custom_ai_prompt(
+        &mut self,
+        prompt: String,
+        mode: AiPromptContextMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai.in_flight {
+            return;
+        }
+        let preferences = match read_app_preferences() {
+            Ok(preferences) => preferences,
+            Err(err) => {
+                self.ai.error = Some(format!("Failed to read AI preferences: {err}"));
+                cx.notify();
+                return;
+            }
+        };
+        let context = match self.collect_custom_ai_context(mode, window, cx) {
+            Ok(context) => context,
+            Err(err) => {
+                self.ai.error = Some(err);
+                cx.notify();
+                return;
+            }
+        };
+        let context_markdown = context.context_markdown;
+
+        self.ai.in_flight = true;
+        self.ai.preview = None;
+        self.ai.error = None;
+        let weak_editor = cx.entity().downgrade();
+        let target = context.target;
+        let operation = AiOperation::Custom(prompt.clone());
+        let (tx, rx) = oneshot::channel();
+        std::thread::spawn(move || {
+            let result = ai_client::complete_markdown(AiCompletionRequest {
+                preferences: preferences.ai,
+                instruction: prompt,
+                context_markdown,
+            });
+            let _ = tx.send(result);
+        });
+        cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = rx
+                .map(|result| {
+                    result.unwrap_or_else(|_| Err(anyhow::anyhow!("AI worker ended early")))
+                })
+                .await;
+            let _ = weak_editor.update(cx, move |editor, cx| {
+                editor.ai.in_flight = false;
+                match result {
+                    Ok(result_markdown) => {
+                        editor.ai.preview = Some(AiPreview {
+                            operation,
+                            target,
+                            result_markdown,
+                        });
+                    }
+                    Err(err) => editor.ai.error = Some(err.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn open_ai_prompt_context_menu(
         &mut self,
         event: &MouseDownEvent,
@@ -665,6 +822,52 @@ impl Editor {
         if self.ai.prompt_context_menu.take().is_some() {
             cx.notify();
         }
+    }
+
+    fn toggle_ai_prompt_context_dropdown(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai.prompt_context_dropdown_open = !self.ai.prompt_context_dropdown_open;
+        cx.notify();
+    }
+
+    fn select_ai_prompt_context_selection(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.ai.prompt_has_selection_context {
+            return;
+        }
+        self.ai.prompt_context_mode = AiPromptContextMode::Selection;
+        self.ai.prompt_context_dropdown_open = false;
+        cx.notify();
+    }
+
+    fn select_ai_prompt_context_full_document(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai.prompt_context_mode = AiPromptContextMode::FullDocument;
+        self.ai.prompt_context_dropdown_open = false;
+        cx.notify();
+    }
+
+    fn select_ai_prompt_context_blank(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai.prompt_context_mode = AiPromptContextMode::Blank;
+        self.ai.prompt_context_dropdown_open = false;
+        cx.notify();
     }
 
     fn on_ai_prompt_context_menu_copy(
@@ -1063,6 +1266,7 @@ impl Editor {
         let d = &theme.dimensions;
         let t = &theme.typography;
         let can_submit = !self.ai.prompt_text.trim().is_empty();
+        let selection_enabled = self.ai.prompt_has_selection_context;
         let overlay = div()
             .id("ai-prompt-overlay")
             .absolute()
@@ -1147,6 +1351,81 @@ impl Editor {
                                             SharedString::from("例如：把这段内容改写得更正式"),
                                         )),
                                 ),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_size(px(t.dialog_body_size))
+                                        .font_weight(t.dialog_button_weight.to_font_weight())
+                                        .text_color(c.dialog_title)
+                                        .child("上下文"),
+                                )
+                                .child(
+                                    div()
+                                        .id("ai-prompt-context-dropdown")
+                                        .w(px(220.0))
+                                        .min_h(px(34.0))
+                                        .px(px(12.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .rounded(px(d.menu_item_radius))
+                                        .border(px(d.dialog_border_width))
+                                        .border_color(c.dialog_border)
+                                        .bg(c.editor_background)
+                                        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                        .cursor_pointer()
+                                        .text_size(px(t.dialog_body_size))
+                                        .text_color(c.dialog_body)
+                                        .child(self.ai.prompt_context_mode.label())
+                                        .child("v")
+                                        .on_click(cx.listener(Self::toggle_ai_prompt_context_dropdown)),
+                                )
+                                .when(self.ai.prompt_context_dropdown_open, |this| {
+                                    this.child(
+                                        div()
+                                            .id("ai-prompt-context-options")
+                                            .w(px(220.0))
+                                            .p(px(d.menu_panel_padding))
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(d.menu_panel_gap))
+                                            .rounded(px(d.menu_panel_radius))
+                                            .border(px(d.dialog_border_width))
+                                            .border_color(c.dialog_border)
+                                            .bg(c.dialog_surface)
+                                            .shadow_lg()
+                                            .child(ai_prompt_dropdown_item(
+                                                "ai-context-selection",
+                                                "引用选中文本",
+                                                self.ai.prompt_context_mode == AiPromptContextMode::Selection,
+                                                selection_enabled,
+                                                theme,
+                                                cx.listener(Self::select_ai_prompt_context_selection),
+                                            ))
+                                            .child(ai_prompt_dropdown_item(
+                                                "ai-context-full-document",
+                                                "引用全文",
+                                                self.ai.prompt_context_mode == AiPromptContextMode::FullDocument,
+                                                true,
+                                                theme,
+                                                cx.listener(Self::select_ai_prompt_context_full_document),
+                                            ))
+                                            .child(ai_prompt_dropdown_item(
+                                                "ai-context-blank",
+                                                "全新对话",
+                                                self.ai.prompt_context_mode == AiPromptContextMode::Blank,
+                                                true,
+                                                theme,
+                                                cx.listener(Self::select_ai_prompt_context_blank),
+                                            )),
+                                    )
+                                }),
                         )
                         .child(
                             div()
@@ -1459,6 +1738,37 @@ fn ai_prompt_menu_item(
             .child(label)
             .into_any_element()
     }
+}
+
+fn ai_prompt_dropdown_item(
+    id: &'static str,
+    label: &'static str,
+    selected: bool,
+    enabled: bool,
+    theme: &Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let c = &theme.colors;
+    let d = &theme.dimensions;
+    let t = &theme.typography;
+    let mut item = div()
+        .id(id)
+        .min_h(px(30.0))
+        .px(px(10.0))
+        .flex()
+        .items_center()
+        .rounded(px(d.menu_item_radius))
+        .bg(if selected { c.selection } else { c.dialog_surface })
+        .text_size(px(t.dialog_body_size))
+        .text_color(if enabled { c.dialog_body } else { c.dialog_muted })
+        .child(label);
+    if enabled {
+        item = item
+            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+            .cursor_pointer()
+            .on_click(on_click);
+    }
+    item.into_any_element()
 }
 
 fn ai_hard_line_ranges(text: &str) -> Vec<Range<usize>> {
