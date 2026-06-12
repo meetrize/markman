@@ -26,6 +26,7 @@ use crate::components::{
 };
 use crate::theme::ThemeManager;
 mod close;
+mod ai;
 mod code_language_menu;
 mod code_run;
 mod context_menu;
@@ -167,6 +168,7 @@ pub struct Editor {
     inline_code_run_popover: Option<code_run::InlineCodeRunTarget>,
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
     quick_file_open: quick_file_open::QuickFileOpenState,
+    ai: ai::AiState,
 }
 
 /// Runtime binding between a table block and one cell editor.
@@ -388,6 +390,7 @@ impl Editor {
             inline_code_run_popover: None,
             code_run_dialog: None,
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
+            ai: ai::AiState::default(),
         };
         editor.rebuild_table_runtimes(cx);
         editor.rebuild_image_runtimes(cx);

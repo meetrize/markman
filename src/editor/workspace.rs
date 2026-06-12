@@ -133,6 +133,10 @@ impl Default for WorkspaceState {
 }
 
 impl Editor {
+    pub(super) fn workspace_root_for_ai(&self) -> Option<PathBuf> {
+        self.workspace.root.clone()
+    }
+
     pub(crate) fn toggle_workspace_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.workspace.is_open {
             self.workspace.is_open = false;

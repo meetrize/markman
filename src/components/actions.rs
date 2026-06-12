@@ -74,6 +74,12 @@ actions!(
         FindPreviousInDocument,
         QuickFileOpen,
         OpenWorkspaceSearch,
+        AskAi,
+        AiImproveSelection,
+        AiSummarizeSelection,
+        AiExpandSelection,
+        AiExplainSelection,
+        AiTasksSelection,
     ]
 );
 
@@ -164,6 +170,7 @@ pub(crate) enum ShortcutCommand {
     FindPreviousInDocument,
     QuickFileOpen,
     OpenWorkspaceSearch,
+    AskAi,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -519,6 +526,13 @@ const SHORTCUT_DEFINITIONS: &[ShortcutDefinition] = &[
         default_keys: &["cmd-shift-f", "ctrl-shift-f"],
         context: None,
     },
+    ShortcutDefinition {
+        command: ShortcutCommand::AskAi,
+        id: "ask_ai",
+        category: ShortcutCategory::Edit,
+        default_keys: &["cmd-shift-a", "ctrl-shift-a"],
+        context: None,
+    },
 ];
 
 pub(crate) fn shortcut_definitions() -> &'static [ShortcutDefinition] {
@@ -703,6 +717,7 @@ fn key_binding_for(
         }
         ShortcutCommand::QuickFileOpen => KeyBinding::new(key, QuickFileOpen, context),
         ShortcutCommand::OpenWorkspaceSearch => KeyBinding::new(key, OpenWorkspaceSearch, context),
+        ShortcutCommand::AskAi => KeyBinding::new(key, AskAi, context),
     }
 }
 

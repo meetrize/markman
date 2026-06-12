@@ -10,10 +10,11 @@ use anyhow::Context as _;
 use gpui::*;
 
 use crate::components::{
-    AddLanguageConfig, AddThemeConfig, CheckForUpdates, CloseWindow, ExportHtml, ExportPdf,
-    InstallCliTool, NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile,
-    QuitApplication, SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme, ShowAbout,
-    ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
+    AddLanguageConfig, AddThemeConfig, AiExpandSelection, AiExplainSelection, AiImproveSelection,
+    AiSummarizeSelection, AiTasksSelection, AskAi, CheckForUpdates, CloseWindow, ExportHtml,
+    ExportPdf, InstallCliTool, NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences,
+    OpenRecentFile, QuitApplication, SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme,
+    ShowAbout, ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
 use crate::app_visibility;
 use crate::config::{
@@ -411,6 +412,12 @@ fn is_editor_scoped_menu_action(action: &dyn Action) -> bool {
         || action.as_any().is::<InstallCliTool>()
         || action.as_any().is::<UninstallCliTool>()
         || action.as_any().is::<ToggleWorkspace>()
+        || action.as_any().is::<AskAi>()
+        || action.as_any().is::<AiImproveSelection>()
+        || action.as_any().is::<AiSummarizeSelection>()
+        || action.as_any().is::<AiExpandSelection>()
+        || action.as_any().is::<AiExplainSelection>()
+        || action.as_any().is::<AiTasksSelection>()
 }
 
 fn is_window_context_menu_action(action: &dyn Action) -> bool {
@@ -614,6 +621,30 @@ pub(crate) fn dispatch_menu_action(action: &dyn Action, cx: &mut App) {
         let _ = with_active_editor(cx, |editor, window, cx| {
             editor.toggle_workspace_drawer(window, cx);
         });
+    } else if action.as_any().is::<AskAi>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ask_ai(&AskAi, window, cx);
+        });
+    } else if action.as_any().is::<AiImproveSelection>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ai_improve_selection(&AiImproveSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiSummarizeSelection>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ai_summarize_selection(&AiSummarizeSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiExpandSelection>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ai_expand_selection(&AiExpandSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiExplainSelection>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ai_explain_selection(&AiExplainSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiTasksSelection>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ai_tasks_selection(&AiTasksSelection, window, cx);
+        });
     } else if action.as_any().is::<QuitApplication>() {
         request_quit_application(cx);
     } else if action.as_any().is::<CloseWindow>() {
@@ -688,6 +719,30 @@ pub(crate) fn dispatch_menu_action_for_editor(
     } else if action.as_any().is::<ToggleWorkspace>() {
         let _ = target.update(cx, |editor, cx| {
             editor.toggle_workspace_drawer(window, cx);
+        });
+    } else if action.as_any().is::<AskAi>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ask_ai(&AskAi, window, cx);
+        });
+    } else if action.as_any().is::<AiImproveSelection>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ai_improve_selection(&AiImproveSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiSummarizeSelection>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ai_summarize_selection(&AiSummarizeSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiExpandSelection>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ai_expand_selection(&AiExpandSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiExplainSelection>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ai_explain_selection(&AiExplainSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiTasksSelection>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ai_tasks_selection(&AiTasksSelection, window, cx);
         });
     }
 }
@@ -871,6 +926,18 @@ fn build_menus(
         Menu {
             name: strings.menu_theme.into(),
             items: theme_items,
+        },
+        Menu {
+            name: SharedString::from("AI"),
+            items: vec![
+                MenuItem::action("Ask AI".to_string(), AskAi),
+                MenuItem::separator(),
+                MenuItem::action("Improve Writing".to_string(), AiImproveSelection),
+                MenuItem::action("Summarize".to_string(), AiSummarizeSelection),
+                MenuItem::action("Expand".to_string(), AiExpandSelection),
+                MenuItem::action("Explain".to_string(), AiExplainSelection),
+                MenuItem::action("Turn Into Tasks".to_string(), AiTasksSelection),
+            ],
         },
         Menu {
             name: strings.menu_workspace.into(),
@@ -1189,6 +1256,24 @@ pub(crate) fn init(cx: &mut App) {
     cx.on_action(|_: &ToggleWorkspace, cx| {
         dispatch_menu_action(&ToggleWorkspace, cx);
     });
+    cx.on_action(|_: &AskAi, cx| {
+        dispatch_menu_action(&AskAi, cx);
+    });
+    cx.on_action(|_: &AiImproveSelection, cx| {
+        dispatch_menu_action(&AiImproveSelection, cx);
+    });
+    cx.on_action(|_: &AiSummarizeSelection, cx| {
+        dispatch_menu_action(&AiSummarizeSelection, cx);
+    });
+    cx.on_action(|_: &AiExpandSelection, cx| {
+        dispatch_menu_action(&AiExpandSelection, cx);
+    });
+    cx.on_action(|_: &AiExplainSelection, cx| {
+        dispatch_menu_action(&AiExplainSelection, cx);
+    });
+    cx.on_action(|_: &AiTasksSelection, cx| {
+        dispatch_menu_action(&AiTasksSelection, cx);
+    });
     cx.on_action(|_: &ToggleApplicationVisibility, cx| {
         app_visibility::toggle_application_visibility(cx);
     });
@@ -1208,9 +1293,10 @@ pub(crate) fn init(cx: &mut App) {
 mod tests {
     use super::{applescript_string_literal, build_menus};
     use crate::components::{
-        AddLanguageConfig, AddThemeConfig, CheckForUpdates, CloseWindow, ExportHtml, ExportPdf,
-        NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile, QuitApplication,
-        SaveDocument, SelectLanguage, SelectTheme, ShowAbout,
+        AddLanguageConfig, AddThemeConfig, AiSummarizeSelection, AskAi, CheckForUpdates,
+        CloseWindow, ExportHtml, ExportPdf, NewWindow, NoRecentFiles, OpenFile, OpenFolder,
+        OpenPreferences, OpenRecentFile, QuitApplication, SaveDocument, SelectLanguage,
+        SelectTheme, ShowAbout,
     };
     use crate::i18n::I18nManager;
     use crate::theme::ThemeManager;
@@ -1245,8 +1331,8 @@ mod tests {
         );
     }
 
-    // On macOS the menu bar is: [Velotype app menu, File, Export, Language, Theme, Workspace, Help]
-    // On other platforms:       [File, Export, Language, Theme, Workspace, Help]
+    // On macOS the menu bar is: [Velotype app menu, File, Export, Language, Theme, AI, Workspace, Help]
+    // On other platforms:       [File, Export, Language, Theme, AI, Workspace, Help]
     #[cfg(target_os = "macos")]
     const EXPORT_IDX: usize = 2;
     #[cfg(not(target_os = "macos"))]
@@ -1263,14 +1349,19 @@ mod tests {
     const THEME_IDX: usize = 3;
 
     #[cfg(target_os = "macos")]
-    const WORKSPACE_IDX: usize = 5;
+    const AI_IDX: usize = 5;
     #[cfg(not(target_os = "macos"))]
-    const WORKSPACE_IDX: usize = 4;
+    const AI_IDX: usize = 4;
 
     #[cfg(target_os = "macos")]
-    const HELP_IDX: usize = 6;
+    const WORKSPACE_IDX: usize = 6;
     #[cfg(not(target_os = "macos"))]
-    const HELP_IDX: usize = 5;
+    const WORKSPACE_IDX: usize = 5;
+
+    #[cfg(target_os = "macos")]
+    const HELP_IDX: usize = 7;
+    #[cfg(not(target_os = "macos"))]
+    const HELP_IDX: usize = 6;
 
     #[test]
     fn build_menus_uses_english_fallback_by_default() {
@@ -1292,6 +1383,7 @@ mod tests {
                 "Export",
                 "Language",
                 "Theme",
+                "AI",
                 "Workspace",
                 "Help"
             ]
@@ -1299,7 +1391,7 @@ mod tests {
         #[cfg(not(target_os = "macos"))]
         assert_eq!(
             menu_names,
-            vec!["File", "Export", "Language", "Theme", "Workspace", "Help"]
+            vec!["File", "Export", "Language", "Theme", "AI", "Workspace", "Help"]
         );
 
         // New Window belongs with file operations on macOS and remains the
@@ -1371,12 +1463,12 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(
             menu_names,
-            vec!["Markman", "文件", "导出", "语言", "主题", "工作区", "帮助"]
+            vec!["Markman", "文件", "导出", "语言", "主题", "AI", "工作区", "帮助"]
         );
         #[cfg(not(target_os = "macos"))]
         assert_eq!(
             menu_names,
-            vec!["文件", "导出", "语言", "主题", "工作区", "帮助"]
+            vec!["文件", "导出", "语言", "主题", "AI", "工作区", "帮助"]
         );
 
         #[cfg(target_os = "macos")]
@@ -1429,6 +1521,27 @@ mod tests {
                 assert_eq!(action.language_id, "zh-CN");
             }
             _ => panic!("expected language action item"),
+        }
+    }
+
+    #[test]
+    fn ai_menu_items_dispatch_ai_actions() {
+        let theme_manager = ThemeManager::default();
+        let i18n_manager = I18nManager::default();
+        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let ai_items = &menus[AI_IDX].items;
+
+        match &ai_items[0] {
+            MenuItem::Action { action, .. } => {
+                assert!(action.as_any().is::<AskAi>());
+            }
+            _ => panic!("expected ask ai action item"),
+        }
+        match &ai_items[3] {
+            MenuItem::Action { action, .. } => {
+                assert!(action.as_any().is::<AiSummarizeSelection>());
+            }
+            _ => panic!("expected summarize action item"),
         }
     }
 

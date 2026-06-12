@@ -3,7 +3,7 @@
 use gpui::*;
 
 use crate::components::markdown::source_format::{MarkdownToolbarAction, apply_markdown_toolbar_action};
-use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
+use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
 use crate::theme::Theme;
 
 use super::Editor;
@@ -294,6 +294,32 @@ impl Editor {
                     .flex()
                     .items_center()
                     .gap(px(d.format_toolbar_gap))
+                    .child({
+                        let button_editor = editor.clone();
+                        div()
+                            .id("ai-toolbar-button")
+                            .h(px(d.format_toolbar_button_height))
+                            .px(px(10.0))
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(d.format_toolbar_button_radius))
+                            .bg(c.dialog_surface)
+                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                            .active(|this| this.opacity(0.92))
+                            .cursor_pointer()
+                            .text_size(px(12.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(icon_color)
+                            .child("AI")
+                            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                cx.stop_propagation();
+                                let _ = button_editor.update(cx, |editor, cx| {
+                                    editor.on_ask_ai(&AskAi, window, cx);
+                                });
+                            })
+                    })
                     .child(
                         div()
                             .id("document-search-toggle")

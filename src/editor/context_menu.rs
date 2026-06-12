@@ -5,7 +5,11 @@ use std::time::Duration;
 use gpui::*;
 
 use super::{Editor, TableAxisSelection, ViewMode};
-use crate::components::{Copy, Cut, DismissTransientUi, Paste, SelectAll, TableAxisKind, TableColumnAlignment, TableData};
+use crate::components::{
+    AiExpandSelection, AiExplainSelection, AiImproveSelection, AiSummarizeSelection,
+    AiTasksSelection, Copy, Cut, DismissTransientUi, Paste, SelectAll, TableAxisKind,
+    TableColumnAlignment, TableData,
+};
 use crate::i18n::I18nManager;
 use crate::theme::Theme;
 
@@ -161,6 +165,56 @@ impl Editor {
     ) {
         self.close_context_menu(cx);
         self.undo_document(cx);
+    }
+
+    pub(super) fn on_context_menu_ai_improve(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        self.on_ai_improve_selection(&AiImproveSelection, window, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_summarize(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        self.on_ai_summarize_selection(&AiSummarizeSelection, window, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_expand(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        self.on_ai_expand_selection(&AiExpandSelection, window, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_explain(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        self.on_ai_explain_selection(&AiExplainSelection, window, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_tasks(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        self.on_ai_tasks_selection(&AiTasksSelection, window, cx);
     }
 
     pub(super) fn open_table_axis_context_menu(
@@ -867,6 +921,57 @@ impl Editor {
                         cx,
                     ),
                 ];
+
+                items.push(
+                    div()
+                        .mx(px(d.menu_separator_margin_x))
+                        .my(px(d.menu_separator_margin_y))
+                        .h(px(d.menu_separator_height))
+                        .bg(c.dialog_border)
+                        .into_any_element(),
+                );
+                items.extend([
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-ai-improve",
+                        "AI: Improve writing".to_string(),
+                        has_selection,
+                        Self::on_context_menu_ai_improve,
+                        cx,
+                    ),
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-ai-summarize",
+                        "AI: Summarize".to_string(),
+                        has_selection,
+                        Self::on_context_menu_ai_summarize,
+                        cx,
+                    ),
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-ai-expand",
+                        "AI: Expand".to_string(),
+                        has_selection,
+                        Self::on_context_menu_ai_expand,
+                        cx,
+                    ),
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-ai-explain",
+                        "AI: Explain".to_string(),
+                        has_selection,
+                        Self::on_context_menu_ai_explain,
+                        cx,
+                    ),
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-ai-tasks",
+                        "AI: Turn into tasks".to_string(),
+                        has_selection,
+                        Self::on_context_menu_ai_tasks,
+                        cx,
+                    ),
+                ]);
 
                 if show_insert {
                     items.push(

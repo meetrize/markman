@@ -1747,7 +1747,13 @@ impl Render for Editor {
             .on_action(cx.listener(Self::on_dismiss_transient_ui))
             .on_action(cx.listener(Self::on_install_cli_tool))
             .on_action(cx.listener(Self::on_uninstall_cli_tool))
-            .on_action(cx.listener(Self::on_quick_file_open));
+            .on_action(cx.listener(Self::on_quick_file_open))
+            .on_action(cx.listener(Self::on_ask_ai))
+            .on_action(cx.listener(Self::on_ai_improve_selection))
+            .on_action(cx.listener(Self::on_ai_summarize_selection))
+            .on_action(cx.listener(Self::on_ai_expand_selection))
+            .on_action(cx.listener(Self::on_ai_explain_selection))
+            .on_action(cx.listener(Self::on_ai_tasks_selection));
         // Fetch menus + collect labels once for both renderers; previously each
         // of render_in_window_menu_bar / render_in_window_menu_panel called
         // cx.get_menus() and walked menus.iter().map(|m| m.name.to_string())
@@ -1856,6 +1862,11 @@ impl Render for Editor {
             } else {
                 base
             };
+        let base = if let Some(ai_preview) = self.render_ai_preview_overlay(&theme, cx) {
+            base.child(ai_preview)
+        } else {
+            base
+        };
         let base = if let Some(kind) = self.info_dialog {
             base.child(self.render_info_dialog_overlay(&theme, kind, cx))
         } else if let Some(dialog) = self.render_code_run_dialog_overlay(&theme, cx) {
