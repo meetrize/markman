@@ -27,7 +27,6 @@ use crate::theme::Theme;
 const WORKSPACE_CONTEXT_FILE_LIMIT: usize = 8;
 const WORKSPACE_CONTEXT_BYTES_PER_FILE: usize = 1200;
 
-const ICON_AI_CUSTOM: &str = "icon/toolbar/sparkles.svg";
 const ICON_AI_IMPROVE: &str = "icon/toolbar/wand-sparkles.svg";
 const ICON_AI_SUMMARIZE: &str = "icon/toolbar/list-collapse.svg";
 const ICON_AI_EXPAND: &str = "icon/toolbar/maximize-2.svg";
@@ -272,6 +271,24 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.close_ai_prompt_dialog(cx);
+    }
+
+    fn on_ai_prompt_backdrop_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_ai_prompt_dialog(cx);
+    }
+
+    fn on_ai_prompt_panel_mouse_down(
+        &mut self,
+        _: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
     }
 
     pub(super) fn ai_prompt_focus_handle(&self) -> FocusHandle {
@@ -1279,15 +1296,16 @@ impl Editor {
             .items_center()
             .justify_center()
             .bg(c.dialog_backdrop)
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_ai_prompt_backdrop_mouse_down))
             .child(
                     div()
                         .id("ai-prompt-dialog")
                         .w(px(d.dialog_width.max(560.0)))
                         .max_w(relative(0.86))
-                        .p(px(d.dialog_padding))
+                        .p(px(10.0))
                         .flex()
                         .flex_col()
-                        .gap(px(d.dialog_gap))
+                        .relative()
                         .key_context("BlockEditor")
                         .track_focus(&self.ai.prompt_focus)
                         .on_key_down(cx.listener(Self::on_ai_prompt_key_down))
@@ -1310,31 +1328,33 @@ impl Editor {
                         .border_color(c.dialog_border)
                         .rounded(px(d.dialog_radius))
                         .shadow_lg()
+                        .on_mouse_down(MouseButton::Left, cx.listener(Self::on_ai_prompt_panel_mouse_down))
                         .child(
                             div()
+                                .id("ai-prompt-close")
+                                .absolute()
+                                .top(px(8.0))
+                                .right(px(8.0))
+                                .size(px(26.0))
                                 .flex()
                                 .items_center()
-                                .gap(px(8.0))
-                                .text_size(px(t.dialog_title_size))
-                                .font_weight(t.dialog_title_weight.to_font_weight())
-                                .text_color(c.dialog_title)
-                                .child(svg().path(ICON_AI_CUSTOM).size(px(18.0)).text_color(c.dialog_title))
-                                .child("自定义 AI 提示词"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(t.dialog_body_size))
-                                .text_color(c.dialog_body)
-                                .child("将引用当前选区或当前块作为上下文。请输入你希望 AI 执行的指令。"),
+                                .justify_center()
+                                .rounded(px(d.format_toolbar_button_radius))
+                                .bg(c.dialog_surface)
+                                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                .cursor_pointer()
+                                .child(svg().path("icon/toolbar/x.svg").size(px(16.0)).text_color(c.dialog_secondary_button_text))
+                                .on_click(cx.listener(Self::cancel_ai_prompt_dialog)),
                         )
                         .child(
                             div()
                                 .id("ai-prompt-input")
-                                .h(px(140.0))
+                                .h(px(170.0))
                                 .px(px(12.0))
-                                .py(px(10.0))
+                                .pt(px(16.0))
+                                .pb(px(44.0))
                                 .flex()
-                                .items_center()
+                                .relative()
                                 .rounded(px(d.menu_item_radius))
                                 .border(px(d.dialog_border_width))
                                 .border_color(c.dialog_border)
@@ -1349,38 +1369,24 @@ impl Editor {
                                         .child(AiPromptTextAreaElement::new(
                                             cx.entity(),
                                             SharedString::from("例如：把这段内容改写得更正式"),
-                                        )),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .w_full()
-                                .flex()
-                                .flex_col()
-                                .gap(px(4.0))
-                                .child(
-                                    div()
-                                        .text_size(px(t.dialog_body_size))
-                                        .font_weight(t.dialog_button_weight.to_font_weight())
-                                        .text_color(c.dialog_title)
-                                        .child("上下文"),
+                                        ))
                                 )
                                 .child(
                                     div()
+                                        .absolute()
+                                        .left(px(10.0))
+                                        .bottom(px(8.0))
                                         .id("ai-prompt-context-dropdown")
-                                        .w(px(220.0))
-                                        .min_h(px(34.0))
-                                        .px(px(12.0))
+                                        .h(px(28.0))
+                                        .px(px(8.0))
                                         .flex()
                                         .items_center()
-                                        .justify_between()
+                                        .gap(px(6.0))
                                         .rounded(px(d.menu_item_radius))
-                                        .border(px(d.dialog_border_width))
-                                        .border_color(c.dialog_border)
-                                        .bg(c.editor_background)
+                                        .bg(c.dialog_surface)
                                         .hover(|this| this.bg(c.dialog_secondary_button_hover))
                                         .cursor_pointer()
-                                        .text_size(px(t.dialog_body_size))
+                                        .text_size(px((t.dialog_body_size - 1.0).max(11.0)))
                                         .text_color(c.dialog_body)
                                         .child(self.ai.prompt_context_mode.label())
                                         .child("v")
@@ -1390,7 +1396,10 @@ impl Editor {
                                     this.child(
                                         div()
                                             .id("ai-prompt-context-options")
-                                            .w(px(220.0))
+                                            .absolute()
+                                            .left(px(10.0))
+                                            .bottom(px(40.0))
+                                            .w(px(180.0))
                                             .p(px(d.menu_panel_padding))
                                             .flex()
                                             .flex_col()
@@ -1425,30 +1434,24 @@ impl Editor {
                                                 cx.listener(Self::select_ai_prompt_context_blank),
                                             )),
                                     )
-                                }),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .justify_end()
-                                .gap(px(d.dialog_button_gap))
-                                .child(ai_dialog_button(
-                                    "ai-prompt-cancel",
-                                    "取消",
-                                    theme,
-                                    cx.listener(Self::cancel_ai_prompt_dialog),
-                                ))
-                                .child(if can_submit {
-                                    ai_dialog_primary_button(
-                                        "ai-prompt-submit",
-                                        "发送",
-                                        theme,
-                                        cx.listener(Self::confirm_ai_prompt_dialog),
-                                    )
-                                    .into_any_element()
-                                } else {
-                                    ai_dialog_disabled_button("ai-prompt-submit-disabled", "发送", theme)
-                                }),
+                                })
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .right(px(10.0))
+                                        .bottom(px(8.0))
+                                        .child(if can_submit {
+                                            ai_dialog_primary_button(
+                                                "ai-prompt-submit",
+                                                "发送",
+                                                theme,
+                                                cx.listener(Self::confirm_ai_prompt_dialog),
+                                            )
+                                            .into_any_element()
+                                        } else {
+                                            ai_dialog_disabled_button("ai-prompt-submit-disabled", "发送", theme)
+                                        }),
+                                ),
                         ),
             );
         Some(if let Some(menu) = self.render_ai_prompt_context_menu(theme, cx) {
