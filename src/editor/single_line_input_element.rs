@@ -132,19 +132,9 @@ impl Element for SingleLineInputElement {
                 SingleLineInputTarget::QuickFileOpen => {
                     let is_placeholder = editor.quick_file_open_query_is_empty();
                     let text_color = if is_placeholder {
-                        Hsla {
-                            h: 0.0,
-                            s: 0.0,
-                            l: 0.55,
-                            a: 1.0,
-                        }
+                        theme.colors.dialog_muted
                     } else {
-                        Hsla {
-                            h: 0.0,
-                            s: 0.0,
-                            l: 0.15,
-                            a: 1.0,
-                        }
+                        theme.colors.text_default
                     };
                     (
                         editor.quick_file_open_display_text(&self.placeholder),
@@ -153,7 +143,7 @@ impl Element for SingleLineInputElement {
                         editor.quick_file_open_input_active(window),
                         None,
                         0..0,
-                        editor.quick_file_open_query().len(),
+                        editor.quick_file_open_cursor_offset(),
                     )
                 }
             };

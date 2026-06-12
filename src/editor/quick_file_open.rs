@@ -31,10 +31,6 @@ pub(super) struct QuickFileOpenState {
     pub(super) results: Vec<QuickFileOpenResult>,
     /// Index of the currently highlighted result (0-based).
     pub(super) selection: usize,
-    /// Width of the overlay panel in pixels.
-    pub(super) panel_width: f32,
-    /// Maximum number of visible result rows before scrolling.
-    pub(super) max_visible_rows: usize,
     /// Scroll offset into the result list.
     pub(super) scroll_top: usize,
     /// Focus handle for the search input.
@@ -49,8 +45,6 @@ pub(super) struct QuickFileOpenResult {
     pub(super) label: String,
     /// Parent-directory breadcrumb shown as muted detail.
     pub(super) detail: String,
-    /// Match score for ranking (lower = better).
-    pub(super) score: usize,
 }
 
 impl QuickFileOpenState {
@@ -61,8 +55,6 @@ impl QuickFileOpenState {
             all_files: Vec::new(),
             results: Vec::new(),
             selection: 0,
-            panel_width: 560.0,
-            max_visible_rows: 12,
             scroll_top: 0,
             focus_handle: cx.focus_handle(),
         }
@@ -70,6 +62,8 @@ impl QuickFileOpenState {
 }
 
 impl Editor {
+    const QUICK_FILE_OPEN_PANEL_WIDTH: f32 = 560.0;
+    const QUICK_FILE_OPEN_MAX_VISIBLE_ROWS: usize = 12;
     const QUICK_FILE_OPEN_ROW_HEIGHT: f32 = 32.0;
     const QUICK_FILE_OPEN_PANEL_BG: Hsla = Hsla {
         h: 0.0,
@@ -129,29 +123,13 @@ impl Editor {
         self.dismiss_contextual_overlays(cx);
         let root = self.effective_workspace_root();
 
-        // Load recent files for when query is empty.
-        let recent = read_recent_files().unwrap_or_default();
-        let recent: Vec<PathBuf> = recent.into_iter().take(10).collect();
-
-        // Collect all files (not just Markdown) in the workspace root.
         let all_files = collect_all_files(root.as_deref());
 
         let state = &mut self.quick_file_open;
         state.open = true;
         state.query.clear();
         state.all_files = all_files;
-
-        // When query is empty, show recent files at top.
-        let root_ref = root.as_deref();
-        state.results = recent
-            .iter()
-            .map(|path| QuickFileOpenResult {
-                path: path.clone(),
-                label: file_display_label(root_ref, path),
-                detail: file_parent_label(root_ref, path),
-                score: 0,
-            })
-            .collect();
+        state.results = recent_quick_file_open_results(root.as_deref());
         state.selection = 0;
         state.scroll_top = 0;
         window.focus(&self.quick_file_open.focus_handle);
@@ -168,9 +146,8 @@ impl Editor {
         self.quick_file_open.query.is_empty()
     }
 
-    /// Returns the current search query string.
-    pub(super) fn quick_file_open_query(&self) -> &str {
-        &self.quick_file_open.query
+    pub(super) fn quick_file_open_cursor_offset(&self) -> usize {
+        self.quick_file_open.query.len()
     }
 
     /// Returns the display text for the input element.
@@ -208,8 +185,25 @@ impl Editor {
         self.quick_file_open.results.clear();
         self.quick_file_open.all_files.clear();
         self.pending_focus = self.first_focusable_entity_id(cx);
-        
         cx.notify();
+    }
+
+    pub(super) fn replace_quick_file_open_from_utf16(
+        &mut self,
+        range_utf16: Option<&Range<usize>>,
+        new_text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.quick_file_open_input_active(window) {
+            return false;
+        }
+        let len = self.quick_file_open.query.len();
+        let range = range_utf16
+            .map(|r| r.start.min(len)..r.end.min(len))
+            .unwrap_or(len..len);
+        self.replace_quick_file_open_text(range, new_text, cx);
+        true
     }
 
     /// Runs the fuzzy search and updates the result list.
@@ -219,20 +213,8 @@ impl Editor {
         let all_files = self.quick_file_open.all_files.clone();
         let root = self.effective_workspace_root();
 
-        let results: Vec<QuickFileOpenResult> = if query.is_empty() {
-            // When query is empty, show recent files.
-            let recent = read_recent_files().unwrap_or_default();
-            let root_ref = root.as_deref();
-            recent
-                .into_iter()
-                .take(10)
-                .map(|path| QuickFileOpenResult {
-                    path: path.clone(),
-                    label: file_display_label(root_ref, &path),
-                    detail: file_parent_label(root_ref, &path),
-                    score: 0,
-                })
-                .collect()
+        let results = if query.is_empty() {
+            recent_quick_file_open_results(root.as_deref())
         } else {
             let query_lower = query.to_lowercase();
             let mut scored: Vec<(usize, QuickFileOpenResult)> = all_files
@@ -253,16 +235,16 @@ impl Editor {
                     } else {
                         score
                     };
-
-                    Some((
-                        final_score,
-                        QuickFileOpenResult {
-                            path: path.clone(),
-                            label,
-                            detail,
-                            score: final_score,
-                        },
-                    ))
+                    (final_score < usize::MAX).then(|| {
+                        (
+                            final_score,
+                            QuickFileOpenResult {
+                                path: path.clone(),
+                                label,
+                                detail,
+                            },
+                        )
+                    })
                 })
                 .collect();
 
@@ -275,7 +257,7 @@ impl Editor {
 
         let state = &mut self.quick_file_open;
         state.results = results;
-        state.selection = if state.results.is_empty() { 0 } else { 0 };
+        state.selection = 0;
         state.scroll_top = 0;
         cx.notify();
     }
@@ -297,8 +279,9 @@ impl Editor {
         // Scroll to keep the selection visible.
         if new_index < state.scroll_top {
             state.scroll_top = new_index;
-        } else if new_index >= state.scroll_top + state.max_visible_rows {
-            state.scroll_top = new_index.saturating_sub(state.max_visible_rows - 1);
+        } else if new_index >= state.scroll_top + Self::QUICK_FILE_OPEN_MAX_VISIBLE_ROWS {
+            state.scroll_top =
+                new_index.saturating_sub(Self::QUICK_FILE_OPEN_MAX_VISIBLE_ROWS - 1);
         }
         cx.notify();
     }
@@ -316,7 +299,6 @@ impl Editor {
         let path = result.path.clone();
         self.close_quick_file_open(cx);
         self.open_workspace_file(path, window, cx);
-        cx.notify();
     }
 
     /// Handles key-down events when the quick-file-open input is focused.
@@ -353,7 +335,6 @@ impl Editor {
                 cx.stop_propagation();
             }
             "delete" => {
-                self.quick_file_open_delete_forward(cx);
                 cx.stop_propagation();
             }
             "up" => {
@@ -394,10 +375,6 @@ impl Editor {
         }
     }
 
-    fn quick_file_open_delete_forward(&mut self, _cx: &mut Context<Self>) {
-        // Single-line input — delete forward is a no-op at end.
-    }
-
     /// Renders the quick-file-open overlay.
     pub(super) fn render_quick_file_open_overlay(
         &self,
@@ -414,14 +391,13 @@ impl Editor {
         let d = &theme.dimensions;
         let editor = cx.entity().downgrade();
 
-        let panel_width = state.panel_width;
         let result_row_height = Self::QUICK_FILE_OPEN_ROW_HEIGHT;
         let results_px = 8.0;
         let results_py = 4.0;
 
         // Build visible result rows (with virtual scrolling).
         let mut result_rows = Vec::new();
-        let end = (state.scroll_top + state.max_visible_rows).min(state.results.len());
+        let end = (state.scroll_top + Self::QUICK_FILE_OPEN_MAX_VISIBLE_ROWS).min(state.results.len());
         for index in state.scroll_top..end {
             let result = &state.results[index];
             let is_selected = index == state.selection;
@@ -481,9 +457,10 @@ impl Editor {
         }
 
         let total_height = state.results.len() as f32 * (result_row_height + results_py);
-        let visible_results_height =
-            ((state.max_visible_rows as f32).min(state.results.len() as f32) * (result_row_height + results_py))
-                .max(0.0);
+        let visible_results_height = ((Self::QUICK_FILE_OPEN_MAX_VISIBLE_ROWS as f32)
+            .min(state.results.len() as f32)
+            * (result_row_height + results_py))
+            .max(0.0);
         let scroll_offset = state.scroll_top as f32 * (result_row_height + results_py);
 
         // Placeholder text.
@@ -516,7 +493,7 @@ impl Editor {
                 })
                 .child(
                     div()
-                        .w(px(panel_width))
+                        .w(px(Self::QUICK_FILE_OPEN_PANEL_WIDTH))
                         .flex()
                         .flex_col()
                         .bg(Self::QUICK_FILE_OPEN_PANEL_BG)
@@ -596,6 +573,19 @@ impl Editor {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn recent_quick_file_open_results(root: Option<&Path>) -> Vec<QuickFileOpenResult> {
+    read_recent_files()
+        .unwrap_or_default()
+        .into_iter()
+        .take(10)
+        .map(|path| QuickFileOpenResult {
+            path: path.clone(),
+            label: file_display_label(root, &path),
+            detail: file_parent_label(root, &path),
+        })
+        .collect()
+}
 
 /// Recursively collects all regular files under `root`, sorted.
 fn collect_all_files(root: Option<&Path>) -> Vec<PathBuf> {

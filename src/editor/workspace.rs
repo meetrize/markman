@@ -2295,13 +2295,7 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.quick_file_open_input_active(window) {
-            let len = self.quick_file_open.query.len();
-            let range = range_utf16
-                .as_ref()
-                .map(|r| r.start.min(len)..r.end.min(len))
-                .unwrap_or(len..len);
-            self.replace_quick_file_open_text(range, new_text, cx);
+        if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
 
@@ -2352,13 +2346,7 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.quick_file_open_input_active(window) {
-            let len = self.quick_file_open.query.len();
-            let range = range_utf16
-                .as_ref()
-                .map(|r| r.start.min(len)..r.end.min(len))
-                .unwrap_or(len..len);
-            self.replace_quick_file_open_text(range, new_text, cx);
+        if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
 

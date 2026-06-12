@@ -221,7 +221,6 @@ pub struct I18nStrings {
     pub preferences_shortcut_toggle_workspace: String,
     pub preferences_shortcut_find_next_in_document: String,
     pub preferences_shortcut_find_previous_in_document: String,
-    /// Label for the quick-file-open shortcut in the preferences window.
     pub preferences_shortcut_quick_file_open: String,
     /// Workspace drawer Files tab.
     pub workspace_tab_files: String,
@@ -415,7 +414,6 @@ pub struct I18nStrings {
     pub preferences_allow_code_execution_off: String,
     /// Preferences label for running inline code in the system terminal.
     pub preferences_inline_code_system_terminal_label: String,
-    /// Placeholder shown in the quick-file-open (Cmd+P) search input.
     pub quick_file_open_placeholder: String,
 }
 
@@ -2017,7 +2015,6 @@ impl I18nStrings {
         }
     }
 
-    /// Serialize the built-in English strings as a reference
     /// Returns a built-in string set for a supported language id.
     pub fn for_language_id(language_id: &str) -> Option<Self> {
         match language_id {
