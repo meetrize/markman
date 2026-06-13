@@ -94,6 +94,18 @@ impl Editor {
             block
                 .entity
                 .update(cx, |block, _cx| block.clear_table_runtime());
+            if block.entity.read(cx).is_columns_raw_markdown() {
+                let embedded = block
+                    .entity
+                    .read(cx)
+                    .column_embedded_tables
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for table_block in embedded {
+                    table_block.update(cx, |block, _cx| block.clear_table_runtime());
+                }
+            }
         }
         for visible in visible {
             let Some(table) = visible.entity.read(cx).record.table.clone() else {
@@ -153,14 +165,24 @@ impl Editor {
                     };
 
                     let stored = table_block.read(cx).record.table.clone();
-                    if stored.as_ref() != Some(table) {
+                    let runtime_table = if let Some(stored_table) = stored {
+                        if stored_table != *table {
+                            table_block.update(cx, |block, _cx| {
+                                block.record.table = Some(stored_table.clone());
+                            });
+                            self.sync_column_embedded_table_to_host(&table_block, cx);
+                            stored_table
+                        } else {
+                            stored_table
+                        }
+                    } else {
                         table_block.update(cx, |block, _cx| {
                             block.record.table = Some(table.clone());
                         });
-                        self.install_table_runtime_for_block(&table_block, table, cx);
-                    } else if table_block.read(cx).table_runtime.is_none() {
-                        self.install_table_runtime_for_block(&table_block, table, cx);
-                    }
+                        table.clone()
+                    };
+                    table_block.update(cx, |block, _cx| block.clear_table_runtime());
+                    self.install_table_runtime_for_block(&table_block, &runtime_table, cx);
                     self.sync_runtime_context_for_block(
                         &table_block,
                         self.image_base_dir().as_deref(),
@@ -367,6 +389,9 @@ impl Editor {
         table_block.update(cx, move |block, _cx| {
             block.record.table = Some(table.clone());
         });
+        if table_block.read(cx).embedded_column_table {
+            self.sync_column_embedded_table_to_host(table_block, cx);
+        }
         self.rebuild_table_runtimes(cx);
         if let Some(cell) = table_block
             .read(cx)
@@ -401,6 +426,9 @@ impl Editor {
         table_block.update(cx, move |block, _cx| {
             block.record.table = Some(table.clone());
         });
+        if table_block.read(cx).embedded_column_table {
+            self.sync_column_embedded_table_to_host(table_block, cx);
+        }
         self.rebuild_table_runtimes(cx);
         if let Some(cell) = table_block
             .read(cx)

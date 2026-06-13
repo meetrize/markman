@@ -4744,9 +4744,10 @@ impl Render for Block {
                     self.interaction_bounds = None;
                 }
                 let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
-                focused_base
-                    .min_h(px(0.0))
+                div()
+                    .id(block_id)
                     .w_full()
+                    .min_w(px(0.0))
                     .child(self.render_columns_markdown(
                         rendered_columns.unwrap_or_default(),
                         &theme,

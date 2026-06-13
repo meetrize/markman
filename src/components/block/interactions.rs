@@ -8,6 +8,7 @@ use std::time::Duration;
 use gpui::*;
 
 use super::CollapsedCaretAffinity;
+use super::parse_columns_markdown;
 use super::{Block, BlockEvent, BlockKind, InlineFormat, InlineTextTree, UndoCaptureKind};
 use crate::components::markdown::paste::should_split_plain_multiline_paste;
 use crate::components::{
@@ -998,7 +999,10 @@ impl Block {
         }
 
         let was_focused = self.focus_handle.is_focused(window);
-        if self.is_columns_raw_markdown() && was_focused {
+        let columns_preview_active = self.is_columns_raw_markdown()
+            && parse_columns_markdown(self.display_text()).is_some()
+            && !self.columns_source_edit;
+        if self.is_columns_raw_markdown() && was_focused && !columns_preview_active {
             self.enable_columns_source_edit(cx);
         }
         if self.kind().is_code_block() && self.code_block_is_collapsible() && !was_focused {

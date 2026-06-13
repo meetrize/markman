@@ -274,8 +274,31 @@ impl Editor {
     }
 
     pub(super) fn table_block_by_id(&self, entity_id: EntityId, cx: &App) -> Option<Entity<Block>> {
-        self.document
+        if let Some(block) = self
+            .document
             .block_entity_by_id(entity_id)
             .filter(|block| block.read(cx).kind() == BlockKind::Table)
+        {
+            return Some(block);
+        }
+
+        for visible in self.document.flatten_visible_blocks() {
+            if !visible.entity.read(cx).is_columns_raw_markdown() {
+                continue;
+            }
+            if let Some(block) = visible
+                .entity
+                .read(cx)
+                .column_embedded_tables
+                .values()
+                .find(|block| block.entity_id() == entity_id)
+                .cloned()
+                .filter(|block| block.read(cx).kind() == BlockKind::Table)
+            {
+                return Some(block);
+            }
+        }
+
+        None
     }
 }
