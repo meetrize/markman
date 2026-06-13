@@ -2543,6 +2543,7 @@ impl Block {
                 self.cursor_offset(),
                 self.text_align(),
                 px(1.0),
+                &[],
             );
         }
 

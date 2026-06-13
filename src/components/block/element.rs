@@ -446,15 +446,17 @@ pub(super) fn cursor_bounds_for_offset(
     offset: usize,
     align: TextAlign,
     cursor_width: Pixels,
+    link_insets: &[LinkIconTextInset],
 ) -> Option<Bounds<Pixels>> {
     let ranges = hard_line_ranges(text);
     let (line_idx, offset_in_line) = line_index_for_offset(&ranges, offset);
     let layout = lines.get(line_idx)?;
     let origin_x = aligned_line_left(layout, bounds, align);
     let cursor_pos = position_for_offset(layout, offset_in_line, line_height, true)?;
+    let x_shift = link_icon_x_shift_for_offset(lines, text, offset, link_insets);
     let y_offset = bounds.top() + wrapped_line_top(lines, line_height, line_idx);
     Some(Bounds::new(
-        point(origin_x + cursor_pos.x, y_offset + cursor_pos.y),
+        point(origin_x + cursor_pos.x + x_shift, y_offset + cursor_pos.y),
         size(cursor_width, line_height),
     ))
 }
@@ -477,6 +479,7 @@ pub(super) fn range_bounds(
             range.start,
             align,
             px(1.0),
+            &[],
         );
     }
 
@@ -496,6 +499,54 @@ pub(super) fn range_bounds(
     Some(union)
 }
 
+fn offset_on_same_wrapped_row(line: &WrappedLine, a: usize, b: usize) -> bool {
+    let offsets = wrapped_row_offsets(line);
+    for row in offsets.windows(2) {
+        let row_start = row[0];
+        let row_end = row[1];
+        if a >= row_start && a < row_end && b >= row_start && b < row_end {
+            return true;
+        }
+    }
+    false
+}
+
+/// Horizontal shift applied from `anchor_offset` through the end of its soft-wrapped row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct LinkIconTextInset {
+    anchor_offset: usize,
+    extra_x: Pixels,
+}
+
+fn link_icon_x_shift_for_offset(
+    lines: &[WrappedLine],
+    text: &str,
+    offset: usize,
+    insets: &[LinkIconTextInset],
+) -> Pixels {
+    if insets.is_empty() {
+        return px(0.0);
+    }
+
+    let ranges = hard_line_ranges(text);
+    let (line_idx, line_local) = line_index_for_offset(&ranges, offset);
+    let Some(line) = lines.get(line_idx) else {
+        return px(0.0);
+    };
+
+    insets
+        .iter()
+        .filter(|inset| {
+            let (inset_line, inset_local) =
+                line_index_for_offset(&ranges, inset.anchor_offset);
+            inset_line == line_idx
+                && offset_on_same_wrapped_row(line, inset_local, line_local)
+                && inset.anchor_offset <= offset
+        })
+        .map(|inset| inset.extra_x)
+        .fold(px(0.0), |total, extra| total + extra)
+}
+
 fn range_segment_bounds_for_hard_line(
     lines: &[WrappedLine],
     bounds: Bounds<Pixels>,
@@ -504,10 +555,14 @@ fn range_segment_bounds_for_hard_line(
     start_offset: usize,
     end_offset: usize,
     align: TextAlign,
+    hard_line_start: usize,
+    link_insets: &[LinkIconTextInset],
+    text: &str,
 ) -> Vec<Bounds<Pixels>> {
     let Some(line) = lines.get(line_idx) else {
         return Vec::new();
     };
+    let ranges = hard_line_ranges(text);
     let line_top = bounds.top() + wrapped_line_top(lines, line_height, line_idx);
     let offsets = wrapped_row_offsets(line);
     let mut segments = Vec::new();
@@ -522,14 +577,39 @@ fn range_segment_bounds_for_hard_line(
         }
 
         let row_start_x = line.unwrapped_layout.x_for_index(row_start);
-        let start_x = line.unwrapped_layout.x_for_index(seg_start) - row_start_x;
-        let end_x = line.unwrapped_layout.x_for_index(seg_end) - row_start_x;
         let origin_x = wrapped_row_origin_x(line, bounds, align, row_start, row_end);
         let y = line_top + line_height * row_idx as f32;
-        segments.push(Bounds::from_corners(
-            point(origin_x + start_x, y),
-            point(origin_x + end_x, y + line_height),
-        ));
+
+        let mut cursor = seg_start;
+        while cursor < seg_end {
+            let doc_offset = hard_line_start + cursor;
+            let start_shift = link_icon_x_shift_for_offset(lines, text, doc_offset, link_insets);
+            let mut next = seg_end;
+            for inset in link_insets {
+                let (inset_line, inset_local) =
+                    line_index_for_offset(&ranges, inset.anchor_offset);
+                if inset_line != line_idx {
+                    continue;
+                }
+                let inset_local = inset_local;
+                if inset_local <= cursor || inset_local >= seg_end {
+                    continue;
+                }
+                if !offset_on_same_wrapped_row(line, inset_local, cursor) {
+                    continue;
+                }
+                next = next.min(inset_local);
+            }
+
+            let end_shift = link_icon_x_shift_for_offset(lines, text, hard_line_start + next, link_insets);
+            let start_x = line.unwrapped_layout.x_for_index(cursor) - row_start_x + start_shift;
+            let end_x = line.unwrapped_layout.x_for_index(next) - row_start_x + end_shift;
+            segments.push(Bounds::from_corners(
+                point(origin_x + start_x, y),
+                point(origin_x + end_x, y + line_height),
+            ));
+            cursor = next;
+        }
     }
 
     segments
@@ -542,6 +622,18 @@ pub(super) fn range_segment_bounds(
     text: &str,
     range: Range<usize>,
     align: TextAlign,
+) -> Vec<Bounds<Pixels>> {
+    range_segment_bounds_with_link_insets(lines, bounds, line_height, text, range, align, &[])
+}
+
+pub(super) fn range_segment_bounds_with_link_insets(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    range: Range<usize>,
+    align: TextAlign,
+    link_insets: &[LinkIconTextInset],
 ) -> Vec<Bounds<Pixels>> {
     if range.start >= range.end || lines.is_empty() {
         return Vec::new();
@@ -572,6 +664,9 @@ pub(super) fn range_segment_bounds(
             line_start,
             line_end,
             align,
+            hard_range.start,
+            link_insets,
+            text,
         ));
     }
 
@@ -786,6 +881,7 @@ fn link_action_icon_layout(
     line_height: Pixels,
     trailing_gap: Pixels,
     pin_leading: bool,
+    min_icon_left: Pixels,
 ) -> LinkActionIconLayout {
     let icon_size = link_action_icon_size(line_height);
     let bg_pad = px(LINK_ACTION_ICON_BG_PAD);
@@ -796,10 +892,22 @@ fn link_action_icon_layout(
     let paint_left = paint_right - icon_size;
 
     // Line-start links: align icon to the row/content left edge inside the reserved gutter.
+    // Inline links: prefer anchor-relative placement when the slot fits; otherwise stay after
+    // preceding text (ignoring trailing whitespace before the anchor).
+    // `min_icon_left` is the preceding text right edge; add `bg_pad` so the background
+    // does not extend into that text.
+    let min_paint_left = min_icon_left + bg_pad;
     let final_paint_left = if pin_leading {
         layout_bounds.left()
     } else {
-        paint_left.max(layout_bounds.left())
+        let chrome_right_at = |left: Pixels| left + icon_size + bg_pad;
+        let fits_at_paint_left = paint_left >= min_paint_left
+            && chrome_right_at(paint_left) + trailing_gap <= anchor_x + px(0.5);
+        if fits_at_paint_left {
+            paint_left
+        } else {
+            paint_left.max(min_paint_left)
+        }
     };
 
     let chrome_right = final_paint_left + icon_size + bg_pad;
@@ -817,6 +925,100 @@ fn link_action_icon_layout(
     }
 }
 
+fn content_right_before_anchor(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    anchor_offset: usize,
+    align: TextAlign,
+    link_insets: &[LinkIconTextInset],
+) -> Pixels {
+    let line_start = text[..anchor_offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    if anchor_offset <= line_start {
+        return bounds.left();
+    }
+
+    // Ignore trailing whitespace before the anchor so the icon can sit in that gap.
+    let trimmed_end = {
+        let slice = &text[line_start..anchor_offset];
+        line_start + slice.trim_end().len()
+    };
+    if trimmed_end <= line_start {
+        return bounds.left();
+    }
+
+    range_segment_bounds_with_link_insets(
+        lines,
+        bounds,
+        line_height,
+        text,
+        line_start..trimmed_end,
+        align,
+        link_insets,
+    )
+    .last()
+    .map(|segment| segment.right())
+    .unwrap_or(bounds.left())
+}
+
+pub(super) fn compute_link_icon_text_insets(
+    input: &Block,
+    lines: &[WrappedLine],
+    layout_bounds: Bounds<Pixels>,
+    text_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    align: TextAlign,
+) -> Vec<LinkIconTextInset> {
+    if input.is_source_raw_mode() || input.display_text().is_empty() {
+        return Vec::new();
+    }
+
+    let text = input.display_text();
+    let mut link_spans: Vec<_> = input
+        .inline_spans()
+        .iter()
+        .filter(|span| span.link.is_some() && !span.range.is_empty())
+        .collect();
+    link_spans.sort_by_key(|span| {
+        link_icon_anchor_offset(input, &span.range, span.link.as_ref().expect("link span"))
+    });
+
+    let mut insets = Vec::new();
+    for span in link_spans {
+        let link = span.link.as_ref().expect("link span");
+        let anchor_offset = link_icon_anchor_offset(input, &span.range, link);
+        if offset_is_leading_on_hard_line(text, anchor_offset) {
+            continue;
+        }
+        let Some(layout) = link_action_icon_layout_for_span(
+            input,
+            lines,
+            layout_bounds,
+            text_bounds,
+            line_height,
+            text,
+            span.range.clone(),
+            link,
+            align,
+            &insets,
+        ) else {
+            continue;
+        };
+        if layout.clamped_text_inset > px(0.5) {
+            insets.push(LinkIconTextInset {
+                anchor_offset,
+                extra_x: layout.clamped_text_inset,
+            });
+        }
+    }
+
+    insets
+}
+
 fn link_action_icon_layout_for_span(
     input: &Block,
     lines: &[WrappedLine],
@@ -827,14 +1029,16 @@ fn link_action_icon_layout_for_span(
     span_range: Range<usize>,
     link: &InlineLinkHit,
     align: TextAlign,
+    link_insets: &[LinkIconTextInset],
 ) -> Option<LinkActionIconLayout> {
-    let segments = range_segment_bounds(
+    let segments = range_segment_bounds_with_link_insets(
         lines,
         text_bounds,
         line_height,
         text,
         span_range.clone(),
         align,
+        link_insets,
     );
     let vertical_segment = segments.first()?;
     let anchor_offset = link_icon_anchor_offset(input, &span_range, link);
@@ -860,6 +1064,20 @@ fn link_action_icon_layout_for_span(
     let anchor_x = anchor_segments.first()?.left();
     let trailing_gap = link_icon_trailing_gap(link, anchor_offset, span_range.start);
     let pin_leading = offset_is_leading_on_hard_line(text, anchor_offset);
+    let min_icon_left = if pin_leading {
+        layout_bounds.left()
+    } else {
+        content_right_before_anchor(
+            lines,
+            text_bounds,
+            line_height,
+            text,
+            anchor_offset,
+            align,
+            link_insets,
+        )
+        .max(layout_bounds.left())
+    };
     Some(link_action_icon_layout(
         anchor_x,
         *vertical_segment,
@@ -867,6 +1085,7 @@ fn link_action_icon_layout_for_span(
         line_height,
         trailing_gap,
         pin_leading,
+        min_icon_left,
     ))
 }
 
@@ -912,6 +1131,14 @@ fn collect_link_action_icons(
 
     let text = input.display_text();
     let align = input.text_align();
+    let link_insets = compute_link_icon_text_insets(
+        input,
+        lines,
+        layout_bounds,
+        text_bounds,
+        line_height,
+        align,
+    );
     let mut icons = Vec::new();
     for span in input.inline_spans() {
         let Some(link) = span.link.as_ref() else {
@@ -930,6 +1157,7 @@ fn collect_link_action_icons(
             span.range.clone(),
             link,
             align,
+            &link_insets,
         ) else {
             continue;
         };
@@ -947,6 +1175,134 @@ fn collect_link_action_icons(
         });
     }
     icons
+}
+
+fn paint_wrapped_line_with_link_insets(
+    line: &WrappedLine,
+    line_idx: usize,
+    origin: Point<Pixels>,
+    text_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    align: TextAlign,
+    text: &str,
+    link_insets: &[LinkIconTextInset],
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let ranges = hard_line_ranges(text);
+    let hard_range = ranges.get(line_idx);
+    let line_insets: Vec<&LinkIconTextInset> = hard_range
+        .map(|hard_range| {
+            link_insets
+                .iter()
+                .filter(|inset| {
+                    inset.anchor_offset >= hard_range.start && inset.anchor_offset < hard_range.end
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if line_insets.is_empty() {
+        line.paint(origin, line_height, TextAlign::Left, None, window, cx).ok();
+        return;
+    }
+
+    let row_offsets = wrapped_row_offsets(line);
+    for row_idx in 0..row_offsets.len().saturating_sub(1) {
+        let row_start = row_offsets[row_idx];
+        let row_end = row_offsets[row_idx + 1];
+        let row_origin_x = wrapped_row_origin_x(line, text_bounds, align, row_start, row_end);
+        let row_top_y = origin.y + line_height * row_idx as f32;
+
+        let mut row_insets: Vec<(usize, Pixels)> = line_insets
+            .iter()
+            .filter_map(|inset| {
+                let (_, inset_local) = line_index_for_offset(&ranges, inset.anchor_offset);
+                if !offset_on_same_wrapped_row(line, inset_local, row_start) {
+                    return None;
+                }
+                if inset_local < row_start || inset_local >= row_end {
+                    return None;
+                }
+                Some((inset_local, inset.extra_x))
+            })
+            .collect();
+        row_insets.sort_unstable_by_key(|(offset, _)| *offset);
+
+        let mut cursor = row_start;
+        let mut x_shift = px(0.0);
+        for (inset_local, extra) in row_insets {
+            if cursor < inset_local {
+                paint_wrapped_row_segment(
+                    line,
+                    origin,
+                    row_origin_x,
+                    row_top_y,
+                    row_start,
+                    cursor,
+                    inset_local,
+                    x_shift,
+                    line_height,
+                    window,
+                    cx,
+                );
+            }
+            x_shift += extra;
+            cursor = inset_local;
+        }
+        if cursor < row_end {
+            paint_wrapped_row_segment(
+                line,
+                origin,
+                row_origin_x,
+                row_top_y,
+                row_start,
+                cursor,
+                row_end,
+                x_shift,
+                line_height,
+                window,
+                cx,
+            );
+        }
+    }
+}
+
+fn paint_wrapped_row_segment(
+    line: &WrappedLine,
+    origin: Point<Pixels>,
+    row_origin_x: Pixels,
+    row_top_y: Pixels,
+    row_start: usize,
+    seg_start: usize,
+    seg_end: usize,
+    x_shift: Pixels,
+    line_height: Pixels,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if seg_start >= seg_end {
+        return;
+    }
+
+    let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+    let start_x = line.unwrapped_layout.x_for_index(seg_start) - row_start_x;
+    let end_x = line.unwrapped_layout.x_for_index(seg_end) - row_start_x;
+    let clip = Bounds::from_corners(
+        point(row_origin_x + start_x + x_shift, row_top_y),
+        point(row_origin_x + end_x + x_shift, row_top_y + line_height),
+    );
+    window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
+        line.paint(
+            point(origin.x + x_shift, origin.y),
+            line_height,
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        )
+        .ok();
+    });
 }
 
 pub(crate) fn link_action_icon_at_position(
@@ -969,6 +1325,14 @@ pub(crate) fn link_action_icon_at_position(
     let align = input.text_align();
     let link_gutter = block_link_icon_gutter(input, line_height);
     let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+    let link_insets = compute_link_icon_text_insets(
+        input,
+        lines,
+        layout_bounds,
+        text_bounds,
+        line_height,
+        align,
+    );
 
     for span in input.inline_spans() {
         let Some(link) = span.link.as_ref() else {
@@ -987,6 +1351,7 @@ pub(crate) fn link_action_icon_at_position(
             span.range.clone(),
             link,
             align,
+            &link_insets,
         ) else {
             continue;
         };
@@ -1025,6 +1390,14 @@ pub(crate) fn link_text_at_position<'a>(
     let align = input.text_align();
     let link_gutter = block_link_icon_gutter(input, line_height);
     let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+    let link_insets = compute_link_icon_text_insets(
+        input,
+        lines,
+        layout_bounds,
+        text_bounds,
+        line_height,
+        align,
+    );
 
     for span in input.inline_spans() {
         let Some(link) = span.link.as_ref() else {
@@ -1044,6 +1417,7 @@ pub(crate) fn link_text_at_position<'a>(
             span.range.clone(),
             link,
             align,
+            &link_insets,
         );
         let anchor_offset = link_icon_anchor_offset(input, &span.range, link);
         let anchor_end = if anchor_offset < span.range.start {
@@ -1063,13 +1437,14 @@ pub(crate) fn link_text_at_position<'a>(
         .map(|segment| segment.left())
         .unwrap_or(text_bounds.left());
 
-        for (segment_index, segment) in range_segment_bounds(
+        for (segment_index, segment) in range_segment_bounds_with_link_insets(
             lines,
             text_bounds,
             line_height,
             text,
             span.range.clone(),
             align,
+            &link_insets,
         )
         .into_iter()
         .enumerate()
@@ -1286,6 +1661,7 @@ pub struct PrepaintState {
     source_line_numbers: Vec<ShapedLine>,
     source_line_number_gutter_width: Pixels,
     link_icon_gutter_width: Pixels,
+    link_icon_text_insets: Vec<LinkIconTextInset>,
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
     search_highlights: Vec<PaintQuad>,
@@ -1533,6 +1909,20 @@ impl Element for BlockTextElement {
             link_content_gutter_width(input, line_height, source_line_number_gutter_width);
         let layout_bounds = source_text_bounds(bounds, source_line_number_gutter_width);
         let text_bounds = source_text_bounds(bounds, content_gutter_width);
+        let text_align = input.text_align();
+        let text = input.display_text();
+        let link_icon_text_insets = if self.is_placeholder || input.is_source_raw_mode() {
+            Vec::new()
+        } else {
+            compute_link_icon_text_insets(
+                input,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                text_align,
+            )
+        };
         let source_line_numbers = if show_line_number_gutter {
             let run_color = if show_code_block_gutter {
                 theme.colors.code_language_input_text.opacity(0.55)
@@ -1569,7 +1959,6 @@ impl Element for BlockTextElement {
         };
         let cursor_width = theme.dimensions.cursor_width;
         let selection_color = theme.colors.selection;
-        let text_align = input.text_align();
 
         let (selection_quads, cursor_quad) =
             if (focused || editor_selection_range.is_some()) && !lines.is_empty() {
@@ -1592,7 +1981,6 @@ impl Element for BlockTextElement {
                     )
                 } else if selected_range.is_empty() || !show_selection_highlight {
                     // No selection overlay (headings) or collapsed caret.
-                    let text = input.display_text();
                     (
                         vec![],
                         cursor_bounds_for_offset(
@@ -1603,18 +1991,19 @@ impl Element for BlockTextElement {
                             cursor,
                             text_align,
                             px(cursor_width),
+                            &link_icon_text_insets,
                         )
                         .map(|bounds| fill(bounds, cursor_color)),
                     )
                 } else {
-                    let text = input.display_text();
-                    let quads = range_segment_bounds(
+                    let quads = range_segment_bounds_with_link_insets(
                         &lines,
                         text_bounds,
                         line_height,
                         text,
                         selected_range,
                         text_align,
+                        &link_icon_text_insets,
                     )
                     .into_iter()
                     .map(|bounds| fill(bounds, selection_color))
@@ -1630,38 +2019,38 @@ impl Element for BlockTextElement {
         let mut search_quads = Vec::new();
         let mut search_active_quads = Vec::new();
         if !self.is_placeholder {
-            let text = input.display_text();
             let search_bg = theme.colors.selection.opacity(0.35);
             let search_active_bg = theme.colors.selection.opacity(0.7);
             if !input.search_highlight_ranges.is_empty() {
                 for range in &input.search_highlight_ranges {
-                    for segment in range_segment_bounds(
+                    for segment in range_segment_bounds_with_link_insets(
                         &lines,
                         text_bounds,
                         line_height,
                         text,
                         range.clone(),
                         text_align,
+                        &link_icon_text_insets,
                     ) {
                         search_quads.push(fill(segment, search_bg));
                     }
                 }
             }
             if let Some(active) = input.search_highlight_active_range.as_ref() {
-                for segment in range_segment_bounds(
+                for segment in range_segment_bounds_with_link_insets(
                     &lines,
                     text_bounds,
                     line_height,
                     text,
                     active.clone(),
                     text_align,
+                    &link_icon_text_insets,
                 ) {
                     search_active_quads.push(fill(segment, search_active_bg));
                 }
             }
         }
         if show_inline_code_backgrounds && !self.is_placeholder {
-            let text = input.display_text();
             let code_color = theme.colors.code_bg;
             let pad_x = px(theme.dimensions.code_bg_pad_x);
             let pad_y = px(theme.dimensions.code_bg_pad_y);
@@ -1670,13 +2059,14 @@ impl Element for BlockTextElement {
                 if !span.style.code || span.range.is_empty() {
                     continue;
                 }
-                for segment in range_segment_bounds(
+                for segment in range_segment_bounds_with_link_insets(
                     &lines,
                     text_bounds,
                     line_height,
                     text,
                     span.range.clone(),
                     text_align,
+                    &link_icon_text_insets,
                 ) {
                     let quad_bounds = Bounds::from_corners(
                         point(segment.left() - pad_x, segment.top() - pad_y),
@@ -1709,6 +2099,7 @@ impl Element for BlockTextElement {
             source_line_numbers,
             source_line_number_gutter_width,
             link_icon_gutter_width: link_icon_gutter,
+            link_icon_text_insets,
             cursor: cursor_quad,
             selection: selection_quads,
             search_highlights: search_quads,
@@ -1867,6 +2258,8 @@ impl Element for BlockTextElement {
         let line_height = prepaint.line_height;
         let lines = std::mem::take(&mut prepaint.lines);
         let text_align = self.input.read(cx).text_align();
+        let display_text = self.input.read(cx).display_text().to_string();
+        let link_insets = prepaint.link_icon_text_insets.clone();
 
         for icon in prepaint.link_action_icons.drain(..) {
             let mut background_color = icon.color;
@@ -1902,17 +2295,26 @@ impl Element for BlockTextElement {
         }
 
         let mut y_offset = Pixels::default();
-        for line in &lines {
+        for (line_idx, line) in lines.iter().enumerate() {
             let origin_x = aligned_line_left(line, text_bounds, text_align);
-            line.paint(
-                point(origin_x, text_bounds.origin.y + y_offset),
-                line_height,
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            )
-            .ok();
+            let origin = point(origin_x, text_bounds.origin.y + y_offset);
+            if link_insets.is_empty() {
+                line.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                    .ok();
+            } else {
+                paint_wrapped_line_with_link_insets(
+                    line,
+                    line_idx,
+                    origin,
+                    text_bounds,
+                    line_height,
+                    text_align,
+                    &display_text,
+                    &link_insets,
+                    window,
+                    cx,
+                );
+            }
             y_offset += wrapped_line_height(line, line_height);
         }
 
@@ -2205,12 +2607,14 @@ impl Element for InlineTreePreviewTextElement {
 #[cfg(test)]
 mod tests {
     use super::{
-        block_link_icon_gutter, first_hard_line_starts_with_link, link_action_icon_at_position,
-        link_action_icon_background_bounds, link_action_icon_layout_for_span,
-        link_action_icon_slot_width, link_at_position, link_icon_layout_bounds,
-        link_text_at_position, range_segment_bounds, source_line_number_gutter_width,
-        source_line_number_tops, source_text_bounds, wrapped_line_height,
-        LINK_ACTION_ICON_BG_PAD, LINK_ACTION_ICON_MARKER_GAP, LINK_ACTION_ICON_TEXT_GAP,
+        block_link_icon_gutter, compute_link_icon_text_insets, first_hard_line_starts_with_link,
+        link_action_icon_at_position, link_action_icon_background_bounds,
+        link_action_icon_layout_for_span, link_action_icon_slot_width, link_at_position,
+        link_icon_anchor_offset, link_icon_layout_bounds, link_text_at_position,
+        range_segment_bounds, range_segment_bounds_with_link_insets,
+        source_line_number_gutter_width, source_line_number_tops, source_text_bounds,
+        wrapped_line_height, LINK_ACTION_ICON_BG_PAD, LINK_ACTION_ICON_MARKER_GAP,
+        LINK_ACTION_ICON_TEXT_GAP,
     };
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, TableCellPosition};
     use gpui::{
@@ -2343,39 +2747,98 @@ mod tests {
         let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
         let lines = shaped_lines(&display_text, px(320.0), cx);
         let line_height = px(20.0);
-        let (icon_hit, text_hit, icon_excludes_text) = block.read_with(cx, |block, _cx| {
+        let (icon_hit, text_hit, icon_excludes_text, icon_after_preceding, icon_before_link) =
+            block.read_with(cx, |block, _cx| {
             let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
             let span = block
                 .inline_spans()
                 .iter()
                 .find(|span| span.link.is_some())
                 .expect("wiki link span should exist");
-            let layout = &lines[0];
-            let start = layout
-                .position_for_index(span.range.start, line_height)
-                .expect("start position");
-            let end = layout
-                .position_for_index(span.range.end, line_height)
-                .expect("end position");
-            let icon_position = point(
-                start.x
-                    - link_action_icon_slot_width(line_height, px(LINK_ACTION_ICON_TEXT_GAP))
-                    + px(4.0),
+            let link = span.link.as_ref().expect("wiki link");
+            let link_gutter = block_link_icon_gutter(block, line_height);
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+            let icon_layout = link_action_icon_layout_for_span(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                &display_text,
+                span.range.clone(),
+                link,
+                block.text_align(),
+                &insets,
+            )
+            .expect("inline wiki icon layout should exist");
+            let icon_bg = link_action_icon_background_bounds(icon_layout.paint_bounds, line_height);
+            let icon_position = icon_bg.center();
+            let text_segments = range_segment_bounds_with_link_insets(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                span.range.clone(),
+                block.text_align(),
+                &insets,
+            );
+            let text_segment = text_segments.first().expect("link text segment");
+            let text_position = point(
+                (text_segment.left() + text_segment.right()) / 2.0,
                 px(10.0),
             );
-            let text_position = point((start.x + end.x) / 2.0, px(10.0));
+            let anchor = link_icon_anchor_offset(block, &span.range, link);
+            let preceding_right = {
+                let line_start = display_text[..anchor]
+                    .rfind('\n')
+                    .map(|index| index + 1)
+                    .unwrap_or(0);
+                let trimmed_end =
+                    line_start + display_text[line_start..anchor].trim_end().len();
+                range_segment_bounds(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    &display_text,
+                    line_start..trimmed_end.max(line_start + 1),
+                    block.text_align(),
+                )
+                .last()
+                .map(|segment| segment.right())
+                .unwrap_or(text_bounds.left())
+            };
+            let trailing_gap = if anchor < span.range.start {
+                px(LINK_ACTION_ICON_MARKER_GAP)
+            } else {
+                px(LINK_ACTION_ICON_TEXT_GAP)
+            };
+            let icon_before_link =
+                icon_bg.right() + trailing_gap <= text_segment.left() + px(0.5);
             (
-                link_action_icon_at_position(block, &lines, bounds, line_height, icon_position)
+                link_action_icon_at_position(block, &lines, text_bounds, line_height, icon_position)
                     .map(|link| link.open_target.clone()),
-                link_text_at_position(block, &lines, bounds, line_height, text_position)
+                link_text_at_position(block, &lines, text_bounds, line_height, text_position)
                     .map(|link| link.open_target.clone()),
-                link_text_at_position(block, &lines, bounds, line_height, icon_position).is_none(),
+                link_text_at_position(block, &lines, text_bounds, line_height, icon_position).is_none(),
+                icon_bg.left() + px(0.5) >= preceding_right,
+                icon_before_link,
             )
         });
 
         assert_eq!(icon_hit, Some("docs/readme.md".to_string()));
         assert_eq!(text_hit, Some("docs/readme.md".to_string()));
         assert!(icon_excludes_text);
+        assert!(icon_after_preceding, "icon should not overlap preceding text");
+        assert!(icon_before_link, "icon should not overlap link text");
     }
 
     #[gpui::test]
@@ -2495,6 +2958,7 @@ mod tests {
                 span.range.clone(),
                 link,
                 block.text_align(),
+                &[],
             )
             .expect("wiki icon layout should exist");
             let icon_bg = link_action_icon_background_bounds(layout.paint_bounds, line_height);
