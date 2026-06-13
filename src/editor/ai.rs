@@ -218,11 +218,52 @@ impl Editor {
         self.request_ai_operation(AiOperation::Tasks, window, cx);
     }
 
+    fn preserve_ai_selection_visuals(&mut self, cx: &mut Context<Self>) {
+        if self.cross_block_selection.is_some() {
+            self.sync_cross_block_selection_visuals(cx);
+            return;
+        }
+        if let Some(entity_id) = self.active_entity_id
+            && let Some(entity) = self.document.block_entity_by_id(entity_id)
+        {
+            entity.update(cx, |block, cx| {
+                if !block.selected_range.is_empty() && block.shows_text_selection_highlight() {
+                    block.editor_selection_range = Some(block.selected_range.clone());
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    fn clear_ai_selection_visual_preservation(&mut self, cx: &mut Context<Self>) {
+        if self.cross_block_selection.is_some() {
+            return;
+        }
+        for visible in self.document.visible_blocks().to_vec() {
+            visible.entity.update(cx, |block, cx| {
+                if block.editor_selection_range.take().is_some() {
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    fn restore_ai_prompt_edit_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(entity_id) = self.active_entity_id
+            && let Some(entity) = self.focusable_entity_by_id(entity_id)
+        {
+            window.focus(&entity.read(cx).focus_handle);
+        }
+    }
+
     fn open_ai_prompt_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let selection_context = self.collect_selected_ai_context(window, cx);
         let has_selection = selection_context.is_some();
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
+        if has_selection {
+            self.preserve_ai_selection_visuals(cx);
+        }
         self.ai.prompt_open = true;
         self.ai.prompt_text.clear();
         self.ai.prompt_selected_range = 0..0;
@@ -245,16 +286,7 @@ impl Editor {
         cx.notify();
     }
 
-    fn on_open_ai_prompt_from_click(
-        &mut self,
-        _: &ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_ai_prompt_dialog(window, cx);
-    }
-
-    fn close_ai_prompt_dialog(&mut self, cx: &mut Context<Self>) {
+    fn close_ai_prompt_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.ai.prompt_open = false;
         self.ai.prompt_marked_range = None;
         self.ai.prompt_is_selecting = false;
@@ -264,6 +296,8 @@ impl Editor {
         self.ai.prompt_context_dropdown_position = None;
         self.ai.prompt_selection_context = None;
         self.ai.prompt_dialog_drag = None;
+        self.clear_ai_selection_visual_preservation(cx);
+        self.restore_ai_prompt_edit_focus(window, cx);
         cx.notify();
     }
 
@@ -278,26 +312,26 @@ impl Editor {
             return;
         }
         let mode = self.ai.prompt_context_mode;
-        self.close_ai_prompt_dialog(cx);
+        self.close_ai_prompt_dialog(window, cx);
         self.request_custom_ai_prompt(prompt, mode, window, cx);
     }
 
     fn cancel_ai_prompt_dialog(
         &mut self,
         _: &ClickEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_ai_prompt_dialog(cx);
+        self.close_ai_prompt_dialog(window, cx);
     }
 
     fn on_ai_prompt_backdrop_mouse_down(
         &mut self,
         _: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_ai_prompt_dialog(cx);
+        self.close_ai_prompt_dialog(window, cx);
     }
 
     fn on_ai_prompt_panel_mouse_down(
@@ -578,7 +612,7 @@ impl Editor {
             self.replace_ai_prompt_text(range, "\n", false, None, cx);
             cx.stop_propagation();
         } else if event.keystroke.key == "escape" {
-            self.close_ai_prompt_dialog(cx);
+            self.close_ai_prompt_dialog(window, cx);
             cx.stop_propagation();
         }
     }
@@ -589,7 +623,7 @@ impl Editor {
             return;
         }
         let mode = self.ai.prompt_context_mode;
-        self.close_ai_prompt_dialog(cx);
+        self.close_ai_prompt_dialog(window, cx);
         self.request_custom_ai_prompt(prompt, mode, window, cx);
     }
 
@@ -1290,6 +1324,7 @@ impl Editor {
         let position = self.ai_selection_toolbar_position(window, cx)?;
         let c = &theme.colors;
         let d = &theme.dimensions;
+        let editor = cx.entity().downgrade();
         Some(
             div()
                 .id("ai-selection-toolbar")
@@ -1312,42 +1347,84 @@ impl Editor {
                     ICON_AI_CUSTOM,
                     "自定义",
                     theme,
-                    cx.listener(Self::on_open_ai_prompt_from_click),
+                    {
+                        let editor = editor.clone();
+                        move |window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.open_ai_prompt_dialog(window, cx);
+                            });
+                        }
+                    },
                 ))
                 .child(ai_toolbar_action_button(
                     "ai-floating-improve",
                     ICON_AI_IMPROVE,
                     "润色",
                     theme,
-                    cx.listener(Self::on_context_menu_ai_improve),
+                    {
+                        let editor = editor.clone();
+                        move |window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.on_ai_improve_selection(&AiImproveSelection, window, cx);
+                            });
+                        }
+                    },
                 ))
                 .child(ai_toolbar_action_button(
                     "ai-floating-summarize",
                     ICON_AI_SUMMARIZE,
                     "总结",
                     theme,
-                    cx.listener(Self::on_context_menu_ai_summarize),
+                    {
+                        let editor = editor.clone();
+                        move |window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.on_ai_summarize_selection(&AiSummarizeSelection, window, cx);
+                            });
+                        }
+                    },
                 ))
                 .child(ai_toolbar_action_button(
                     "ai-floating-expand",
                     ICON_AI_EXPAND,
                     "扩写",
                     theme,
-                    cx.listener(Self::on_context_menu_ai_expand),
+                    {
+                        let editor = editor.clone();
+                        move |window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.on_ai_expand_selection(&AiExpandSelection, window, cx);
+                            });
+                        }
+                    },
                 ))
                 .child(ai_toolbar_action_button(
                     "ai-floating-explain",
                     ICON_AI_EXPLAIN,
                     "解释",
                     theme,
-                    cx.listener(Self::on_context_menu_ai_explain),
+                    {
+                        let editor = editor.clone();
+                        move |window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.on_ai_explain_selection(&AiExplainSelection, window, cx);
+                            });
+                        }
+                    },
                 ))
                 .child(ai_toolbar_action_button(
                     "ai-floating-tasks",
                     ICON_AI_TASKS,
                     "任务",
                     theme,
-                    cx.listener(Self::on_context_menu_ai_tasks),
+                    {
+                        let editor = editor.clone();
+                        move |window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.on_ai_tasks_selection(&AiTasksSelection, window, cx);
+                            });
+                        }
+                    },
                 ))
                 .into_any_element(),
         )
@@ -1724,7 +1801,7 @@ fn ai_toolbar_action_button(
     icon_path: &'static str,
     label: &'static str,
     theme: &Theme,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    action: impl Fn(&mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let c = &theme.colors;
     let d = &theme.dimensions;
@@ -1744,7 +1821,10 @@ fn ai_toolbar_action_button(
         .text_color(c.dialog_secondary_button_text)
         .child(svg().path(icon_path).size(px(14.0)).text_color(c.dialog_secondary_button_text))
         .child(label)
-        .on_click(on_click)
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            cx.stop_propagation();
+            action(window, cx);
+        })
 }
 
 fn ai_dialog_button(

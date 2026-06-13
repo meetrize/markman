@@ -410,7 +410,7 @@ impl Editor {
         })
     }
 
-    fn sync_cross_block_selection_visuals(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_cross_block_selection_visuals(&mut self, cx: &mut Context<Self>) {
         let normalized = self.normalized_cross_block_selection(cx);
         let visible_blocks = self.document.visible_blocks().to_vec();
         for (index, visible) in visible_blocks.into_iter().enumerate() {
