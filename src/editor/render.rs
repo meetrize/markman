@@ -1755,7 +1755,8 @@ impl Render for Editor {
             .on_action(cx.listener(Self::on_ai_summarize_selection))
             .on_action(cx.listener(Self::on_ai_expand_selection))
             .on_action(cx.listener(Self::on_ai_explain_selection))
-            .on_action(cx.listener(Self::on_ai_tasks_selection));
+            .on_action(cx.listener(Self::on_ai_tasks_selection))
+            .on_action(cx.listener(Self::on_ai_translate_selection));
         // Fetch menus + collect labels once for both renderers; previously each
         // of render_in_window_menu_bar / render_in_window_menu_panel called
         // cx.get_menus() and walked menus.iter().map(|m| m.name.to_string())

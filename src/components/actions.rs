@@ -81,6 +81,7 @@ actions!(
         AiExpandSelection,
         AiExplainSelection,
         AiTasksSelection,
+        AiTranslateSelection,
     ]
 );
 

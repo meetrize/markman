@@ -17,13 +17,14 @@ use super::single_line_input::{
 };
 use crate::components::{
     AiExpandSelection, AiExplainSelection, AiImproveSelection, AiSummarizeSelection,
-    AiTasksSelection, AskAi, Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste,
-    SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, BlockKind, UndoCaptureKind,
+    AiTasksSelection, AiTranslateSelection, AskAi, Copy, Cut, Delete, DeleteBack, End, Home,
+    MoveLeft, MoveRight, Paste, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight,
+    BlockKind, UndoCaptureKind,
 };
 use crate::config::ai_toolbar::{AiSelectionToolbarBuiltin, AiSelectionToolbarButton};
 use crate::app_menu::dispatch_menu_action;
 use crate::components::OpenAiPreferences;
-use crate::config::read_app_preferences;
+use crate::config::{AiPreferences, read_app_preferences};
 use crate::net::ai::{self as ai_client, AiCompletionRequest};
 use crate::theme::Theme;
 
@@ -39,6 +40,7 @@ enum AiOperation {
     Expand,
     Explain,
     Tasks,
+    Translate,
 }
 
 #[derive(Clone, Debug)]
@@ -147,6 +149,9 @@ impl AiOperation {
             Self::Tasks => Cow::Borrowed(
                 "Convert the Markdown into an actionable task list using GitHub-flavored task items."
             ),
+            Self::Translate => Cow::Borrowed(
+                "Translate the Markdown into Chinese while preserving Markdown formatting, structure, links, and code fences."
+            ),
         }
     }
 }
@@ -216,6 +221,15 @@ impl Editor {
         self.request_ai_operation(AiOperation::Tasks, window, cx);
     }
 
+    pub(crate) fn on_ai_translate_selection(
+        &mut self,
+        _: &AiTranslateSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_ai_operation(AiOperation::Translate, window, cx);
+    }
+
     fn preserve_ai_selection_visuals(&mut self, cx: &mut Context<Self>) {
         if self.cross_block_selection.is_some() {
             self.sync_cross_block_selection_visuals(cx);
@@ -256,6 +270,15 @@ impl Editor {
 
     fn open_ai_prompt_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let selection_context = self.collect_selected_ai_context(window, cx);
+        self.open_ai_prompt_dialog_with_selection_context(selection_context, window, cx);
+    }
+
+    fn open_ai_prompt_dialog_with_selection_context(
+        &mut self,
+        selection_context: Option<AiContext>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let has_selection = selection_context.is_some();
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
@@ -310,8 +333,9 @@ impl Editor {
             return;
         }
         let mode = self.ai.prompt_context_mode;
+        let selection_context = self.ai.prompt_selection_context.clone();
         self.close_ai_prompt_dialog(window, cx);
-        self.request_custom_ai_prompt(prompt, mode, window, cx);
+        self.request_custom_ai_prompt(prompt, mode, selection_context, window, cx);
     }
 
     fn cancel_ai_prompt_dialog(
@@ -621,8 +645,9 @@ impl Editor {
             return;
         }
         let mode = self.ai.prompt_context_mode;
+        let selection_context = self.ai.prompt_selection_context.clone();
         self.close_ai_prompt_dialog(window, cx);
-        self.request_custom_ai_prompt(prompt, mode, window, cx);
+        self.request_custom_ai_prompt(prompt, mode, selection_context, window, cx);
     }
 
     pub(crate) fn on_ai_prompt_delete_back(
@@ -827,14 +852,14 @@ impl Editor {
     fn collect_custom_ai_context(
         &self,
         mode: AiPromptContextMode,
+        selection_context: Option<AiContext>,
         window: &Window,
         cx: &App,
     ) -> Result<AiContext, String> {
         match mode {
             AiPromptContextMode::Selection => {
-                self.ai
-                    .prompt_selection_context
-                    .clone()
+                selection_context
+                    .or_else(|| self.ai.prompt_selection_context.clone())
                     .or_else(|| self.collect_selected_ai_context(window, cx))
                     .ok_or_else(|| "当前没有选中文本。".to_string())
             }
@@ -855,6 +880,7 @@ impl Editor {
         &mut self,
         prompt: String,
         mode: AiPromptContextMode,
+        selection_context: Option<AiContext>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -869,7 +895,7 @@ impl Editor {
                 return;
             }
         };
-        let context = match self.collect_custom_ai_context(mode, window, cx) {
+        let context = match self.collect_custom_ai_context(mode, selection_context, window, cx) {
             Ok(context) => context,
             Err(err) => {
                 self.ai.error = Some(err);
@@ -877,44 +903,8 @@ impl Editor {
                 return;
             }
         };
-        let context_markdown = context.context_markdown;
 
-        self.ai.in_flight = true;
-        self.ai.preview = None;
-        self.ai.error = None;
-        let weak_editor = cx.entity().downgrade();
-        let target = context.target;
-        let (tx, rx) = oneshot::channel();
-        std::thread::spawn(move || {
-            let result = ai_client::complete_markdown(AiCompletionRequest {
-                preferences: preferences.ai,
-                instruction: prompt,
-                context_markdown,
-            });
-            let _ = tx.send(result);
-        });
-        cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let result = rx
-                .map(|result| {
-                    result.unwrap_or_else(|_| Err(anyhow::anyhow!("AI worker ended early")))
-                })
-                .await;
-            let _ = weak_editor.update(cx, move |editor, cx| {
-                editor.ai.in_flight = false;
-                match result {
-                    Ok(result_markdown) => {
-                        editor.ai.preview = Some(AiPreview {
-                            target,
-                            result_markdown,
-                        });
-                    }
-                    Err(err) => editor.ai.error = Some(err.to_string()),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
+        self.request_ai_completion(preferences.ai, prompt, context, cx);
     }
 
     fn open_ai_prompt_context_menu(
@@ -1074,19 +1064,65 @@ impl Editor {
             }
         }
 
+        let worker_operation = operation.clone();
+        let instruction = instruction_override
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| worker_operation.instruction().to_string());
+
+        self.request_ai_completion(
+            preferences.ai,
+            instruction,
+            AiContext {
+                target: context.target,
+                context_markdown,
+            },
+            cx,
+        );
+    }
+
+    fn request_ai_selection_toolbar_operation_with_instruction(
+        &mut self,
+        operation: AiOperation,
+        instruction_override: Option<String>,
+        selection_context: AiContext,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai.in_flight {
+            return;
+        }
+        let preferences = match read_app_preferences() {
+            Ok(preferences) => preferences,
+            Err(err) => {
+                self.ai.error = Some(format!("Failed to read AI preferences: {err}"));
+                cx.notify();
+                return;
+            }
+        };
+        let worker_operation = operation.clone();
+        let instruction = instruction_override
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| worker_operation.instruction().to_string());
+
+        self.request_ai_completion(preferences.ai, instruction, selection_context, cx);
+    }
+
+    fn request_ai_completion(
+        &mut self,
+        ai_preferences: AiPreferences,
+        instruction: String,
+        context: AiContext,
+        cx: &mut Context<Self>,
+    ) {
         self.ai.in_flight = true;
         self.ai.preview = None;
         self.ai.error = None;
         let weak_editor = cx.entity().downgrade();
         let target = context.target;
+        let context_markdown = context.context_markdown;
         let (tx, rx) = oneshot::channel();
-        let worker_operation = operation.clone();
-        let instruction = instruction_override
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| worker_operation.instruction().to_string());
         std::thread::spawn(move || {
             let result = ai_client::complete_markdown(AiCompletionRequest {
-                preferences: preferences.ai,
+                preferences: ai_preferences,
                 instruction,
                 context_markdown,
             });
@@ -1333,6 +1369,7 @@ impl Editor {
             return None;
         }
         let position = self.ai_selection_toolbar_position(window, cx)?;
+        let selection_context = self.collect_selected_ai_context(window, cx)?;
         let preferences = read_app_preferences().ok()?;
         let c = &theme.colors;
         let d = &theme.dimensions;
@@ -1369,6 +1406,7 @@ impl Editor {
                 button,
                 theme,
                 editor.clone(),
+                selection_context.clone(),
             ) {
                 toolbar = toolbar.child(element);
             }
@@ -1407,6 +1445,7 @@ impl Editor {
         button: &AiSelectionToolbarButton,
         theme: &Theme,
         editor: WeakEntity<Self>,
+        selection_context: AiContext,
     ) -> Option<AnyElement> {
         let label = SharedString::from(button.label.clone());
         let icon = button.resolved_icon().to_string();
@@ -1420,8 +1459,13 @@ impl Editor {
                 label,
                 theme,
                 move |window, cx| {
+                    let selection_context = selection_context.clone();
                     let _ = editor.update(cx, |editor, cx| {
-                        editor.open_ai_prompt_dialog(window, cx);
+                        editor.open_ai_prompt_dialog_with_selection_context(
+                            Some(selection_context),
+                            window,
+                            cx,
+                        );
                     });
                 },
             )
@@ -1433,6 +1477,7 @@ impl Editor {
                     AiSelectionToolbarBuiltin::Expand => AiOperation::Expand,
                     AiSelectionToolbarBuiltin::Explain => AiOperation::Explain,
                     AiSelectionToolbarBuiltin::Tasks => AiOperation::Tasks,
+                    AiSelectionToolbarBuiltin::Translate => AiOperation::Translate,
                     AiSelectionToolbarBuiltin::CustomPrompt => unreachable!(),
                 };
                 ai_toolbar_action_button(
@@ -1440,12 +1485,13 @@ impl Editor {
                     icon,
                     label,
                     theme,
-                    move |window, cx| {
+                    move |_window, cx| {
+                        let selection_context = selection_context.clone();
                         let _ = editor.update(cx, |editor, cx| {
-                            editor.request_ai_operation_with_instruction(
+                            editor.request_ai_selection_toolbar_operation_with_instruction(
                                 operation.clone(),
                                 instruction.clone(),
-                                window,
+                                selection_context,
                                 cx,
                             );
                         });
@@ -1461,6 +1507,7 @@ impl Editor {
                     label,
                     theme,
                     move |window, cx| {
+                        let selection_context = selection_context.clone();
                         let _ = editor.update(cx, |editor, cx| {
                             if prompt.trim().is_empty() {
                                 editor.ai.error =
@@ -1471,6 +1518,7 @@ impl Editor {
                             editor.request_custom_ai_prompt(
                                 prompt.clone(),
                                 AiPromptContextMode::Selection,
+                                Some(selection_context),
                                 window,
                                 cx,
                             );

@@ -7,8 +7,8 @@ use gpui::*;
 use super::{Editor, TableAxisSelection, ViewMode};
 use crate::components::{
     AiExpandSelection, AiExplainSelection, AiImproveSelection, AiSummarizeSelection,
-    AiTasksSelection, Copy, Cut, DismissTransientUi, Paste, SelectAll, TableAxisKind,
-    TableColumnAlignment, TableData,
+    AiTasksSelection, AiTranslateSelection, Copy, Cut, DismissTransientUi, Paste, SelectAll,
+    TableAxisKind, TableColumnAlignment, TableData,
 };
 use crate::i18n::I18nManager;
 use crate::theme::Theme;
@@ -215,6 +215,16 @@ impl Editor {
     ) {
         self.close_context_menu(cx);
         self.on_ai_tasks_selection(&AiTasksSelection, window, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_translate(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        self.on_ai_translate_selection(&AiTranslateSelection, window, cx);
     }
 
     pub(super) fn open_table_axis_context_menu(
@@ -969,6 +979,14 @@ impl Editor {
                         "AI：转任务".to_string(),
                         has_selection,
                         Self::on_context_menu_ai_tasks,
+                        cx,
+                    ),
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-ai-translate",
+                        "AI：翻译".to_string(),
+                        has_selection,
+                        Self::on_context_menu_ai_translate,
                         cx,
                     ),
                 ]);

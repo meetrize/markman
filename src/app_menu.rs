@@ -11,11 +11,11 @@ use gpui::*;
 
 use crate::components::{
     AddLanguageConfig, AddThemeConfig, AiExpandSelection, AiExplainSelection, AiImproveSelection,
-    AiSummarizeSelection, AiTasksSelection, AskAi, CheckForUpdates, CloseWindow, ExportHtml,
-    ExportPdf, InstallCliTool, NewWindow, NoRecentFiles, OpenAiPreferences, OpenFile, OpenFolder,
-    OpenPreferences,
-    OpenRecentFile, QuitApplication, SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme,
-    ShowAbout, ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
+    AiSummarizeSelection, AiTasksSelection, AiTranslateSelection, AskAi, CheckForUpdates,
+    CloseWindow, ExportHtml, ExportPdf, InstallCliTool, NewWindow, NoRecentFiles,
+    OpenAiPreferences, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile, QuitApplication,
+    SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme, ShowAbout,
+    ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
 use crate::app_visibility;
 use crate::config::{
@@ -420,6 +420,7 @@ fn is_editor_scoped_menu_action(action: &dyn Action) -> bool {
         || action.as_any().is::<AiExpandSelection>()
         || action.as_any().is::<AiExplainSelection>()
         || action.as_any().is::<AiTasksSelection>()
+        || action.as_any().is::<AiTranslateSelection>()
 }
 
 fn is_window_context_menu_action(action: &dyn Action) -> bool {
@@ -649,6 +650,10 @@ pub(crate) fn dispatch_menu_action(action: &dyn Action, cx: &mut App) {
         let _ = with_active_editor(cx, |editor, window, cx| {
             editor.on_ai_tasks_selection(&AiTasksSelection, window, cx);
         });
+    } else if action.as_any().is::<AiTranslateSelection>() {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.on_ai_translate_selection(&AiTranslateSelection, window, cx);
+        });
     } else if action.as_any().is::<QuitApplication>() {
         request_quit_application(cx);
     } else if action.as_any().is::<CloseWindow>() {
@@ -747,6 +752,10 @@ pub(crate) fn dispatch_menu_action_for_editor(
     } else if action.as_any().is::<AiTasksSelection>() {
         let _ = target.update(cx, |editor, cx| {
             editor.on_ai_tasks_selection(&AiTasksSelection, window, cx);
+        });
+    } else if action.as_any().is::<AiTranslateSelection>() {
+        let _ = target.update(cx, |editor, cx| {
+            editor.on_ai_translate_selection(&AiTranslateSelection, window, cx);
         });
     }
 }
@@ -941,6 +950,7 @@ fn build_menus(
                 MenuItem::action("扩写".to_string(), AiExpandSelection),
                 MenuItem::action("解释".to_string(), AiExplainSelection),
                 MenuItem::action("转任务".to_string(), AiTasksSelection),
+                MenuItem::action("翻译".to_string(), AiTranslateSelection),
             ],
         },
         Menu {
@@ -1280,6 +1290,9 @@ pub(crate) fn init(cx: &mut App) {
     });
     cx.on_action(|_: &AiTasksSelection, cx| {
         dispatch_menu_action(&AiTasksSelection, cx);
+    });
+    cx.on_action(|_: &AiTranslateSelection, cx| {
+        dispatch_menu_action(&AiTranslateSelection, cx);
     });
     cx.on_action(|_: &ToggleApplicationVisibility, cx| {
         app_visibility::toggle_application_visibility(cx);

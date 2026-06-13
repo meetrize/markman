@@ -11,6 +11,7 @@ pub(crate) enum AiSelectionToolbarBuiltin {
     Expand,
     Explain,
     Tasks,
+    Translate,
 }
 
 impl AiSelectionToolbarBuiltin {
@@ -22,6 +23,7 @@ impl AiSelectionToolbarBuiltin {
             Self::Expand => "expand",
             Self::Explain => "explain",
             Self::Tasks => "tasks",
+            Self::Translate => "translate",
         }
     }
 
@@ -33,6 +35,7 @@ impl AiSelectionToolbarBuiltin {
             "expand" => Some(Self::Expand),
             "explain" => Some(Self::Explain),
             "tasks" => Some(Self::Tasks),
+            "translate" => Some(Self::Translate),
             _ => None,
         }
     }
@@ -45,6 +48,7 @@ impl AiSelectionToolbarBuiltin {
             Self::Expand => "扩写",
             Self::Explain => "解释",
             Self::Tasks => "任务",
+            Self::Translate => "翻译",
         }
     }
 
@@ -56,6 +60,7 @@ impl AiSelectionToolbarBuiltin {
             Self::Expand => "icon/toolbar/maximize-2.svg",
             Self::Explain => "icon/toolbar/circle-help.svg",
             Self::Tasks => "icon/toolbar/list-checks.svg",
+            Self::Translate => "icon/toolbar/globe.svg",
         }
     }
 }
@@ -123,6 +128,7 @@ pub(crate) fn default_ai_selection_toolbar_buttons() -> Vec<AiSelectionToolbarBu
         AiSelectionToolbarButton::from_builtin(AiSelectionToolbarBuiltin::Expand),
         AiSelectionToolbarButton::from_builtin(AiSelectionToolbarBuiltin::Explain),
         AiSelectionToolbarButton::from_builtin(AiSelectionToolbarBuiltin::Tasks),
+        AiSelectionToolbarButton::from_builtin(AiSelectionToolbarBuiltin::Translate),
     ]
 }
 
@@ -132,7 +138,21 @@ pub(crate) fn normalize_ai_selection_toolbar_buttons(
     let mut normalized = if buttons.is_empty() {
         default_ai_selection_toolbar_buttons()
     } else {
-        buttons
+        let mut result = buttons;
+        for builtin in [
+            AiSelectionToolbarBuiltin::CustomPrompt,
+            AiSelectionToolbarBuiltin::Improve,
+            AiSelectionToolbarBuiltin::Summarize,
+            AiSelectionToolbarBuiltin::Expand,
+            AiSelectionToolbarBuiltin::Explain,
+            AiSelectionToolbarBuiltin::Tasks,
+            AiSelectionToolbarBuiltin::Translate,
+        ] {
+            if !result.iter().any(|b| b.action == builtin.id()) {
+                result.push(AiSelectionToolbarButton::from_builtin(builtin));
+            }
+        }
+        result
     };
     for button in &mut normalized {
         if button.action == AiSelectionToolbarBuiltin::CustomPrompt.id()
@@ -267,6 +287,7 @@ pub(crate) const AI_TOOLBAR_ICON_OPTIONS: &[&str] = &[
     "icon/toolbar/maximize-2.svg",
     "icon/toolbar/circle-help.svg",
     "icon/toolbar/list-checks.svg",
+    "icon/toolbar/globe.svg",
     "icon/toolbar/bold.svg",
     "icon/toolbar/quote.svg",
     "icon/toolbar/code.svg",
@@ -283,15 +304,16 @@ mod tests {
     #[test]
     fn default_toolbar_contains_all_builtins() {
         let buttons = default_ai_selection_toolbar_buttons();
-        assert_eq!(buttons.len(), 6);
+        assert_eq!(buttons.len(), 7);
         assert!(buttons.iter().all(|button| button.enabled));
         assert_eq!(buttons[0].action, AiSelectionToolbarBuiltin::CustomPrompt.id());
+        assert_eq!(buttons[6].action, AiSelectionToolbarBuiltin::Translate.id());
     }
 
     #[test]
     fn empty_toolbar_falls_back_to_defaults() {
         let buttons = normalize_ai_selection_toolbar_buttons(vec![]);
-        assert_eq!(buttons.len(), 6);
+        assert_eq!(buttons.len(), 7);
     }
 
     #[test]
@@ -314,9 +336,11 @@ mod tests {
         )
         .expect("toml should parse");
         let buttons = ai_selection_toolbar_buttons_from_toml(value.get("ai"));
-        assert_eq!(buttons.len(), 2);
+        assert_eq!(buttons.len(), 8);
         assert_eq!(buttons[0].label, "改写");
         assert!(!buttons[0].enabled);
         assert_eq!(buttons[1].instruction.as_deref(), Some("Translate to English"));
+        let has_translate = buttons.iter().any(|b| b.action == "translate");
+        assert!(has_translate, "missing built-in translate button");
     }
 }
