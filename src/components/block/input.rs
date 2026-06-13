@@ -105,6 +105,9 @@ impl EntityInputHandler for Block {
         }
 
         self.prepare_undo_capture(UndoCaptureKind::CoalescibleText, cx);
+        if self.is_columns_raw_markdown() {
+            self.enable_columns_source_edit(cx);
+        }
         let visible_range = range_utf16
             .as_ref()
             .map(|range| self.range_from_utf16(range))

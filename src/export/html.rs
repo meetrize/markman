@@ -81,11 +81,16 @@ fn markdown_options() -> Options {
 }
 
 fn render_browser_html_body(markdown: &str, theme: &Theme, base_dir: Option<&Path>) -> String {
+    render_markdown_fragment(markdown, theme, base_dir)
+}
+
+fn render_markdown_fragment(markdown: &str, theme: &Theme, base_dir: Option<&Path>) -> String {
     let rewritten = rewrite_visible_comment_blocks(markdown);
     let rewritten = rewrite_unsafe_html_blocks(&rewritten, base_dir);
     let rewritten = rewrite_display_math_blocks(&rewritten, theme);
     let rewritten = rewrite_inline_math(&rewritten, theme);
     let rewritten = rewrite_mermaid_blocks(&rewritten);
+    let rewritten = rewrite_columns_blocks(&rewritten, theme, base_dir);
     let parser = Parser::new_ext(&rewritten, markdown_options())
         .map(|event| rewrite_local_image_event(event, base_dir));
     let mut body = String::new();
@@ -495,6 +500,197 @@ fn rewrite_mermaid_blocks(markdown: &str) -> String {
     rewritten.join("\n")
 }
 
+fn rewrite_columns_blocks(markdown: &str, theme: &Theme, base_dir: Option<&Path>) -> String {
+    let lines = markdown.split('\n').collect::<Vec<_>>();
+    let mut rewritten = Vec::with_capacity(lines.len());
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        let line = lines[index];
+        if !is_columns_block_start(line) {
+            rewritten.push(line.to_string());
+            index += 1;
+            continue;
+        }
+
+        let Some(end) = collect_columns_block_region(&lines, index) else {
+            rewritten.push(line.to_string());
+            index += 1;
+            continue;
+        };
+
+        let columns = parse_columns_region(&lines[index + 1..end - 1]);
+        if columns.is_empty() {
+            rewritten.extend(lines[index..end].iter().map(|line| (*line).to_string()));
+        } else {
+            let mut html = String::from("<div class=\"vlt-columns\">\n");
+            for column in columns {
+                let width_attr = column
+                    .width
+                    .as_deref()
+                    .map(|width| format!(" style=\"flex-basis: {};\"", escape_html(width)))
+                    .unwrap_or_default();
+                html.push_str(&format!("<div class=\"vlt-column\"{width_attr}>\n"));
+                html.push_str(&render_markdown_fragment(&column.markdown, theme, base_dir));
+                html.push_str("</div>\n");
+            }
+            html.push_str("</div>");
+            rewritten.push(html);
+        }
+
+        index = end;
+    }
+
+    rewritten.join("\n")
+}
+
+#[derive(Debug)]
+struct ParsedColumn {
+    width: Option<String>,
+    markdown: String,
+}
+
+fn parse_columns_region(lines: &[&str]) -> Vec<ParsedColumn> {
+    let mut columns = Vec::new();
+    let mut current_width = None;
+    let mut current_lines = Vec::new();
+    let mut seen_column = false;
+    let mut active_fence: Option<(char, usize)> = None;
+
+    for line in lines {
+        if let Some((marker, run_len)) = active_fence {
+            current_lines.push((*line).to_string());
+            if is_closing_fence(line, marker, run_len) {
+                active_fence = None;
+            }
+            continue;
+        }
+
+        if let Some(fence) = opening_fence(line) {
+            current_lines.push((*line).to_string());
+            active_fence = Some(fence);
+            continue;
+        }
+
+        if let Some(width) = parse_column_marker(line) {
+            if seen_column {
+                columns.push(ParsedColumn {
+                    width: current_width.take(),
+                    markdown: trim_blank_edges(&current_lines).join("\n"),
+                });
+                current_lines.clear();
+            }
+            current_width = width;
+            seen_column = true;
+            continue;
+        }
+
+        if seen_column {
+            current_lines.push((*line).to_string());
+        } else if !line.trim().is_empty() {
+            return Vec::new();
+        }
+    }
+
+    if seen_column {
+        columns.push(ParsedColumn {
+            width: current_width,
+            markdown: trim_blank_edges(&current_lines).join("\n"),
+        });
+    }
+
+    columns
+}
+
+fn trim_blank_edges(lines: &[String]) -> Vec<String> {
+    let mut start = 0usize;
+    let mut end = lines.len();
+    while start < end && lines[start].trim().is_empty() {
+        start += 1;
+    }
+    while end > start && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    lines[start..end].to_vec()
+}
+
+fn parse_column_marker(line: &str) -> Option<Option<String>> {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let rest = trimmed.strip_prefix("--- column")?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+
+    let mut width = None;
+    for part in rest.split_whitespace() {
+        if let Some(value) = part.strip_prefix("width=")
+            && is_safe_column_width(value)
+        {
+            width = Some(value.to_string());
+        }
+    }
+    Some(width)
+}
+
+fn is_safe_column_width(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '%' | '-' | '_'))
+}
+
+fn is_columns_block_start(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return false;
+    }
+    let Some(rest) = trimmed.strip_prefix("::: columns") else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with(char::is_whitespace)
+}
+
+fn is_columns_block_end(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    line.len() - trimmed.len() <= 3 && trimmed.trim_end() == ":::"
+}
+
+fn collect_columns_block_region(lines: &[&str], start: usize) -> Option<usize> {
+    if !is_columns_block_start(lines[start]) {
+        return None;
+    }
+
+    let mut index = start + 1;
+    let mut active_fence: Option<(char, usize)> = None;
+    while index < lines.len() {
+        let line = lines[index];
+        if let Some((marker, run_len)) = active_fence {
+            if is_closing_fence(line, marker, run_len) {
+                active_fence = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(fence) = opening_fence(line) {
+            active_fence = Some(fence);
+            index += 1;
+            continue;
+        }
+
+        if is_columns_block_end(line) {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
+}
+
 fn rewrite_local_image_event<'a>(event: Event<'a>, base_dir: Option<&Path>) -> Event<'a> {
     match event {
         Event::Start(Tag::Image {
@@ -800,6 +996,68 @@ pre code {{ padding: 0; background-color: transparent; }}
   display: block;
   margin: 0 auto;
 }}
+.vlt-columns {{
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin: 1rem 0;
+}}
+.vlt-column {{
+  flex: 1 1 0;
+  align-self: flex-start;
+  min-width: 0;
+  height: auto;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}}
+.vlt-column > :last-child {{
+  margin-bottom: 0;
+}}
+.vlt-column p,
+.vlt-column ul,
+.vlt-column ol,
+.vlt-column blockquote,
+.vlt-column pre,
+.vlt-column table {{
+  margin: 0 0 0.5rem;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}}
+.vlt-column ul,
+.vlt-column ol {{
+  line-height: 1.25;
+}}
+.vlt-column li {{
+  line-height: 1.25;
+}}
+.vlt-column th,
+.vlt-column td {{
+  padding: 0.2rem 0.65rem;
+  vertical-align: top;
+  line-height: 1.2;
+}}
+.vlt-column table {{
+  line-height: 1.2;
+}}
+.vlt-column h1,
+.vlt-column h2,
+.vlt-column h3,
+.vlt-column h4,
+.vlt-column h5,
+.vlt-column h6 {{
+  margin: 0.75em 0 0.35em;
+  line-height: 1.2;
+}}
+@media (max-width: 768px) {{
+  .vlt-columns {{
+    flex-direction: column;
+  }}
+  .vlt-column {{
+    width: 100% !important;
+    flex-basis: auto !important;
+  }}
+}}
 .vlt-inline-math {{
   display: inline-flex;
   align-items: center;
@@ -937,7 +1195,8 @@ fn chromium_pdf_theme_css(theme: &Theme) -> String {
   blockquote,
   pre,
   .vlt-math,
-  .vlt-mermaid {
+  .vlt-mermaid,
+  .vlt-columns {
     break-inside: avoid;
   }
 }
@@ -1158,6 +1417,54 @@ mod tests {
         assert!(html.contains("<img alt=\"Mermaid diagram\""));
         assert!(html.contains("data:image/svg+xml;base64,"));
         assert!(!html.contains("```mermaid\nflowchart LR\nA --&gt; B\n```"));
+    }
+
+    #[test]
+    fn exports_columns_block_with_mixed_markdown() {
+        let markdown = concat!(
+            "::: columns\n",
+            "--- column width=35%\n",
+            "### Metrics\n\n",
+            "| Name | Value |\n",
+            "| --- | --- |\n",
+            "| PV | 1200 |\n\n",
+            "--- column width=65%\n",
+            "```rust\n",
+            "fn main() {}\n",
+            "```\n",
+            ":::"
+        );
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert!(html.contains("class=\"vlt-columns\""));
+        assert!(html.contains("class=\"vlt-column\" style=\"flex-basis: 35%;\""));
+        assert!(html.contains("class=\"vlt-column\" style=\"flex-basis: 65%;\""));
+        assert!(html.contains("<h3>Metrics</h3>"));
+        assert!(html.contains("<table>"));
+        assert!(html.contains("<code class=\"language-rust\">"));
+        assert!(!html.contains("::: columns"));
+        assert!(!html.contains("--- column"));
+    }
+
+    #[test]
+    fn columns_rewrite_ignores_markers_inside_fenced_code() {
+        let markdown = concat!(
+            "::: columns\n",
+            "--- column\n",
+            "```markdown\n",
+            "--- column\n",
+            "::: columns\n",
+            "```\n",
+            "--- column\n",
+            "Right\n",
+            ":::"
+        );
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert_eq!(html.matches("class=\"vlt-column\"").count(), 2);
+        assert!(html.contains("--- column"));
+        assert!(html.contains("::: columns"));
+        assert!(html.contains("<p>Right</p>"));
     }
 
     #[test]

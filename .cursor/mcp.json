@@ -1,0 +1,70 @@
+{
+  "mcpServers": {
+    "qtwx-mcp-1": {
+      "command": "/Volumes/SSD4T/dev/nvm/versions/node/v22.15.0/bin/node",
+      "args": [
+        "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/mcp-server/index.mjs"
+      ],
+      "env": {
+        "QINGTIAN_SESSION": "1",
+        "QINGTIAN_QUEUE_ROOT": "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/messages",
+        "QINGTIAN_RUNTIME_STAMP": "cc95465170a3"
+      }
+    },
+    "qtwx-mcp-2": {
+      "command": "/Volumes/SSD4T/dev/nvm/versions/node/v22.15.0/bin/node",
+      "args": [
+        "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/mcp-server/index.mjs"
+      ],
+      "env": {
+        "QINGTIAN_SESSION": "2",
+        "QINGTIAN_QUEUE_ROOT": "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/messages",
+        "QINGTIAN_RUNTIME_STAMP": "cc95465170a3"
+      }
+    },
+    "qtwx-mcp-3": {
+      "command": "/Volumes/SSD4T/dev/nvm/versions/node/v22.15.0/bin/node",
+      "args": [
+        "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/mcp-server/index.mjs"
+      ],
+      "env": {
+        "QINGTIAN_SESSION": "3",
+        "QINGTIAN_QUEUE_ROOT": "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/messages",
+        "QINGTIAN_RUNTIME_STAMP": "cc95465170a3"
+      }
+    },
+    "qtwx-mcp-4": {
+      "command": "/Volumes/SSD4T/dev/nvm/versions/node/v22.15.0/bin/node",
+      "args": [
+        "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/mcp-server/index.mjs"
+      ],
+      "env": {
+        "QINGTIAN_SESSION": "4",
+        "QINGTIAN_QUEUE_ROOT": "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/messages",
+        "QINGTIAN_RUNTIME_STAMP": "cc95465170a3"
+      }
+    },
+    "qtwx-mcp-5": {
+      "command": "/Volumes/SSD4T/dev/nvm/versions/node/v22.15.0/bin/node",
+      "args": [
+        "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/mcp-server/index.mjs"
+      ],
+      "env": {
+        "QINGTIAN_SESSION": "5",
+        "QINGTIAN_QUEUE_ROOT": "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/messages",
+        "QINGTIAN_RUNTIME_STAMP": "cc95465170a3"
+      }
+    },
+    "qtwx-mcp-6": {
+      "command": "/Volumes/SSD4T/dev/nvm/versions/node/v22.15.0/bin/node",
+      "args": [
+        "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/mcp-server/index.mjs"
+      ],
+      "env": {
+        "QINGTIAN_SESSION": "6",
+        "QINGTIAN_QUEUE_ROOT": "/Users/daiaihua/Library/Application Support/Cursor/User/workspaceStorage/8fb986fc6817ad015125262eb49fc456/QingTian.qingtian-v2/runtime/messages",
+        "QINGTIAN_RUNTIME_STAMP": "cc95465170a3"
+      }
+    }
+  }
+}

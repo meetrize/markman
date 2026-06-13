@@ -664,7 +664,61 @@ Mixed punctuation probe: ([*link*](https://example.com)) and ![img](https://exam
 
 ---
 
-## 24. Final mixed mega-block
+## 24. Columns block
+
+Minimal columns syntax:
+
+::: columns
+--- column
+Left column paragraph with **bold** text and a list:
+
+- Alpha
+- Beta
+
+--- column
+Right column paragraph with `inline code` and a quote:
+
+> Quote inside the right column.
+:::
+
+Columns mixed with table and chart syntax:
+
+::: columns
+--- column width=40%
+### Metrics Table
+
+| Metric | Value |
+| --- | --- |
+| PV | 1200 |
+| UV | 300 |
+
+--- column width=60%
+### Trend Chart
+
+```mermaid
+flowchart LR
+  Start --> Growth
+  Growth --> Export
+```
+:::
+
+Columns containing a fenced code block with marker-like text:
+
+::: columns
+--- column
+```markdown
+--- column
+::: columns
+These marker-like lines are code, not columns syntax.
+```
+
+--- column
+The second column should still render normally.
+:::
+
+---
+
+## 25. Final mixed mega-block
 
 > [!IMPORTANT]
 > Final mixed block that combines:

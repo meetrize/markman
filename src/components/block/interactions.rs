@@ -998,6 +998,9 @@ impl Block {
         }
 
         let was_focused = self.focus_handle.is_focused(window);
+        if self.is_columns_raw_markdown() && was_focused {
+            self.enable_columns_source_edit(cx);
+        }
         if self.kind().is_code_block() && self.code_block_is_collapsible() && !was_focused {
             self.code_block_collapsed_override = None;
         }

@@ -5,16 +5,22 @@
 //! fallback renders as plain text.
 
 use gpui::*;
+use pulldown_cmark::{Options as CmarkOptions, Parser as CmarkParser, html as cmark_html};
+use std::ops::Range;
 
 use super::element::BlockTextElement;
-use super::{Block, BlockEvent, BlockKind, ImageResolvedSource, ImageRuntime};
+use super::{
+    Block, BlockEvent, BlockKind, CodeHighlightSpan, ImageResolvedSource, ImageRuntime,
+    code_highlight_color, highlight_code_block,
+};
 use crate::components::{
     Editor, HtmlCssColor, HtmlDocument, HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight,
     TableAxisKind, TableCellInlineImageSegment, TableCellPosition, TableColumnLayout, attr_value,
     display_math_font_size, inline_math_font_size, parse_display_math_source,
-    parse_html_image_block, parse_mermaid_fence_source, parse_table_cell_inline_images,
-    render_display_math_svg, render_inline_math_svg, render_mermaid_svg_for_display,
-    resolve_image_source, style_for_node,
+    parse_html_document, parse_html_image_block, parse_mermaid_fence_source,
+    parse_mermaid_fence_start, is_mermaid_closing_fence,
+    parse_table_cell_inline_images, render_display_math_svg, render_inline_math_svg,
+    render_mermaid_svg_for_display, resolve_image_source, style_for_node,
 };
 use crate::code_runner::{
     CodeRunStatus, CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES, code_run_output_line_count,
@@ -65,6 +71,294 @@ fn bulleted_list_marker(depth: usize) -> &'static str {
         1 => BULLET_HOLLOW,
         _ => BULLET_SQUARE,
     }
+}
+
+#[derive(Debug)]
+struct RenderColumn {
+    width_fraction: Option<f32>,
+    markdown: String,
+}
+
+enum ColumnMarkdownSegment {
+    Markdown(String),
+    Mermaid(String),
+}
+
+fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdownSegment> {
+    let lines = markdown.split('\n').collect::<Vec<_>>();
+    let mut segments = Vec::new();
+    let mut index = 0usize;
+    let mut current_lines = Vec::new();
+    let mut active_fence: Option<(char, usize)> = None;
+
+    while index < lines.len() {
+        let line = lines[index];
+        if let Some((marker, run_len)) = active_fence {
+            current_lines.push(line.to_string());
+            if is_closing_fence(line, marker, run_len) {
+                active_fence = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(fence) = opening_fence(line) {
+            if let Some(mermaid_fence) = parse_mermaid_fence_start(line) {
+                let trimmed = trim_blank_edges(&current_lines).join("\n");
+                if !trimmed.is_empty() {
+                    segments.push(ColumnMarkdownSegment::Markdown(trimmed));
+                }
+                current_lines.clear();
+
+                let mut end = index + 1;
+                while end < lines.len() && !is_mermaid_closing_fence(lines[end], mermaid_fence) {
+                    end += 1;
+                }
+                if end < lines.len() {
+                    segments.push(ColumnMarkdownSegment::Mermaid(lines[index..=end].join("\n")));
+                    index = end + 1;
+                    continue;
+                }
+            }
+
+            current_lines.push(line.to_string());
+            active_fence = Some(fence);
+            index += 1;
+            continue;
+        }
+
+        current_lines.push(line.to_string());
+        index += 1;
+    }
+
+    let trimmed = trim_blank_edges(&current_lines).join("\n");
+    if !trimmed.is_empty() {
+        segments.push(ColumnMarkdownSegment::Markdown(trimmed));
+    }
+    segments
+}
+
+fn column_mermaid_available_width(
+    block: &Block,
+    viewport_width: f32,
+    column_count: usize,
+    width_fraction: f32,
+    stacked: bool,
+    d: &ThemeDimensions,
+) -> f32 {
+    let budget = effective_image_width(block, viewport_width, d);
+    if stacked {
+        budget.max(120.0)
+    } else {
+        let column_gap = 24.0;
+        let total_gap = column_gap * column_count.saturating_sub(1) as f32;
+        ((budget - total_gap) * width_fraction).max(120.0)
+    }
+}
+
+fn mermaid_available_height(viewport_height: f32, d: &ThemeDimensions) -> f32 {
+    let reserved_height = d.menu_bar_height
+        + d.format_toolbar_button_height
+        + d.format_toolbar_padding_y * 2.0
+        + d.format_toolbar_border_width
+        + d.editor_padding * 2.0
+        + d.block_padding_y * 2.0;
+    (viewport_height - reserved_height).max(1.0)
+}
+
+fn markdown_html_options() -> CmarkOptions {
+    let mut options = CmarkOptions::empty();
+    options.insert(CmarkOptions::ENABLE_TABLES);
+    options.insert(CmarkOptions::ENABLE_FOOTNOTES);
+    options.insert(CmarkOptions::ENABLE_TASKLISTS);
+    options.insert(CmarkOptions::ENABLE_STRIKETHROUGH);
+    options.insert(CmarkOptions::ENABLE_GFM);
+    options
+}
+
+fn render_markdown_to_html(markdown: &str) -> String {
+    let parser = CmarkParser::new_ext(markdown, markdown_html_options());
+    let mut html = String::new();
+    cmark_html::push_html(&mut html, parser);
+    html
+}
+
+fn columns_block_has_only_trailing_blank_lines(lines: &[&str], end: usize) -> bool {
+    lines[end..].iter().all(|line| line.trim().is_empty())
+}
+
+fn parse_columns_markdown(markdown: &str) -> Option<Vec<RenderColumn>> {
+    let lines = markdown.split('\n').collect::<Vec<_>>();
+    if lines.is_empty() || !is_columns_block_start(lines[0]) {
+        return None;
+    }
+    let end = collect_columns_block_region(&lines, 0)?;
+    if !columns_block_has_only_trailing_blank_lines(&lines, end) {
+        return None;
+    }
+    let columns = parse_columns_region(&lines[1..end - 1]);
+    (!columns.is_empty()).then_some(columns)
+}
+
+fn parse_columns_region(lines: &[&str]) -> Vec<RenderColumn> {
+    let mut columns = Vec::new();
+    let mut current_width = None;
+    let mut current_lines = Vec::new();
+    let mut seen_column = false;
+    let mut active_fence: Option<(char, usize)> = None;
+
+    for line in lines {
+        if let Some((marker, run_len)) = active_fence {
+            current_lines.push((*line).to_string());
+            if is_closing_fence(line, marker, run_len) {
+                active_fence = None;
+            }
+            continue;
+        }
+
+        if let Some(fence) = opening_fence(line) {
+            current_lines.push((*line).to_string());
+            active_fence = Some(fence);
+            continue;
+        }
+
+        if let Some(width_fraction) = parse_column_marker(line) {
+            if seen_column {
+                columns.push(RenderColumn {
+                    width_fraction: current_width.take(),
+                    markdown: trim_blank_edges(&current_lines).join("\n"),
+                });
+                current_lines.clear();
+            }
+            current_width = width_fraction;
+            seen_column = true;
+            continue;
+        }
+
+        if seen_column {
+            current_lines.push((*line).to_string());
+        } else if !line.trim().is_empty() {
+            return Vec::new();
+        }
+    }
+
+    if seen_column {
+        columns.push(RenderColumn {
+            width_fraction: current_width,
+            markdown: trim_blank_edges(&current_lines).join("\n"),
+        });
+    }
+
+    columns
+}
+
+fn trim_blank_edges(lines: &[String]) -> Vec<String> {
+    let mut start = 0usize;
+    let mut end = lines.len();
+    while start < end && lines[start].trim().is_empty() {
+        start += 1;
+    }
+    while end > start && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    lines[start..end].to_vec()
+}
+
+fn parse_column_marker(line: &str) -> Option<Option<f32>> {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let rest = trimmed.strip_prefix("--- column")?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+
+    let mut width_fraction = None;
+    for part in rest.split_whitespace() {
+        if let Some(value) = part.strip_prefix("width=") {
+            width_fraction = parse_column_width_fraction(value);
+        }
+    }
+    Some(width_fraction)
+}
+
+fn parse_column_width_fraction(value: &str) -> Option<f32> {
+    let percent = value.strip_suffix('%')?.parse::<f32>().ok()?;
+    percent.is_finite().then_some((percent / 100.0).clamp(0.05, 1.0))
+}
+
+fn is_columns_block_start(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return false;
+    }
+    let Some(rest) = trimmed.strip_prefix("::: columns") else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with(char::is_whitespace)
+}
+
+fn is_columns_block_end(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    line.len() - trimmed.len() <= 3 && trimmed.trim_end() == ":::"
+}
+
+fn opening_fence(line: &str) -> Option<(char, usize)> {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+
+    let marker = trimmed.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+
+    let run_len = trimmed.chars().take_while(|ch| *ch == marker).count();
+    (run_len >= 3).then_some((marker, run_len))
+}
+
+fn is_closing_fence(line: &str, marker: char, opening_run_len: usize) -> bool {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return false;
+    }
+
+    let run_len = trimmed.chars().take_while(|ch| *ch == marker).count();
+    run_len >= opening_run_len && trimmed[marker.len_utf8() * run_len..].trim().is_empty()
+}
+
+fn collect_columns_block_region(lines: &[&str], start: usize) -> Option<usize> {
+    if !is_columns_block_start(lines[start]) {
+        return None;
+    }
+
+    let mut index = start + 1;
+    let mut active_fence: Option<(char, usize)> = None;
+    while index < lines.len() {
+        let line = lines[index];
+        if let Some((marker, run_len)) = active_fence {
+            if is_closing_fence(line, marker, run_len) {
+                active_fence = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(fence) = opening_fence(line) {
+            active_fence = Some(fence);
+            index += 1;
+            continue;
+        }
+
+        if is_columns_block_end(line) {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
 }
 
 impl Block {
@@ -656,6 +950,71 @@ fn html_children_text(node: &HtmlNode) -> String {
     text
 }
 
+fn html_code_language(node: &HtmlNode) -> Option<String> {
+    let class = attr_value(node, "class")?;
+    for token in class.split_whitespace() {
+        if let Some(language) = token.strip_prefix("language-") {
+            return Some(language.to_string());
+        }
+    }
+    None
+}
+
+fn html_pre_code_language(node: &HtmlNode) -> Option<String> {
+    node.children
+        .iter()
+        .find(|child| child.tag_name == "code")
+        .and_then(html_code_language)
+}
+
+fn render_html_code_highlight_chunks(
+    source: &str,
+    range: Range<usize>,
+    spans: &[CodeHighlightSpan],
+    base_color: Hsla,
+    colors: &crate::theme::ThemeColors,
+    font_size: f32,
+) -> Vec<AnyElement> {
+    let mut boundaries = vec![range.start, range.end];
+    for span in spans {
+        if span.range.start < range.end && span.range.end > range.start {
+            boundaries.push(span.range.start.max(range.start));
+            boundaries.push(span.range.end.min(range.end));
+        }
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    let mut elements = Vec::new();
+    let mut span_idx = 0usize;
+    for window in boundaries.windows(2) {
+        let start = window[0];
+        let end = window[1];
+        if start >= end {
+            continue;
+        }
+
+        while span_idx < spans.len() && spans[span_idx].range.end <= start {
+            span_idx += 1;
+        }
+        let color = spans
+            .get(span_idx)
+            .filter(|span| span.range.start <= start && start < span.range.end)
+            .map(|span| code_highlight_color(colors, span.class))
+            .unwrap_or(base_color);
+
+        elements.push(
+            div()
+                .flex_shrink_0()
+                .text_size(px(font_size))
+                .text_color(color)
+                .child(SharedString::from(source[start..end].to_string()))
+                .into_any_element(),
+        );
+    }
+    elements
+}
+
 #[derive(Clone, Copy, Debug)]
 struct HtmlComputedStyle {
     color: Hsla,
@@ -734,6 +1093,160 @@ fn html_node_visual_style(
     HtmlNodeVisualStyle {
         computed,
         background,
+    }
+}
+
+fn html_document_block_gap(dimensions: &ThemeDimensions, for_column: bool) -> f32 {
+    if for_column {
+        dimensions.block_gap * 0.15
+    } else {
+        dimensions.block_gap * 0.4
+    }
+}
+
+fn html_body_line_height(typography: &crate::theme::ThemeTypography, for_column: bool) -> f32 {
+    if for_column {
+        1.45
+    } else {
+        typography.text_line_height
+    }
+}
+
+fn html_heading_line_height(for_column: bool) -> f32 {
+    if for_column {
+        1.2
+    } else {
+        1.25
+    }
+}
+
+fn html_table_cell_padding_y(dimensions: &ThemeDimensions, for_column: bool) -> f32 {
+    if for_column {
+        dimensions.table_cell_padding_y * 0.3
+    } else {
+        dimensions.table_cell_padding_y
+    }
+}
+
+fn html_table_body_line_height(for_column: bool) -> f32 {
+    if for_column {
+        1.2
+    } else {
+        1.45
+    }
+}
+
+fn html_table_child_nodes(children: &[HtmlNode]) -> impl Iterator<Item = &HtmlNode> {
+    children
+        .iter()
+        .filter(|child| !should_skip_html_flow_child(child))
+}
+
+fn html_table_collect_rows<'a>(table: &'a HtmlNode) -> Vec<&'a HtmlNode> {
+    let mut rows = Vec::new();
+    for child in html_table_child_nodes(&table.children) {
+        match child.tag_name.as_str() {
+            "thead" | "tbody" | "tfoot" => {
+                for row in html_table_child_nodes(&child.children) {
+                    if row.tag_name == "tr" {
+                        rows.push(row);
+                    }
+                }
+            }
+            "tr" => rows.push(child),
+            _ => {}
+        }
+    }
+    rows
+}
+
+fn html_table_row_cells<'a>(row: &'a HtmlNode) -> impl Iterator<Item = &'a HtmlNode> + 'a {
+    html_table_child_nodes(&row.children)
+        .filter(|cell| cell.tag_name == "th" || cell.tag_name == "td")
+}
+
+fn html_table_column_count(table: &HtmlNode) -> usize {
+    html_table_collect_rows(table)
+        .iter()
+        .map(|row| html_table_row_cells(row).count())
+        .max()
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn is_collapsible_html_whitespace(text: &str) -> bool {
+    text.chars().all(char::is_whitespace)
+}
+
+fn should_skip_html_flow_child(node: &HtmlNode) -> bool {
+    node.tag_name == "#text" && is_collapsible_html_whitespace(&node.raw_source)
+}
+
+fn constrain_html_block_for_column(element: Div, for_column: bool, full_width: bool) -> Div {
+    if for_column {
+        element.w_full().min_w(px(0.0))
+    } else if full_width {
+        element.w_full()
+    } else {
+        element
+    }
+}
+
+fn html_is_inline_semantic_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "strong"
+            | "b"
+            | "em"
+            | "i"
+            | "span"
+            | "abbr"
+            | "dfn"
+            | "time"
+            | "u"
+            | "ins"
+            | "del"
+            | "small"
+            | "sup"
+            | "sub"
+            | "a"
+            | "mark"
+            | "code"
+            | "kbd"
+            | "q"
+    )
+}
+
+fn html_children_are_plain_text(children: &[HtmlNode]) -> bool {
+    children
+        .iter()
+        .filter(|child| !should_skip_html_flow_child(child))
+        .all(|child| child.tag_name == "#text" || html_is_inline_semantic_tag(&child.tag_name))
+}
+
+fn html_collect_visible_text(nodes: &[HtmlNode]) -> String {
+    let mut text = String::new();
+    for node in nodes {
+        if should_skip_html_flow_child(node) {
+            continue;
+        }
+        match node.tag_name.as_str() {
+            "#text" => text.push_str(&node.raw_source),
+            "br" => text.push('\n'),
+            tag if html_is_inline_semantic_tag(tag) => {
+                text.push_str(&html_collect_visible_text(&node.children));
+            }
+            _ => {}
+        }
+    }
+    text
+}
+
+fn html_list_line_height(for_column: bool) -> f32 {
+    if for_column {
+        1.25
+    } else {
+        1.45
     }
 }
 
@@ -880,36 +1393,47 @@ impl Block {
     }
 
     fn render_mermaid_content(&self, theme: &Theme, window: &Window) -> AnyElement {
-        let c = &theme.colors;
         let d = &theme.dimensions;
-        let t = &theme.typography;
         let raw = self
             .record
             .raw_fallback
             .as_deref()
             .unwrap_or_else(|| self.display_text());
+        let viewport = window.viewport_size();
+        let viewport_width = f32::from(viewport.width.max(px(1.0)));
+        let viewport_height = f32::from(viewport.height.max(px(1.0)));
+        let available_width = effective_image_width(self, viewport_width, d);
+        let available_height = mermaid_available_height(viewport_height, d);
+        self.render_mermaid_diagram(
+            raw,
+            available_width,
+            available_height,
+            theme,
+            ElementId::Name(format!("mermaid-scroll-{}", self.record.id).into()),
+        )
+    }
 
-        let Some(source) = parse_mermaid_fence_source(raw) else {
+    fn render_mermaid_diagram(
+        &self,
+        raw_fence: &str,
+        available_width: f32,
+        available_height: f32,
+        theme: &Theme,
+        scroll_id: ElementId,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+
+        let Some(source) = parse_mermaid_fence_source(raw_fence) else {
             return div()
                 .w_full()
                 .text_size(px(t.text_size))
                 .line_height(rems(t.text_line_height))
                 .text_color(c.text_default)
-                .child(SharedString::from(raw.to_string()))
+                .child(SharedString::from(raw_fence.to_string()))
                 .into_any_element();
         };
-
-        let viewport = window.viewport_size();
-        let viewport_width = f32::from(viewport.width.max(px(1.0)));
-        let viewport_height = f32::from(viewport.height.max(px(1.0)));
-        let available_width = effective_image_width(self, viewport_width, d);
-        let reserved_height = d.menu_bar_height
-            + d.format_toolbar_button_height
-            + d.format_toolbar_padding_y * 2.0
-            + d.format_toolbar_border_width
-            + d.editor_padding * 2.0
-            + d.block_padding_y * 2.0;
-        let available_height = (viewport_height - reserved_height).max(1.0);
 
         match render_mermaid_svg_for_display(&source, available_width, available_height) {
             Ok(rendered) => {
@@ -930,9 +1454,7 @@ impl Block {
                         .into_any_element()
                 } else {
                     div()
-                        .id(ElementId::Name(
-                            format!("mermaid-scroll-{}", self.record.id).into(),
-                        ))
+                        .id(scroll_id)
                         .w_full()
                         .overflow_x_scroll()
                         .scrollbar_width(px(0.0))
@@ -958,7 +1480,7 @@ impl Block {
                 .text_size(px(t.text_size))
                 .line_height(rems(t.text_line_height))
                 .text_color(c.text_default)
-                .child(SharedString::from(raw.to_string()))
+                .child(SharedString::from(raw_fence.to_string()))
                 .child(
                     div()
                         .text_size(px(t.code_size))
@@ -1343,35 +1865,153 @@ impl Block {
         &self,
         document: &HtmlDocument,
         theme: &Theme,
+        for_column: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
         if !document.is_semantic() {
-            return div()
-                .w_full()
+            let mut element = div()
                 .rounded_sm()
                 .bg(c.source_mode_block_bg)
                 .px(px(d.block_padding_x))
                 .py(px(d.block_padding_y))
                 .text_size(px(t.code_size))
                 .text_color(c.text_default)
-                .child(SharedString::from(document.raw_source.clone()))
-                .into_any_element();
+                .child(SharedString::from(document.raw_source.clone()));
+            if for_column {
+                element = element.w_full().min_w(px(0.0));
+            } else {
+                element = element.w_full();
+            }
+            return element.into_any_element();
         }
 
-        div()
-            .w_full()
+        let block_gap = html_document_block_gap(d, for_column);
+        let body_line_height = html_body_line_height(t, for_column);
+        let element = div()
             .min_w(px(0.0))
             .flex()
             .flex_col()
-            .gap(px(d.block_gap * 0.4))
+            .items_start()
+            .gap(px(block_gap))
+            .line_height(rems(body_line_height))
             .children(
-                document.nodes.iter().map(|node| {
-                    self.render_html_node(node, theme, HtmlComputedStyle::root(theme), cx)
-                }),
-            )
+                document
+                    .nodes
+                    .iter()
+                    .filter(|node| !should_skip_html_flow_child(node))
+                    .map(|node| {
+                        self.render_html_node(
+                            node,
+                            theme,
+                            HtmlComputedStyle::root(theme),
+                            for_column,
+                            cx,
+                        )
+                    }),
+            );
+        constrain_html_block_for_column(element, for_column, !for_column).into_any_element()
+    }
+
+    fn render_column_markdown_content(
+        &self,
+        markdown: &str,
+        available_width: f32,
+        available_height: f32,
+        theme: &Theme,
+        column_key: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let segments = split_column_markdown_segments(markdown);
+        let block_gap = html_document_block_gap(&theme.dimensions, true);
+        div()
+            .min_w(px(0.0))
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_start()
+            .gap(px(block_gap))
+            .children(segments.into_iter().enumerate().map(|(index, segment)| {
+                match segment {
+                    ColumnMarkdownSegment::Markdown(markdown) => {
+                        let html = render_markdown_to_html(&markdown);
+                        let document = parse_html_document(&html);
+                        self.render_html_document(&document, theme, true, cx)
+                    }
+                    ColumnMarkdownSegment::Mermaid(raw_fence) => self.render_mermaid_diagram(
+                        &raw_fence,
+                        available_width,
+                        available_height,
+                        theme,
+                        ElementId::Name(format!("mermaid-col-{column_key}-{index}").into()),
+                    ),
+                }
+            }))
+            .into_any_element()
+    }
+
+    fn render_columns_markdown(
+        &self,
+        columns: Vec<RenderColumn>,
+        theme: &Theme,
+        stacked: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let column_count = columns.len().max(1);
+        let equal_fraction = 1.0 / column_count as f32;
+        let viewport = window.viewport_size();
+        let viewport_width = f32::from(viewport.width.max(px(1.0)));
+        let viewport_height = f32::from(viewport.height.max(px(1.0)));
+        let d = &theme.dimensions;
+        let available_height = mermaid_available_height(viewport_height, d);
+        let mut container = div()
+            .w_full()
+            .min_w(px(0.0))
+            .flex_shrink_0()
+            .flex()
+            .gap(px(24.0))
+            .items_start();
+        if stacked {
+            container = container.flex_col().items_start();
+        }
+
+        container
+            .children(columns.into_iter().enumerate().map(|(column_index, column)| {
+                let width_fraction = column.width_fraction.unwrap_or(equal_fraction);
+                let available_width = column_mermaid_available_width(
+                    self,
+                    viewport_width,
+                    column_count,
+                    width_fraction,
+                    stacked,
+                    d,
+                );
+                let column_key = format!("{}-{column_index}", self.record.id);
+                let mut element = div()
+                    .min_w(px(0.0))
+                    .w_full()
+                    .child(self.render_column_markdown_content(
+                        &column.markdown,
+                        available_width,
+                        available_height,
+                        theme,
+                        &column_key,
+                        cx,
+                    ));
+                element.style().align_self = Some(AlignSelf::FlexStart);
+                element.style().flex_grow = Some(0.);
+                if stacked {
+                    element = element.w_full();
+                } else {
+                    element = element
+                        .flex_basis(relative(width_fraction))
+                        .w(relative(width_fraction));
+                }
+                element.into_any_element()
+            }))
             .into_any_element()
     }
 
@@ -1380,11 +2020,13 @@ impl Block {
         node: &HtmlNode,
         theme: &Theme,
         inherited_style: HtmlComputedStyle,
+        for_column: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
+        let body_line_height = html_body_line_height(t, for_column);
 
         if node.kind == HtmlNodeKind::RawTextBlock {
             return div()
@@ -1402,8 +2044,10 @@ impl Block {
         if node.tag_name == "#text" {
             return div()
                 .min_w(px(0.0))
+                .flex_shrink_0()
                 .text_size(px(inherited_style.font_size))
                 .text_color(inherited_style.color)
+                .line_height(rems(body_line_height))
                 .child(SharedString::from(node.raw_source.clone()))
                 .into_any_element();
         }
@@ -1411,14 +2055,14 @@ impl Block {
         let node_style = html_node_visual_style(node, inherited_style, theme);
         match node.tag_name.as_str() {
             "strong" | "b" => {
-                self.render_html_inline_container(node, theme, node_style, FontWeight::BOLD, cx)
+                self.render_html_inline_container(node, theme, node_style, FontWeight::BOLD, for_column, body_line_height, cx)
             }
             "em" | "i" | "span" | "abbr" | "dfn" | "time" | "u" | "ins" | "del" | "small"
             | "sup" | "sub" | "a" => {
-                self.render_html_inline_container(node, theme, node_style, FontWeight::NORMAL, cx)
+                self.render_html_inline_container(node, theme, node_style, FontWeight::NORMAL, for_column, body_line_height, cx)
             }
             "mark" => {
-                self.render_html_inline_container(node, theme, node_style, FontWeight::NORMAL, cx)
+                self.render_html_inline_container(node, theme, node_style, FontWeight::NORMAL, for_column, body_line_height, cx)
             }
             "code" | "kbd" => {
                 let mut element =
@@ -1428,9 +2072,16 @@ impl Block {
                         .px(px(4.0))
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
-                        .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
-                        }));
+                        .line_height(rems(body_line_height))
+                        .children(
+                            node
+                                .children
+                                .iter()
+                                .filter(|child| !should_skip_html_flow_child(child))
+                                .map(|child| {
+                                    self.render_html_node(child, theme, node_style.computed, for_column, cx)
+                                }),
+                        );
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
                 }
@@ -1441,11 +2092,12 @@ impl Block {
                     .flex()
                     .text_size(px(node_style.computed.font_size))
                     .text_color(node_style.computed.color)
+                    .line_height(rems(body_line_height))
                     .children([
                         div().child("\u{201C}").into_any_element(),
                         div()
                             .children(node.children.iter().map(|child| {
-                                self.render_html_node(child, theme, node_style.computed, cx)
+                                self.render_html_node(child, theme, node_style.computed, for_column, cx)
                             }))
                             .into_any_element(),
                         div().child("\u{201D}").into_any_element(),
@@ -1456,6 +2108,139 @@ impl Block {
                 element.into_any_element()
             }
             "br" => div().child("\n").into_any_element(),
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                let (size, weight) = match node.tag_name.as_str() {
+                    "h1" => (t.h1_size, FontWeight::BOLD),
+                    "h2" => (t.h2_size, FontWeight::BOLD),
+                    "h3" => (t.h3_size, FontWeight::SEMIBOLD),
+                    "h4" => (t.h4_size, FontWeight::SEMIBOLD),
+                    "h5" => (t.h5_size, FontWeight::MEDIUM),
+                    _ => (t.h6_size, FontWeight::MEDIUM),
+                };
+                let mut element = div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .text_size(px(size))
+                    .text_color(node_style.computed.color)
+                    .font_weight(weight)
+                    .line_height(rems(html_heading_line_height(for_column)))
+                    .child(if for_column && html_children_are_plain_text(&node.children) {
+                        div()
+                            .w_full()
+                            .min_w(px(0.0))
+                            .child(SharedString::from(html_collect_visible_text(&node.children)))
+                            .into_any_element()
+                    } else {
+                        div()
+                            .w_full()
+                            .min_w(px(0.0))
+                            .flex()
+                            .flex_wrap()
+                            .items_start()
+                            .children(node.children.iter().map(|child| {
+                                self.render_html_node(child, theme, node_style.computed, for_column, cx)
+                            }))
+                            .into_any_element()
+                    });
+                if let Some(bg) = node_style.background {
+                    element = element.bg(bg);
+                }
+                element.into_any_element()
+            }
+            "p" => {
+                let element = if for_column {
+                    self.render_html_inline_flow(
+                        &node.children,
+                        theme,
+                        node_style.computed,
+                        node_style.computed.font_size,
+                        node_style.computed.color,
+                        body_line_height,
+                        true,
+                        cx,
+                    )
+                } else {
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_wrap()
+                        .items_start()
+                        .text_size(px(node_style.computed.font_size))
+                        .text_color(node_style.computed.color)
+                        .line_height(rems(body_line_height))
+                        .children(self.render_html_compact_children(
+                            &node.children,
+                            theme,
+                            node_style.computed,
+                            for_column,
+                            for_column,
+                            cx,
+                        ))
+                        .into_any_element()
+                };
+                if let Some(bg) = node_style.background {
+                    div().bg(bg).child(element).into_any_element()
+                } else {
+                    element
+                }
+            }
+            "ul" | "ol" => {
+                let list_gap = if for_column {
+                    0.0
+                } else {
+                    d.block_gap * 0.25
+                };
+                let list_line_height = if for_column {
+                    html_list_line_height(true)
+                } else {
+                    body_line_height
+                };
+                let list_children: Vec<_> = node
+                    .children
+                    .iter()
+                    .filter(|child| !should_skip_html_flow_child(child))
+                    .collect();
+                let mut element = div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .text_size(px(node_style.computed.font_size))
+                    .text_color(node_style.computed.color)
+                    .line_height(rems(list_line_height));
+                if list_gap > 0.0 {
+                    element = element.gap(px(list_gap));
+                }
+                element = element.children(list_children.iter().enumerate().map(|(index, child)| {
+                        if child.tag_name == "li" {
+                            self.render_html_list_item(
+                                child,
+                                theme,
+                                node_style.computed,
+                                node.tag_name == "ol",
+                                index + 1,
+                                for_column,
+                                list_line_height,
+                                cx,
+                            )
+                        } else {
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
+                        }
+                    }));
+                if let Some(bg) = node_style.background {
+                    element = element.bg(bg);
+                }
+                element.into_any_element()
+            }
+            "li" => self.render_html_list_item(
+                node,
+                theme,
+                node_style.computed,
+                false,
+                1,
+                for_column,
+                body_line_height,
+                cx,
+            ),
             "hr" => div()
                 .w_full()
                 .h(px(d.separator_thickness))
@@ -1464,56 +2249,69 @@ impl Block {
                 .rounded(px(999.0))
                 .into_any_element(),
             "blockquote" => {
-                let mut element =
-                    div()
-                        .w_full()
-                        .pl(px(d.quote_padding_left))
-                        .border_l(px(d.quote_border_width))
-                        .border_color(c.border_quote)
-                        .text_size(px(node_style.computed.font_size))
-                        .text_color(node_style.computed.color)
-                        .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
-                        }));
-                if let Some(bg) = node_style.background {
-                    element = element.bg(bg);
-                }
-                element.into_any_element()
-            }
-            "pre" => {
-                let mut element = div()
-                    .w_full()
-                    .rounded_sm()
-                    .px(px(d.code_block_padding_x))
-                    .py(px(d.code_block_padding_y))
-                    .text_size(px(node_style.computed.font_size))
-                    .text_color(node_style.computed.color)
-                    .child(SharedString::from(html_children_text(node)));
-                if let Some(bg) = node_style.background {
-                    element = element.bg(bg);
-                }
-                element.into_any_element()
-            }
-            "img" => self.render_html_image(node, theme, node_style, cx),
-            "table" => self.render_html_table(node, theme, node_style, cx),
-            "thead" | "tbody" | "tfoot" => {
+                let quote_gap = if for_column {
+                    d.block_gap * 0.12
+                } else {
+                    d.block_gap * 0.25
+                };
                 let mut element =
                     div()
                         .w_full()
                         .flex()
                         .flex_col()
+                        .gap(px(quote_gap))
+                        .pl(px(d.quote_padding_left))
+                        .border_l(px(d.quote_border_width))
+                        .border_color(c.border_quote)
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
-                        .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
+                        .line_height(rems(body_line_height))
+                        .children(
+                            node
+                                .children
+                                .iter()
+                                .filter(|child| !should_skip_html_flow_child(child))
+                                .map(|child| {
+                                    self.render_html_node(child, theme, node_style.computed, for_column, cx)
+                                }),
+                        );
+                if let Some(bg) = node_style.background {
+                    element = element.bg(bg);
+                }
+                element.into_any_element()
+            }
+            "pre" => self.render_html_code_block(
+                &html_children_text(node),
+                html_pre_code_language(node).as_deref(),
+                theme,
+                for_column,
+                node_style,
+            ),
+            "img" => self.render_html_image(node, theme, node_style, cx),
+            "table" => self.render_html_table(node, theme, node_style, for_column, cx),
+            "thead" | "tbody" | "tfoot" => {
+                let table_line_height = html_table_body_line_height(for_column);
+                let mut element =
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .items_start()
+                        .text_size(px(node_style.computed.font_size))
+                        .text_color(node_style.computed.color)
+                        .line_height(rems(table_line_height))
+                        .children(html_table_child_nodes(&node.children).map(|child| {
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         }));
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
                 }
                 element.into_any_element()
             }
-            "tr" => self.render_html_table_row(node, theme, node_style, cx),
+            "tr" => self.render_html_table_row(node, theme, node_style, for_column, cx),
             "th" | "td" => {
+                let cell_pad_y = html_table_cell_padding_y(d, for_column);
+                let table_line_height = html_table_body_line_height(for_column);
                 let mut element =
                     div()
                         .min_w(px(0.0))
@@ -1521,23 +2319,47 @@ impl Block {
                         .border(px(1.0))
                         .border_color(c.table_border)
                         .px(px(d.table_cell_padding_x))
-                        .py(px(d.table_cell_padding_y))
-                        .text_size(px(node_style.computed.font_size))
-                        .text_color(node_style.computed.color)
+                        .py(px(cell_pad_y))
                         .font_weight(if node.tag_name == "th" {
                             FontWeight::SEMIBOLD
                         } else {
                             FontWeight::NORMAL
                         })
-                        .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
-                        }));
+                        .child(if for_column {
+                            self.render_html_inline_flow(
+                                &node.children,
+                                theme,
+                                node_style.computed,
+                                node_style.computed.font_size,
+                                node_style.computed.color,
+                                table_line_height,
+                                true,
+                                cx,
+                            )
+                        } else {
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .items_start()
+                                .text_size(px(node_style.computed.font_size))
+                                .text_color(node_style.computed.color)
+                                .line_height(rems(body_line_height))
+                                .children(self.render_html_compact_children(
+                                    &node.children,
+                                    theme,
+                                    node_style.computed,
+                                    for_column,
+                                    for_column,
+                                    cx,
+                                ))
+                                .into_any_element()
+                        });
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
                 }
                 element.into_any_element()
             }
-            "details" => self.render_html_details(node, theme, node_style, cx),
+            "details" => self.render_html_details(node, theme, node_style, for_column, cx),
             "summary" => {
                 let mut element =
                     div()
@@ -1546,7 +2368,7 @@ impl Block {
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
                         .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         }));
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
@@ -1564,7 +2386,7 @@ impl Block {
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
                         .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         }));
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
@@ -1579,7 +2401,7 @@ impl Block {
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
                         .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         }));
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
@@ -1593,7 +2415,7 @@ impl Block {
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
                         .children(node.children.iter().map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         }));
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
@@ -1609,6 +2431,8 @@ impl Block {
         theme: &Theme,
         node_style: HtmlNodeVisualStyle,
         weight: FontWeight,
+        for_column: bool,
+        body_line_height: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut element = div()
@@ -1617,10 +2441,12 @@ impl Block {
             .text_size(px(node_style.computed.font_size))
             .text_color(node_style.computed.color)
             .font_weight(weight)
+            .line_height(rems(body_line_height))
             .children(
                 node.children
                     .iter()
-                    .map(|child| self.render_html_node(child, theme, node_style.computed, cx)),
+                    .filter(|child| !should_skip_html_flow_child(child))
+                    .map(|child| self.render_html_node(child, theme, node_style.computed, for_column, cx)),
             );
         if let Some(bg) = node_style.background {
             element = element.bg(bg).rounded(px(3.0)).px(px(2.0));
@@ -1639,6 +2465,218 @@ impl Block {
             _ => {}
         }
         element.into_any_element()
+    }
+
+    fn render_html_code_block(
+        &self,
+        source: &str,
+        language: Option<&str>,
+        theme: &Theme,
+        _for_column: bool,
+        node_style: HtmlNodeVisualStyle,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let font_size = t.code_size;
+        let line_height = t.text_line_height;
+        let base_color = c.code_text;
+        let highlight_spans = highlight_code_block(language, source)
+            .map(|result| result.spans)
+            .unwrap_or_default();
+
+        let mut line_start = 0usize;
+        let mut line_elements = Vec::new();
+        for line in source.split('\n') {
+            let line_end = line_start + line.len();
+            line_elements.push(
+                div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_wrap()
+                    .items_start()
+                    .children(render_html_code_highlight_chunks(
+                        source,
+                        line_start..line_end,
+                        &highlight_spans,
+                        base_color,
+                        c,
+                        font_size,
+                    )),
+            );
+            line_start = line_end + 1;
+        }
+
+        let mut element = div()
+            .w_full()
+            .min_w(px(0.0))
+            .rounded_sm()
+            .bg(c.code_bg)
+            .px(px(d.code_block_padding_x))
+            .py(px(d.code_block_padding_y))
+            .text_size(px(font_size))
+            .line_height(rems(line_height))
+            .flex()
+            .flex_col()
+            .items_start()
+            .children(line_elements);
+        if let Some(bg) = node_style.background {
+            element = element.bg(bg);
+        }
+        element.into_any_element()
+    }
+
+    fn render_html_inline_flow(
+        &self,
+        children: &[HtmlNode],
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        font_size: f32,
+        color: Hsla,
+        body_line_height: f32,
+        flatten_paragraphs: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if html_children_are_plain_text(children) {
+            return div()
+                .w_full()
+                .min_w(px(0.0))
+                .text_size(px(font_size))
+                .text_color(color)
+                .line_height(rems(body_line_height))
+                .child(SharedString::from(html_collect_visible_text(children)))
+                .into_any_element();
+        }
+
+        div()
+            .w_full()
+            .min_w(px(0.0))
+            .flex()
+            .flex_wrap()
+            .items_start()
+            .text_size(px(font_size))
+            .text_color(color)
+            .line_height(rems(body_line_height))
+            .children(self.render_html_compact_children(
+                children,
+                theme,
+                inherited_style,
+                true,
+                flatten_paragraphs,
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_html_compact_children(
+        &self,
+        children: &[HtmlNode],
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        for_column: bool,
+        flatten_paragraphs: bool,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut elements = Vec::new();
+        for child in children {
+            if should_skip_html_flow_child(child) {
+                continue;
+            }
+            if flatten_paragraphs && child.tag_name == "p" {
+                for grandchild in &child.children {
+                    elements.push(self.render_html_node(
+                        grandchild,
+                        theme,
+                        inherited_style,
+                        for_column,
+                        cx,
+                    ));
+                }
+                continue;
+            }
+            elements.push(self.render_html_node(
+                child,
+                theme,
+                inherited_style,
+                for_column,
+                cx,
+            ));
+        }
+        elements
+    }
+
+    fn render_html_list_item(
+        &self,
+        node: &HtmlNode,
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        ordered: bool,
+        ordinal: usize,
+        for_column: bool,
+        body_line_height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let marker = if ordered {
+            format!("{ordinal}.")
+        } else {
+            BULLET_FILLED.to_string()
+        };
+        let node_style = html_node_visual_style(node, inherited_style, theme);
+        let d = &theme.dimensions;
+        let marker_width = if ordered {
+            d.ordered_list_marker_width
+        } else {
+            20.0
+        };
+        div()
+            .w_full()
+            .min_w(px(0.0))
+            .flex()
+            .items_start()
+            .gap(px(d.list_marker_gap))
+            .text_size(px(node_style.computed.font_size))
+            .text_color(node_style.computed.color)
+            .line_height(rems(body_line_height))
+            .child(
+                div()
+                    .min_w(px(marker_width))
+                    .flex_shrink_0()
+                    .text_color(theme.colors.dialog_muted)
+                    .line_height(rems(body_line_height))
+                    .child(marker),
+            )
+            .child(
+                if for_column {
+                    self.render_html_inline_flow(
+                        &node.children,
+                        theme,
+                        node_style.computed,
+                        node_style.computed.font_size,
+                        node_style.computed.color,
+                        body_line_height,
+                        true,
+                        cx,
+                    )
+                } else {
+                    div()
+                        .min_w(px(0.0))
+                        .flex_grow()
+                        .flex()
+                        .flex_wrap()
+                        .items_start()
+                        .children(self.render_html_compact_children(
+                            &node.children,
+                            theme,
+                            node_style.computed,
+                            for_column,
+                            for_column,
+                            cx,
+                        ))
+                        .into_any_element()
+                },
+            )
+            .into_any_element()
     }
 
     fn render_html_image(
@@ -1699,19 +2737,132 @@ impl Block {
         node: &HtmlNode,
         theme: &Theme,
         node_style: HtmlNodeVisualStyle,
+        for_column: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let column_count = html_table_column_count(node);
+        let column_layout = TableColumnLayout::equal(column_count);
+        let rows = html_table_collect_rows(node);
+        let table_line_height = html_table_body_line_height(for_column);
         let mut element = div()
             .w_full()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .items_start()
             .border(px(1.0))
             .border_color(theme.colors.table_border)
             .text_size(px(node_style.computed.font_size))
             .text_color(node_style.computed.color)
-            .children(
-                node.children
-                    .iter()
-                    .map(|child| self.render_html_node(child, theme, node_style.computed, cx)),
-            );
+            .line_height(rems(table_line_height))
+            .children(rows.iter().map(|row| {
+                self.render_html_table_row_with_layout(
+                    row,
+                    &column_layout,
+                    theme,
+                    node_style,
+                    for_column,
+                    cx,
+                )
+            }));
+        if let Some(bg) = node_style.background {
+            element = element.bg(bg);
+        }
+        element.into_any_element()
+    }
+
+    fn render_html_table_row_with_layout(
+        &self,
+        row: &HtmlNode,
+        column_layout: &TableColumnLayout,
+        theme: &Theme,
+        node_style: HtmlNodeVisualStyle,
+        for_column: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut element = div()
+            .w_full()
+            .flex()
+            .items_start()
+            .text_size(px(node_style.computed.font_size))
+            .text_color(node_style.computed.color)
+            .children(html_table_row_cells(row).enumerate().map(|(column, cell)| {
+                self.render_html_table_cell(
+                    cell,
+                    column,
+                    column_layout,
+                    theme,
+                    node_style.computed,
+                    for_column,
+                    cx,
+                )
+            }));
+        if let Some(bg) = node_style.background {
+            element = element.bg(bg);
+        }
+        element.into_any_element()
+    }
+
+    fn render_html_table_cell(
+        &self,
+        cell: &HtmlNode,
+        column: usize,
+        column_layout: &TableColumnLayout,
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        for_column: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let body_line_height = html_body_line_height(&theme.typography, for_column);
+        let cell_pad_y = html_table_cell_padding_y(d, for_column);
+        let table_line_height = html_table_body_line_height(for_column);
+        let node_style = html_node_visual_style(cell, inherited_style, theme);
+        let column_fraction = column_layout.fraction(column);
+        let mut element = div()
+            .min_w(px(0.0))
+            .flex_shrink_0()
+            .flex_basis(relative(column_fraction))
+            .w(relative(column_fraction))
+            .border(px(1.0))
+            .border_color(c.table_border)
+            .px(px(d.table_cell_padding_x))
+            .py(px(cell_pad_y))
+            .font_weight(if cell.tag_name == "th" {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::NORMAL
+            })
+            .child(if for_column {
+                self.render_html_inline_flow(
+                    &cell.children,
+                    theme,
+                    node_style.computed,
+                    node_style.computed.font_size,
+                    node_style.computed.color,
+                    table_line_height,
+                    true,
+                    cx,
+                )
+            } else {
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_start()
+                    .text_size(px(node_style.computed.font_size))
+                    .text_color(node_style.computed.color)
+                    .line_height(rems(body_line_height))
+                    .children(self.render_html_compact_children(
+                        &cell.children,
+                        theme,
+                        node_style.computed,
+                        for_column,
+                        for_column,
+                        cx,
+                    ))
+                    .into_any_element()
+            });
         if let Some(bg) = node_style.background {
             element = element.bg(bg);
         }
@@ -1723,18 +2874,18 @@ impl Block {
         node: &HtmlNode,
         theme: &Theme,
         node_style: HtmlNodeVisualStyle,
+        for_column: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut element = div()
             .w_full()
             .flex()
+            .items_start()
             .text_size(px(node_style.computed.font_size))
             .text_color(node_style.computed.color)
-            .children(
-                node.children
-                    .iter()
-                    .map(|child| self.render_html_node(child, theme, node_style.computed, cx)),
-            );
+            .children(html_table_child_nodes(&node.children).map(|child| {
+                self.render_html_node(child, theme, node_style.computed, for_column, cx)
+            }));
         if let Some(bg) = node_style.background {
             element = element.bg(bg);
         }
@@ -1746,6 +2897,7 @@ impl Block {
         node: &HtmlNode,
         theme: &Theme,
         node_style: HtmlNodeVisualStyle,
+        for_column: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let is_open = attr_value(node, "open").is_some() || self.html_details_open;
@@ -1780,7 +2932,7 @@ impl Block {
                     )
                     .child(if is_open { "\u{25BE}" } else { "\u{25B8}" })
                     .children(summary.into_iter().map(|summary| {
-                        self.render_html_node(summary, theme, node_style.computed, cx)
+                        self.render_html_node(summary, theme, node_style.computed, for_column, cx)
                     })),
             );
         if let Some(bg) = node_style.background {
@@ -1794,7 +2946,7 @@ impl Block {
                         .w_full()
                         .pt(px(theme.dimensions.block_padding_y))
                         .children(body.map(|child| {
-                            self.render_html_node(child, theme, node_style.computed, cx)
+                            self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         })),
                 );
         }
@@ -2025,12 +3177,25 @@ impl Render for Block {
         }
 
         // Source-mode rendering: raw text with no formatting.
+        let rendered_columns = if self.kind() == BlockKind::RawMarkdown {
+            parse_columns_markdown(self.display_text())
+        } else {
+            None
+        };
+        let columns_preview_active = rendered_columns.is_some()
+            && (!focused || !self.columns_source_edit);
+        if !focused && self.columns_source_edit {
+            self.columns_source_edit = false;
+        }
+
         if self.is_source_raw_mode()
+            && !columns_preview_active
             && (focused
-                || !matches!(
-                    self.kind(),
-                    BlockKind::HtmlBlock | BlockKind::MathBlock | BlockKind::MermaidBlock
-                ))
+                || (rendered_columns.is_none()
+                    && !matches!(
+                        self.kind(),
+                        BlockKind::HtmlBlock | BlockKind::MathBlock | BlockKind::MermaidBlock
+                    )))
         {
             if focused && self.cursor_blink_task.is_none() {
                 self.start_cursor_blink(cx);
@@ -3212,7 +4377,7 @@ impl Render for Block {
                     .text_size(px(t.text_size))
                     .text_color(c.text_default)
                     .line_height(rems(t.text_line_height))
-                    .child(self.render_html_document(&html, &theme, cx))
+                    .child(self.render_html_document(&html, &theme, false, cx))
                     .into_any_element()
             }
             BlockKind::MathBlock => {
@@ -3238,6 +4403,25 @@ impl Render for Block {
                     self.render_mermaid_content(&theme, window)
                 };
                 focused_base.w_full().child(child).into_any_element()
+            }
+            BlockKind::RawMarkdown if rendered_columns.is_some() && columns_preview_active => {
+                if !focused {
+                    self.last_layout = None;
+                    self.last_bounds = None;
+                    self.interaction_bounds = None;
+                }
+                let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
+                focused_base
+                    .min_h(px(0.0))
+                    .w_full()
+                    .child(self.render_columns_markdown(
+                        rendered_columns.unwrap_or_default(),
+                        &theme,
+                        viewport_width <= 768.0,
+                        window,
+                        cx,
+                    ))
+                    .into_any_element()
             }
             BlockKind::Paragraph
             | BlockKind::Comment
@@ -3266,7 +4450,14 @@ impl Render for Block {
 
 #[cfg(test)]
 mod tests {
-    use super::{HtmlComputedStyle, html_node_visual_style};
+    use super::{
+        ColumnMarkdownSegment, CmarkParser, HtmlComputedStyle, cmark_html,
+        html_children_are_plain_text, html_collect_visible_text, html_node_visual_style,
+        html_pre_code_language, html_table_column_count,
+        html_table_collect_rows, markdown_html_options, parse_columns_markdown,
+        split_column_markdown_segments,
+    };
+    use crate::components::highlight_code_block;
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, parse_html_document};
     use crate::i18n::I18nManager;
     use crate::theme::{Theme, ThemeManager};
@@ -3282,6 +4473,133 @@ mod tests {
     }
 
     #[test]
+    fn html_collect_visible_text_merges_paragraph_inline_nodes() {
+        let parser = CmarkParser::new_ext(
+            "这是一段很长的分栏说明文字，用来验证自动换行。",
+            markdown_html_options(),
+        );
+        let mut html = String::new();
+        cmark_html::push_html(&mut html, parser);
+        let doc = parse_html_document(&html);
+        let paragraph = doc
+            .nodes
+            .iter()
+            .find(|node| node.tag_name == "p")
+            .expect("paragraph");
+        assert!(html_children_are_plain_text(&paragraph.children));
+        assert_eq!(
+            html_collect_visible_text(&paragraph.children),
+            "这是一段很长的分栏说明文字，用来验证自动换行。"
+        );
+    }
+
+    #[test]
+    fn cmark_code_fence_html_exposes_language_class() {
+        let parser = CmarkParser::new_ext(
+            "```rust\nfn main() {}\n```",
+            markdown_html_options(),
+        );
+        let mut html = String::new();
+        cmark_html::push_html(&mut html, parser);
+        let doc = parse_html_document(&html);
+        let pre = doc
+            .nodes
+            .iter()
+            .find(|node| node.tag_name == "pre")
+            .expect("code block pre");
+        assert_eq!(html_pre_code_language(pre).as_deref(), Some("rust"));
+        let highlight = highlight_code_block(Some("rust"), "fn main() {}");
+        assert!(highlight.is_some());
+        assert!(!highlight.unwrap().spans.is_empty());
+    }
+
+    #[test]
+    fn cmark_table_html_parses_into_aligned_row_structure() {
+        let parser = CmarkParser::new_ext(
+            "| Metric | Value | Change |\n| --- | ---: | ---: |\n| Page Views | 12,000 | +18% |",
+            markdown_html_options(),
+        );
+        let mut html = String::new();
+        cmark_html::push_html(&mut html, parser);
+        let doc = parse_html_document(&html);
+        let table = doc
+            .nodes
+            .iter()
+            .find(|node| node.tag_name == "table")
+            .expect("table");
+        assert_eq!(html_table_column_count(table), 3);
+        let rows = html_table_collect_rows(table);
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0]
+            .children
+            .iter()
+            .any(|child| child.tag_name == "th"));
+        assert!(rows[1]
+            .children
+            .iter()
+            .any(|child| child.tag_name == "td"));
+    }
+
+    #[test]
+    fn cmark_table_html_inserts_whitespace_between_rows() {
+        let parser = CmarkParser::new_ext(
+            "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
+            markdown_html_options(),
+        );
+        let mut html = String::new();
+        cmark_html::push_html(&mut html, parser);
+        let doc = parse_html_document(&html);
+        let table = doc
+            .nodes
+            .iter()
+            .find(|node| node.tag_name == "table")
+            .expect("table");
+        let tbody = table
+            .children
+            .iter()
+            .find(|node| node.tag_name == "tbody")
+            .expect("tbody");
+        let whitespace_nodes = tbody
+            .children
+            .iter()
+            .filter(|child| {
+                child.tag_name == "#text" && child.raw_source.chars().all(char::is_whitespace)
+            })
+            .count();
+        assert!(
+            whitespace_nodes > 0,
+            "expected whitespace nodes between table rows, got {html:?}"
+        );
+    }
+
+    #[test]
+    fn cmark_ordered_list_html_inserts_whitespace_between_items() {
+        let parser = CmarkParser::new_ext(
+            "1. First\n2. Second\n3. Third",
+            markdown_html_options(),
+        );
+        let mut html = String::new();
+        cmark_html::push_html(&mut html, parser);
+        let doc = parse_html_document(&html);
+        let ol = doc
+            .nodes
+            .iter()
+            .find(|node| node.tag_name == "ol")
+            .expect("ordered list");
+        let whitespace_nodes = ol
+            .children
+            .iter()
+            .filter(|child| {
+                child.tag_name == "#text" && child.raw_source.chars().all(char::is_whitespace)
+            })
+            .count();
+        assert!(
+            whitespace_nodes > 0,
+            "expected whitespace nodes between list items, got {html:?}"
+        );
+    }
+
+    #[test]
     fn html_render_style_inherits_color_and_font_size() {
         let theme = Theme::default_theme();
         let doc = parse_html_document(
@@ -3294,6 +4612,80 @@ mod tests {
         assert_color_near(parent.computed.color, 0, 0, 255, 255);
         assert_color_near(child.computed.color, 0, 0, 255, 255);
         assert!((child.computed.font_size - 24.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parses_columns_markdown_for_live_rendering() {
+        let columns = parse_columns_markdown(concat!(
+            "::: columns\n",
+            "--- column width=40%\n",
+            "### Left\n\n",
+            "- A\n",
+            "- B\n\n",
+            "--- column width=60%\n",
+            "Right text\n",
+            ":::"
+        ))
+        .expect("columns block");
+
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns[0].width_fraction, Some(0.4));
+        assert_eq!(columns[1].width_fraction, Some(0.6));
+        assert!(columns[0].markdown.contains("### Left"));
+        assert_eq!(columns[1].markdown, "Right text");
+    }
+
+    #[test]
+    fn split_column_markdown_extracts_mermaid_fence() {
+        let segments = split_column_markdown_segments(concat!(
+            "### Chart\n\n",
+            "```mermaid\n",
+            "flowchart LR\n",
+            "A --> B\n",
+            "```\n\n",
+            "Tail text"
+        ));
+
+        assert_eq!(segments.len(), 3);
+        match &segments[0] {
+            ColumnMarkdownSegment::Markdown(text) => assert!(text.contains("### Chart")),
+            _ => panic!("expected markdown segment"),
+        }
+        match &segments[1] {
+            ColumnMarkdownSegment::Mermaid(raw) => {
+                assert!(raw.contains("```mermaid"));
+                assert!(raw.contains("A --> B"));
+            }
+            _ => panic!("expected mermaid segment"),
+        }
+        match &segments[2] {
+            ColumnMarkdownSegment::Markdown(text) => assert_eq!(text, "Tail text"),
+            _ => panic!("expected markdown segment"),
+        }
+    }
+
+    #[test]
+    fn columns_live_parser_allows_trailing_blank_lines() {
+        let columns = parse_columns_markdown(concat!(
+            "::: columns\n",
+            "--- column\n",
+            "Left\n",
+            "--- column\n",
+            "Right\n",
+            ":::\n"
+        ))
+        .expect("columns block with trailing newline");
+
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns[0].markdown, "Left");
+        assert_eq!(columns[1].markdown, "Right");
+    }
+
+    #[test]
+    fn columns_live_parser_requires_closing_marker() {
+        let columns = parse_columns_markdown("::: columns\n--- column\nLeft");
+
+        assert!(columns.is_none());
     }
 
     #[test]

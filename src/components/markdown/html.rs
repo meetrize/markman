@@ -1118,7 +1118,16 @@ fn is_block_tag(name: &str) -> bool {
     matches!(
         name,
         "div"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
             | "p"
+            | "ul"
+            | "ol"
+            | "li"
             | "blockquote"
             | "hr"
             | "br"
@@ -1171,6 +1180,20 @@ mod tests {
         assert!(doc.is_semantic());
         assert_eq!(doc.nodes[0].tag_name, "span");
         assert_eq!(doc.raw_source, "<span style='color:blue;'>Blue</span>");
+    }
+
+    #[test]
+    fn markdown_export_headings_and_lists_classify_as_semantic() {
+        let doc = parse_html_document("<h3>Title</h3>\n<ul><li>One</li><li>Two</li></ul>");
+
+        assert!(doc.is_semantic());
+        assert_eq!(doc.nodes[0].tag_name, "h3");
+        let list = doc
+            .nodes
+            .iter()
+            .find(|node| node.tag_name == "ul")
+            .expect("list node");
+        assert_eq!(list.children[0].tag_name, "li");
     }
 
     #[test]

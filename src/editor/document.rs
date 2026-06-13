@@ -692,6 +692,7 @@ fn looks_like_root_block_start(lines: &[String], index: usize) -> bool {
     }
 
     parse_opening_fence(line).is_some()
+        || is_columns_block_start(line)
         || is_block_html_start(line)
         || is_footnote_definition_start(line)
         || is_reference_definition_start(line)
@@ -706,6 +707,54 @@ fn looks_like_root_block_start(lines: &[String], index: usize) -> bool {
             .is_some()
         || is_root_table_candidate_line(line)
         || is_display_math_start(line)
+}
+
+fn is_columns_block_start(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if line.len() - trimmed.len() > 3 {
+        return false;
+    }
+    let Some(rest) = trimmed.strip_prefix("::: columns") else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with(char::is_whitespace)
+}
+
+fn is_columns_block_end(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    line.len() - trimmed.len() <= 3 && trimmed.trim_end() == ":::"
+}
+
+fn collect_columns_block_region(lines: &[String], start: usize) -> Option<usize> {
+    if !is_columns_block_start(&lines[start]) {
+        return None;
+    }
+
+    let mut index = start + 1;
+    let mut active_fence: Option<FenceInfo> = None;
+    while index < lines.len() {
+        let line = &lines[index];
+        if let Some(fence) = active_fence.as_ref() {
+            if is_closing_fence(line, fence) {
+                active_fence = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(fence) = parse_opening_fence(line) {
+            active_fence = Some(fence);
+            index += 1;
+            continue;
+        }
+
+        if is_columns_block_end(line) {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
 }
 
 fn attach_child_blocks(
@@ -997,6 +1046,12 @@ impl Editor {
 
                 roots.push(block);
                 index = next_index;
+                continue;
+            }
+
+            if let Some(end) = collect_columns_block_region(lines, index) {
+                roots.push(raw_block(cx, lines[index..end].join("\n")));
+                index = end;
                 continue;
             }
 
@@ -2909,6 +2964,34 @@ mod tests {
                 "| A |\n| --- | --- |\n| 1 |"
             );
             assert_eq!(visible[1].entity.read(cx).quote_depth, 1);
+            assert_eq!(editor.document.markdown_text(cx), markdown);
+        });
+    }
+
+    #[gpui::test]
+    async fn imports_columns_block_as_single_raw_markdown_block(cx: &mut TestAppContext) {
+        let markdown = concat!(
+            "::: columns\n",
+            "--- column width=40%\n",
+            "| A | B |\n",
+            "| --- | --- |\n",
+            "| 1 | 2 |\n\n",
+            "--- column width=60%\n",
+            "```mermaid\n",
+            "flowchart LR\n",
+            "A --> B\n",
+            "```\n",
+            ":::"
+        )
+        .to_string();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown.clone(), None));
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 1);
+            let block = visible[0].entity.read(cx);
+            assert_eq!(block.kind(), BlockKind::RawMarkdown);
+            assert_eq!(block.display_text(), markdown);
             assert_eq!(editor.document.markdown_text(cx), markdown);
         });
     }

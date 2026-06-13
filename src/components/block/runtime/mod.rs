@@ -180,6 +180,8 @@ pub struct Block {
     image_edit_expanded: bool,
     image_expand_requested: bool,
     pub(crate) html_details_open: bool,
+    /// When true, a focused columns block shows source text for editing instead of preview.
+    pub(crate) columns_source_edit: bool,
     image_base_dir: Option<PathBuf>,
     image_reference_definitions: Arc<ImageReferenceDefinitions>,
     link_reference_definitions: Arc<LinkReferenceDefinitions>,
@@ -283,6 +285,7 @@ impl Block {
             image_edit_expanded: false,
             image_expand_requested: false,
             html_details_open: false,
+            columns_source_edit: false,
             image_base_dir: None,
             image_reference_definitions: Arc::default(),
             link_reference_definitions: Arc::default(),
@@ -303,6 +306,23 @@ impl Block {
 
     pub(crate) fn shows_text_selection_highlight(&self) -> bool {
         true
+    }
+
+    pub(crate) fn is_columns_raw_markdown(&self) -> bool {
+        if self.kind() != BlockKind::RawMarkdown {
+            return false;
+        }
+        let trimmed = self.display_text().trim_start();
+        trimmed.starts_with("::: columns")
+            && (trimmed.as_bytes().len() == b"::: columns".len()
+                || trimmed.as_bytes().get(b"::: columns".len()).is_some_and(|ch| ch.is_ascii_whitespace()))
+    }
+
+    pub(crate) fn enable_columns_source_edit(&mut self, cx: &mut Context<Self>) {
+        if !self.columns_source_edit {
+            self.columns_source_edit = true;
+            cx.notify();
+        }
     }
 
     pub(crate) fn is_source_raw_mode(&self) -> bool {
