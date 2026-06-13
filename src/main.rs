@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use gpui::*;
 
+mod app_icon;
 mod app_identity;
 mod app_menu;
 mod app_visibility;
@@ -284,6 +285,7 @@ fn main() {
     Application::new()
         .with_assets(VelotypeAssets)
         .run(move |cx: &mut App| {
+            app_icon::install();
             let preferences = config::load_or_create_app_preferences().unwrap_or_else(|err| {
                 eprintln!("failed to initialize app preferences: {err}");
                 Default::default()
