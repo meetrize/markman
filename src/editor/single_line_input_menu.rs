@@ -32,7 +32,7 @@ impl Editor {
             SingleLineInputTarget::WorkspaceName => self
                 .workspace.name_dialog
                 .as_ref()
-                .is_some_and(|dialog| !dialog.selected_range.is_empty()),
+                .is_some_and(|dialog| !dialog.input.selected_range.is_empty()),
             SingleLineInputTarget::QuickFileOpen => false,
         }
     }

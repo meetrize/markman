@@ -7,7 +7,7 @@ use gpui::*;
 
 use super::Editor;
 use super::single_line_input::{
-    self, handle_mouse_down, handle_mouse_move, handle_mouse_up, index_for_mouse_position,
+    handle_mouse_down, handle_mouse_move, handle_mouse_up, index_for_mouse_position,
     move_caret_to, prepare_context_menu_selection, primary_shortcut_modifiers, select_caret_to,
     text_grapheme_boundary, SingleLineInputTarget,
 };
@@ -17,6 +17,7 @@ use crate::components::{
     SelectHome, SelectLeft, SelectRight,
 };
 use crate::i18n::I18nManager;
+use crate::input::single_line_field::SingleLineFieldState;
 use crate::theme::Theme;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,10 +42,7 @@ pub(super) enum WorkspaceNameDialogKind {
 #[derive(Clone, Debug)]
 pub(super) struct WorkspaceNameDialogState {
     pub(super) kind: WorkspaceNameDialogKind,
-    pub(super) name: String,
-    pub(super) marked_range: Option<Range<usize>>,
-    pub(super) selected_range: Range<usize>,
-    pub(super) selection_reversed: bool,
+    pub(super) input: SingleLineFieldState,
 }
 
 impl Editor {
@@ -55,28 +53,29 @@ impl Editor {
     pub(super) fn workspace_name_text(&self) -> String {
         self.workspace.name_dialog
             .as_ref()
-            .map(|dialog| dialog.name.clone())
+            .map(|dialog| dialog.input.query.clone())
             .unwrap_or_default()
     }
 
     pub(super) fn workspace_name_marked_range(&self) -> Option<Range<usize>> {
         self.workspace.name_dialog
             .as_ref()
-            .and_then(|dialog| dialog.marked_range.clone())
+            .and_then(|dialog| dialog.input.marked_range.clone())
     }
 
     pub(super) fn workspace_name_selected_range(&self) -> Range<usize> {
         self.workspace.name_dialog
             .as_ref()
-            .map(|dialog| dialog.selected_range.clone())
+            .map(|dialog| dialog.input.selected_range.clone())
             .unwrap_or(0..0)
     }
 
     pub(super) fn workspace_name_cursor_offset(&self) -> usize {
-        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
-            return 0;
-        };
-        single_line_input::cursor_offset(&dialog.selected_range, dialog.selection_reversed)
+        self.workspace
+            .name_dialog
+            .as_ref()
+            .map(|dialog| dialog.input.cursor_offset())
+            .unwrap_or(0)
     }
 
     pub(super) fn set_workspace_name_layout(
@@ -84,18 +83,22 @@ impl Editor {
         line: ShapedLine,
         bounds: Bounds<Pixels>,
     ) {
-        self.workspace.name_last_layout = Some(line);
-        self.workspace.name_last_bounds = Some(bounds);
+        if let Some(dialog) = self.workspace.name_dialog.as_mut() {
+            dialog.input.set_layout(line, bounds);
+        }
     }
 
     pub(super) fn workspace_name_index_for_mouse_position(
         &self,
         position: Point<Pixels>,
     ) -> usize {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
+            return 0;
+        };
         index_for_mouse_position(
-            self.workspace_name_text().len(),
-            self.workspace.name_last_bounds.as_ref(),
-            self.workspace.name_last_layout.as_ref(),
+            dialog.input.text_len(),
+            dialog.input.last_bounds.as_ref(),
+            dialog.input.last_layout.as_ref(),
             position,
         )
     }
@@ -127,7 +130,6 @@ impl Editor {
 
     pub(super) fn close_workspace_name_dialog(&mut self, cx: &mut Context<Self>) {
         if self.workspace.name_dialog.take().is_some() {
-            self.workspace.name_is_selecting = false;
             self.close_single_line_input_context_menu(cx);
             cx.notify();
         }
@@ -181,14 +183,11 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.close_workspace_file_context_menu(cx);
-        let len = default_name.len();
-        self.workspace.name_dialog = Some(WorkspaceNameDialogState {
-            kind,
-            name: default_name,
-            marked_range: None,
-            selected_range: 0..len,
-            selection_reversed: false,
-        });
+        let mut input = SingleLineFieldState::new();
+        input.query = default_name;
+        let len = input.text_len();
+        input.selected_range = 0..len;
+        self.workspace.name_dialog = Some(WorkspaceNameDialogState { kind, input });
         window.focus(&self.workspace.name_focus);
         cx.notify();
     }
@@ -387,7 +386,7 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.clone() else {
             return;
         };
-        let trimmed = dialog.name.trim();
+        let trimmed = dialog.input.query.trim();
         if trimmed.is_empty() {
             return;
         }
@@ -501,12 +500,11 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
-        let start = range.start.min(dialog.name.len());
-        let end = range.end.min(dialog.name.len());
-        dialog.name.replace_range(start..end, new_text);
+        let start = range.start.min(dialog.input.text_len());
+        dialog.input.replace_text(range, new_text);
         let cursor = start + new_text.len();
-        dialog.selected_range = selected.unwrap_or(cursor..cursor);
-        dialog.marked_range = marked.then(|| dialog.selected_range.clone());
+        dialog.input.selected_range = selected.unwrap_or(cursor..cursor);
+        dialog.input.marked_range = marked.then(|| dialog.input.selected_range.clone());
         cx.notify();
     }
 
@@ -514,13 +512,14 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
+        let text_len = dialog.input.text_len();
         move_caret_to(
-            &mut dialog.selected_range,
-            &mut dialog.selection_reversed,
-            &mut dialog.marked_range,
-            &mut self.workspace.name_is_selecting,
+            &mut dialog.input.selected_range,
+            &mut dialog.input.selection_reversed,
+            &mut dialog.input.marked_range,
+            &mut dialog.input.is_selecting,
             offset,
-            dialog.name.len(),
+            text_len,
         );
         cx.notify();
     }
@@ -529,12 +528,13 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
+        let text_len = dialog.input.text_len();
         select_caret_to(
-            &mut dialog.selected_range,
-            &mut dialog.selection_reversed,
-            &mut dialog.marked_range,
+            &mut dialog.input.selected_range,
+            &mut dialog.input.selection_reversed,
+            &mut dialog.input.marked_range,
             offset,
-            dialog.name.len(),
+            text_len,
         );
         cx.notify();
     }
@@ -543,9 +543,9 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        if !dialog.selected_range.is_empty() {
+        if !dialog.input.selected_range.is_empty() {
             self.replace_workspace_name_dialog_text(
-                dialog.selected_range.clone(),
+                dialog.input.selected_range.clone(),
                 "",
                 false,
                 None,
@@ -554,11 +554,11 @@ impl Editor {
             return;
         }
 
-        let cursor = dialog.selected_range.end;
+        let cursor = dialog.input.selected_range.end;
         if cursor == 0 {
             return;
         }
-        let previous = text_grapheme_boundary(&dialog.name, cursor, true);
+        let previous = text_grapheme_boundary(&dialog.input.query, cursor, true);
         self.replace_workspace_name_dialog_text(previous..cursor, "", false, Some(previous..previous), cx);
     }
 
@@ -566,9 +566,9 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        if !dialog.selected_range.is_empty() {
+        if !dialog.input.selected_range.is_empty() {
             self.replace_workspace_name_dialog_text(
-                dialog.selected_range.clone(),
+                dialog.input.selected_range.clone(),
                 "",
                 false,
                 None,
@@ -577,21 +577,21 @@ impl Editor {
             return;
         }
 
-        let cursor = dialog.selected_range.end;
-        if cursor >= dialog.name.len() {
+        let cursor = dialog.input.selected_range.end;
+        if cursor >= dialog.input.query.len() {
             return;
         }
-        let next = text_grapheme_boundary(&dialog.name, cursor, false);
+        let next = text_grapheme_boundary(&dialog.input.query, cursor, false);
         self.replace_workspace_name_dialog_text(cursor..next, "", false, Some(cursor..cursor), cx);
     }
 
     pub(super) fn workspace_name_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let text = super::single_line_input::sanitize_pasted_text(&text);
             let Some(dialog) = self.workspace.name_dialog.as_ref() else {
                 return;
             };
-            let range = dialog.selected_range.clone();
+            let text = dialog.input.sanitize_paste(&text);
+            let range = dialog.input.selected_range.clone();
             self.replace_workspace_name_dialog_text(range, &text, false, None, cx);
         }
     }
@@ -600,10 +600,10 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        if dialog.selected_range.is_empty() {
+        if dialog.input.selected_range.is_empty() {
             return;
         }
-        let selected = dialog.name[dialog.selected_range.clone()].to_string();
+        let selected = dialog.input.query[dialog.input.selected_range.clone()].to_string();
         cx.write_to_clipboard(ClipboardItem::new_string(selected));
     }
 
@@ -612,8 +612,8 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        if !dialog.selected_range.is_empty() {
-            self.replace_workspace_name_dialog_text(dialog.selected_range.clone(), "", false, None, cx);
+        if !dialog.input.selected_range.is_empty() {
+            self.replace_workspace_name_dialog_text(dialog.input.selected_range.clone(), "", false, None, cx);
         }
     }
 
@@ -621,7 +621,7 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        let len = dialog.name.len();
+        let len = dialog.input.query.len();
         self.workspace_name_move_to(0, cx);
         self.workspace_name_select_to(len, cx);
     }
@@ -993,11 +993,11 @@ impl Editor {
         handle_mouse_down(
             event.modifiers.shift,
             offset,
-            dialog.name.len(),
-            &mut dialog.selected_range,
-            &mut dialog.selection_reversed,
-            &mut dialog.marked_range,
-            &mut self.workspace.name_is_selecting,
+            dialog.input.text_len(),
+            &mut dialog.input.selected_range,
+            &mut dialog.input.selection_reversed,
+            &mut dialog.input.marked_range,
+            &mut dialog.input.is_selecting,
         );
         cx.notify();
     }
@@ -1010,12 +1010,12 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
-        let text_len = dialog.name.len();
+        let text_len = dialog.input.query.len();
         prepare_context_menu_selection(
-            &mut dialog.selected_range,
-            &mut dialog.selection_reversed,
-            &mut dialog.marked_range,
-            &mut self.workspace.name_is_selecting,
+            &mut dialog.input.selected_range,
+            &mut dialog.input.selection_reversed,
+            &mut dialog.input.marked_range,
+            &mut dialog.input.is_selecting,
             offset,
             text_len,
         );
@@ -1027,7 +1027,10 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if handle_mouse_up(&mut self.workspace.name_is_selecting) {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
+            return;
+        };
+        if handle_mouse_up(&mut dialog.input.is_selecting) {
             cx.notify();
         }
     }
@@ -1041,23 +1044,20 @@ impl Editor {
         if !self.workspace_name_input_active(window) {
             return;
         }
-        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
-            return;
-        };
-        let text_len = dialog.name.len();
         let offset = self.workspace_name_index_for_mouse_position(event.position);
         let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
+        let text_len = dialog.input.text_len();
         if handle_mouse_move(
             event.dragging(),
             offset,
             text_len,
-            self.workspace.name_is_selecting,
-            &mut dialog.selected_range,
-            &mut dialog.selection_reversed,
-            &mut dialog.marked_range,
-            &mut self.workspace.name_is_selecting,
+            dialog.input.is_selecting,
+            &mut dialog.input.selected_range,
+            &mut dialog.input.selection_reversed,
+            &mut dialog.input.marked_range,
+            &mut dialog.input.is_selecting,
         ) {
             cx.notify();
         }
@@ -1154,15 +1154,15 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        if dialog.selected_range.is_empty() {
+        if dialog.input.selected_range.is_empty() {
             let previous = text_grapheme_boundary(
-                &dialog.name,
+                &dialog.input.query,
                 self.workspace_name_cursor_offset(),
                 true,
             );
             self.workspace_name_move_to(previous, cx);
         } else {
-            self.workspace_name_move_to(dialog.selected_range.start, cx);
+            self.workspace_name_move_to(dialog.input.selected_range.start, cx);
         }
     }
 
@@ -1179,15 +1179,15 @@ impl Editor {
         let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
-        if dialog.selected_range.is_empty() {
+        if dialog.input.selected_range.is_empty() {
             let next = text_grapheme_boundary(
-                &dialog.name,
+                &dialog.input.query,
                 self.workspace_name_cursor_offset(),
                 false,
             );
             self.workspace_name_move_to(next, cx);
         } else {
-            self.workspace_name_move_to(dialog.selected_range.end, cx);
+            self.workspace_name_move_to(dialog.input.selected_range.end, cx);
         }
     }
 
@@ -1217,7 +1217,7 @@ impl Editor {
         let len = self
             .workspace.name_dialog
             .as_ref()
-            .map(|dialog| dialog.name.len())
+            .map(|dialog| dialog.input.query.len())
             .unwrap_or(0);
         self.workspace_name_move_to(len, cx);
     }
@@ -1237,7 +1237,7 @@ impl Editor {
         };
         self.workspace_name_select_to(
             text_grapheme_boundary(
-                &dialog.name,
+                &dialog.input.query,
                 self.workspace_name_cursor_offset(),
                 true,
             ),
@@ -1260,7 +1260,7 @@ impl Editor {
         };
         self.workspace_name_select_to(
             text_grapheme_boundary(
-                &dialog.name,
+                &dialog.input.query,
                 self.workspace_name_cursor_offset(),
                 false,
             ),
@@ -1294,7 +1294,7 @@ impl Editor {
         let len = self
             .workspace.name_dialog
             .as_ref()
-            .map(|dialog| dialog.name.len())
+            .map(|dialog| dialog.input.query.len())
             .unwrap_or(0);
         self.workspace_name_select_to(len, cx);
     }

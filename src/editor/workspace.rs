@@ -2178,7 +2178,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let text = self.workspace.name_dialog.as_ref()?.name.clone();
+            let text = self.workspace.name_dialog.as_ref()?.input.query.clone();
             let range = workspace_search_range_from_utf16(&text, &range_utf16);
             actual_range.replace(workspace_search_range_to_utf16(&text, &range));
             return Some(text[range].to_string());
@@ -2226,7 +2226,7 @@ impl EntityInputHandler for Editor {
         if self.workspace_name_input_active(window) {
             let dialog = self.workspace.name_dialog.as_ref()?;
             return Some(UTF16Selection {
-                range: workspace_search_range_to_utf16(&dialog.name, &dialog.selected_range),
+                range: workspace_search_range_to_utf16(&dialog.input.query, &dialog.input.selected_range),
                 reversed: false,
             });
         }
@@ -2265,9 +2265,10 @@ impl EntityInputHandler for Editor {
         if self.workspace_name_input_active(window) {
             let dialog = self.workspace.name_dialog.as_ref()?;
             return dialog
+                .input
                 .marked_range
                 .as_ref()
-                .map(|range| workspace_search_range_to_utf16(&dialog.name, range));
+                .map(|range| workspace_search_range_to_utf16(&dialog.input.query, range));
         }
 
         if self.document_search_input_active(window) {
@@ -2304,7 +2305,7 @@ impl EntityInputHandler for Editor {
 
         if self.workspace_name_input_active(window) {
             if let Some(dialog) = self.workspace.name_dialog.as_mut() {
-                dialog.marked_range = None;
+                dialog.input.marked_range = None;
             }
             return;
         }
@@ -2344,12 +2345,12 @@ impl EntityInputHandler for Editor {
             let Some(dialog) = self.workspace.name_dialog.as_ref() else {
                 return;
             };
-            let text = dialog.name.clone();
+            let text = dialog.input.query.clone();
             let range = range_utf16
                 .as_ref()
                 .map(|range_utf16| workspace_search_range_from_utf16(&text, range_utf16))
-                .or_else(|| dialog.marked_range.clone())
-                .unwrap_or_else(|| dialog.selected_range.clone());
+                .or_else(|| dialog.input.marked_range.clone())
+                .unwrap_or_else(|| dialog.input.selected_range.clone());
             self.replace_workspace_name_dialog_text(range, new_text, false, None, cx);
             return;
         }
@@ -2409,12 +2410,12 @@ impl EntityInputHandler for Editor {
             let Some(dialog) = self.workspace.name_dialog.as_ref() else {
                 return;
             };
-            let text = dialog.name.clone();
+            let text = dialog.input.query.clone();
             let range = range_utf16
                 .as_ref()
                 .map(|range_utf16| workspace_search_range_from_utf16(&text, range_utf16))
-                .or_else(|| dialog.marked_range.clone())
-                .unwrap_or_else(|| dialog.selected_range.clone());
+                .or_else(|| dialog.input.marked_range.clone())
+                .unwrap_or_else(|| dialog.input.selected_range.clone());
             let selected = new_selected_range_utf16
                 .as_ref()
                 .map(|range_utf16| workspace_search_range_from_utf16(new_text, range_utf16))
@@ -2480,7 +2481,8 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let line = self.workspace.name_last_layout.as_ref()?;
+            let dialog = self.workspace.name_dialog.as_ref()?;
+            let line = dialog.input.last_layout.as_ref()?;
             let text = self.workspace_name_text();
             let range = workspace_search_range_from_utf16(&text, &range_utf16);
             return Some(Bounds::from_corners(
@@ -2529,8 +2531,9 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let bounds = self.workspace.name_last_bounds?;
-            let line = self.workspace.name_last_layout.as_ref()?;
+            let dialog = self.workspace.name_dialog.as_ref()?;
+            let bounds = dialog.input.last_bounds?;
+            let line = dialog.input.last_layout.as_ref()?;
             let text = self.workspace_name_text();
             let local = bounds.localize(&point)?;
             let utf8_index = line.index_for_x(local.x - bounds.left())?;
