@@ -142,6 +142,12 @@ pub struct I18nStrings {
     pub save_failed_title: String,
     /// Title of the export failure prompt.
     pub export_failed_title: String,
+    /// Title shown when an export target already exists.
+    pub export_overwrite_title: String,
+    /// Body message shown when an export target already exists. Supports `{path}`.
+    pub export_overwrite_message: String,
+    /// Confirm button for replacing an existing export file.
+    pub export_overwrite_confirm: String,
     /// Title of the custom configuration import failure prompt.
     pub config_import_failed_title: String,
     /// Preferences window title.
@@ -495,6 +501,9 @@ struct I18nStringsDe {
     recent_file_missing_message_template: Option<String>,
     save_failed_title: Option<String>,
     export_failed_title: Option<String>,
+    export_overwrite_title: Option<String>,
+    export_overwrite_message: Option<String>,
+    export_overwrite_confirm: Option<String>,
     config_import_failed_title: Option<String>,
     preferences_window_title: Option<String>,
     preferences_nav_file: Option<String>,
@@ -732,6 +741,9 @@ const I18N_STRING_KEYS: &[&str] = &[
     "recent_file_missing_message_template",
     "save_failed_title",
     "export_failed_title",
+    "export_overwrite_title",
+    "export_overwrite_message",
+    "export_overwrite_confirm",
     "config_import_failed_title",
     "preferences_window_title",
     "preferences_nav_file",
@@ -1051,6 +1063,15 @@ impl I18nStringsDe {
             export_failed_title: self
                 .export_failed_title
                 .unwrap_or(defaults.export_failed_title),
+            export_overwrite_title: self
+                .export_overwrite_title
+                .unwrap_or(defaults.export_overwrite_title),
+            export_overwrite_message: self
+                .export_overwrite_message
+                .unwrap_or(defaults.export_overwrite_message),
+            export_overwrite_confirm: self
+                .export_overwrite_confirm
+                .unwrap_or(defaults.export_overwrite_confirm),
             config_import_failed_title: self
                 .config_import_failed_title
                 .unwrap_or(defaults.config_import_failed_title),
@@ -1637,6 +1658,9 @@ impl I18nStrings {
                 .into(),
             save_failed_title: "保存失败".into(),
             export_failed_title: "导出失败".into(),
+            export_overwrite_title: "文件已存在".into(),
+            export_overwrite_message: "「{path}」已存在，是否要覆盖？".into(),
+            export_overwrite_confirm: "覆盖".into(),
             config_import_failed_title: "配置导入失败".into(),
             preferences_window_title: "偏好设置".into(),
             preferences_nav_file: "文件".into(),
@@ -1892,6 +1916,9 @@ impl I18nStrings {
                 "This recent file no longer exists and has been removed:\n{path}".into(),
             save_failed_title: "Save Failed".into(),
             export_failed_title: "Export Failed".into(),
+            export_overwrite_title: "File Already Exists".into(),
+            export_overwrite_message: "\"{path}\" already exists. Replace it?".into(),
+            export_overwrite_confirm: "Replace".into(),
             config_import_failed_title: "Config Import Failed".into(),
             preferences_window_title: "Preferences".into(),
             preferences_nav_file: "File".into(),

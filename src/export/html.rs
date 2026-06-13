@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use base64::{Engine as _, engine::general_purpose};
-use gpui::{Hsla, Rgba};
+use gpui::{Hsla, Rgba, rgba};
 use pulldown_cmark::{CowStr, Event, Tag, html};
 
 use crate::components::{
@@ -36,17 +36,25 @@ pub(crate) fn render_html_with_base_dir(
 /// Builds HTML tailored for Chromium's print-to-PDF pipeline.
 pub(crate) fn render_chromium_pdf_html_with_base_dir(
     markdown: &str,
-    theme: &Theme,
+    _theme: &Theme,
     title: &str,
     base_dir: Option<&Path>,
 ) -> String {
+    let print_theme = pdf_print_theme();
     render_html_document(
         markdown,
-        theme,
+        &print_theme,
         title,
         base_dir,
-        &chromium_pdf_theme_css(theme),
+        &chromium_pdf_theme_css(&print_theme),
     )
+}
+
+/// Light print palette with a white page background, independent of the editor theme.
+fn pdf_print_theme() -> Theme {
+    let mut theme = Theme::light_theme();
+    theme.colors.editor_background = Hsla::from(rgba(0xffffffff));
+    theme
 }
 
 fn render_html_document(
@@ -979,6 +987,7 @@ hr {{ border: 0; border-top: 1px solid; border-color: var(--vlt-border); }}
 
 fn chromium_pdf_theme_css(theme: &Theme) -> String {
     let mut css = theme_css(theme);
+    css = css.replace("color-scheme: dark;", "color-scheme: light;");
     css = css.replace(
         document_layout_css(),
         ".vlt-document {\n  width: auto;\n  max-width: none;\n  margin: 0;\n  padding: 0;\n}",

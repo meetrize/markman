@@ -1,5 +1,5 @@
 [package]
-name = "velotype"
+name = "markman"
 version = "0.5.7"
 edition = "2024"
 repository = "https://github.com/meetrize/markman"
@@ -103,8 +103,8 @@ tree-sitter-toml = { package = "adot-tree-sitter-toml", version = "0.1", optiona
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["NSData"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSImage"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSImage", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder"] }
 embed_plist = "1.2"
 
 [dev-dependencies]

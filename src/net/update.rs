@@ -263,7 +263,7 @@ mod tests {
     fn extracts_package_version_from_cargo_toml() {
         let manifest = r#"
             [package]
-            name = "velotype"
+            name = "markman"
             version = "0.2.2"
         "#;
 
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn rejects_invalid_or_missing_versions() {
         assert!(extract_package_version("not toml").is_err());
-        assert!(extract_package_version("[package]\nname = \"velotype\"").is_err());
+        assert!(extract_package_version("[package]\nname = \"markman\"").is_err());
 
         let error = check_latest_version_with("0.2.1", |_| {
             Ok("[package]\nversion = \"not-a-version\"".to_string())

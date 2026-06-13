@@ -5,7 +5,7 @@
 //! helpers below have to live under a *subdirectory* (`common/`) and each
 //! bench file pulls them in with `mod common;`.
 //!
-//! velotype is a bin crate, so benches can't import private items — the
+//! markman is a bin crate, so benches can't import private items — the
 //! mocks below mirror the production types' allocation profile so the
 //! algorithmic comparison stays faithful (e.g. `MockTheme` is sized to match
 //! the real `Theme`; `MockI18nStrings` has 137 `String` fields like the

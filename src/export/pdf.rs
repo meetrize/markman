@@ -177,6 +177,20 @@ mod tests {
     }
 
     #[test]
+    fn chromium_pdf_html_uses_white_page_background_even_with_dark_theme() {
+        let html = render_chromium_pdf_html_with_base_dir(
+            "# Title\n\nBody",
+            &Theme::default_theme(),
+            "Doc",
+            None,
+        );
+
+        assert!(html.contains("--vlt-bg: rgba(255,255,255,1.000);"));
+        assert!(html.contains("color-scheme: light;"));
+        assert!(html.contains("--vlt-text: rgba(31,41,55,1.000);"));
+    }
+
+    #[test]
     fn chromium_pdf_params_use_page_css_and_backgrounds() {
         let params = chromium_pdf_params();
 

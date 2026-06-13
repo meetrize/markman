@@ -3542,6 +3542,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "markman"
+version = "0.5.7"
+dependencies = [
+ "adot-tree-sitter-toml",
+ "anyhow",
+ "base64",
+ "chromiumoxide",
+ "criterion",
+ "cssparser",
+ "directories",
+ "embed-resource",
+ "embed_plist",
+ "futures",
+ "global-hotkey",
+ "gpui",
+ "mermaid-rs-renderer",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "pulldown-cmark",
+ "ratex-layout",
+ "ratex-parser",
+ "ratex-svg",
+ "reqwest",
+ "schemars",
+ "semver",
+ "serde",
+ "serde_json",
+ "sys-locale",
+ "tokio",
+ "toml 1.1.2+spec-1.1.0",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
+ "tree-sitter-css",
+ "tree-sitter-go",
+ "tree-sitter-highlight",
+ "tree-sitter-html",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-json",
+ "tree-sitter-md",
+ "tree-sitter-php",
+ "tree-sitter-python",
+ "tree-sitter-ruby",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+ "tree-sitter-yaml",
+ "unicode-segmentation",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "maybe-rayon"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6933,62 +6989,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "velotype"
-version = "0.5.7"
-dependencies = [
- "adot-tree-sitter-toml",
- "anyhow",
- "base64",
- "chromiumoxide",
- "criterion",
- "cssparser",
- "directories",
- "embed-resource",
- "embed_plist",
- "futures",
- "global-hotkey",
- "gpui",
- "mermaid-rs-renderer",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "pulldown-cmark",
- "ratex-layout",
- "ratex-parser",
- "ratex-svg",
- "reqwest",
- "schemars",
- "semver",
- "serde",
- "serde_json",
- "sys-locale",
- "tokio",
- "toml 1.1.2+spec-1.1.0",
- "tree-sitter",
- "tree-sitter-bash",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cpp",
- "tree-sitter-css",
- "tree-sitter-go",
- "tree-sitter-highlight",
- "tree-sitter-html",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-json",
- "tree-sitter-md",
- "tree-sitter-php",
- "tree-sitter-python",
- "tree-sitter-ruby",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "tree-sitter-yaml",
- "unicode-segmentation",
- "url",
- "uuid",
-]
 
 [[package]]
 name = "version_check"

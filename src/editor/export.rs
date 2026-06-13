@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::thread;
 
-use anyhow::Context as _;
+use anyhow::{Context as _, Result};
 use futures::channel::oneshot;
 use gpui::*;
 
@@ -105,27 +105,34 @@ impl Editor {
             .and_then(|path| path.parent())
             .map(Path::to_path_buf);
         let (default_dir, suggested_name) = self.export_dialog_defaults(format);
+        #[cfg(not(target_os = "macos"))]
         let prompt = cx.prompt_for_new_path(&default_dir, Some(&suggested_name));
         let window_handle = window.window_handle();
 
         cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let mut path = match prompt.await {
-                Ok(Ok(Some(path))) => path,
-                Ok(Ok(None)) | Err(_) => return,
-                Ok(Err(err)) => {
-                    let detail = err.to_string();
-                    let _ = cx.update_window(
-                        window_handle,
-                        move |_view: AnyView, window: &mut Window, cx: &mut App| {
-                            show_export_error(window, cx, &detail);
-                        },
-                    );
-                    return;
-                }
+            let mut path = match resolve_export_save_path(
+                cx,
+                window_handle,
+                default_dir,
+                suggested_name,
+                #[cfg(not(target_os = "macos"))]
+                prompt,
+            )
+            .await
+            {
+                Ok(Some(path)) => path,
+                Ok(None) => return,
+                Err(_) => return,
             };
 
             if path.extension().is_none() {
                 path.set_extension(format.extension());
+            }
+
+            if path.exists()
+                && !confirm_export_overwrite(cx, window_handle, &path).await
+            {
+                return;
             }
 
             let (sender, receiver) = oneshot::channel();
@@ -169,6 +176,85 @@ impl Editor {
         })
         .detach();
     }
+}
+
+async fn resolve_export_save_path(
+    cx: &mut AsyncApp,
+    window_handle: AnyWindowHandle,
+    default_dir: PathBuf,
+    suggested_name: String,
+    #[cfg(not(target_os = "macos"))] prompt: oneshot::Receiver<Result<Option<PathBuf>>>,
+) -> Result<Option<PathBuf>> {
+    #[cfg(target_os = "macos")]
+    {
+        match document_export::save_dialog::prompt_export_save_path(
+            cx,
+            default_dir,
+            Some(suggested_name),
+        )
+        .await
+        {
+            Ok(path) => Ok(path),
+            Err(err) => {
+                let detail = err.to_string();
+                let _ = cx.update_window(
+                    window_handle,
+                    move |_view: AnyView, window: &mut Window, cx: &mut App| {
+                        show_export_error(window, cx, &detail);
+                    },
+                );
+                Err(err)
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        match prompt.await {
+            Ok(Ok(path)) => Ok(path),
+            Ok(Err(err)) => {
+                let detail = err.to_string();
+                let _ = cx.update_window(
+                    window_handle,
+                    move |_view: AnyView, window: &mut Window, cx: &mut App| {
+                        show_export_error(window, cx, &detail);
+                    },
+                );
+                Err(err)
+            }
+            Err(_) => Ok(None),
+        }
+    }
+}
+
+async fn confirm_export_overwrite(
+    cx: &mut AsyncApp,
+    window_handle: AnyWindowHandle,
+    path: &Path,
+) -> bool {
+    let (tx, rx) = oneshot::channel();
+    let path_display = path.display().to_string();
+    let _ = cx.update_window(window_handle, move |_view: AnyView, window: &mut Window, cx: &mut App| {
+        let strings = cx.global::<I18nManager>().strings().clone();
+        let message = strings
+            .export_overwrite_message
+            .replace("{path}", &path_display);
+        let confirm = strings.export_overwrite_confirm.clone();
+        let cancel = strings.drop_replace_cancel.clone();
+        let prompt = window.prompt(
+            PromptLevel::Warning,
+            &strings.export_overwrite_title,
+            Some(&message),
+            &[confirm.as_str(), cancel.as_str()],
+            cx,
+        );
+        cx.spawn(async move |_cx| {
+            let confirmed = prompt.await.map(|choice| choice == 0).unwrap_or(false);
+            let _ = tx.send(confirmed);
+        })
+        .detach();
+    });
+    rx.await.unwrap_or(false)
 }
 
 fn show_export_error(window: &mut Window, cx: &mut App, detail: &str) {

@@ -10,6 +10,8 @@ use crate::theme::Theme;
 
 mod html;
 mod pdf;
+#[cfg(target_os = "macos")]
+pub(crate) mod save_dialog;
 
 /// Export target selected from the app menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
