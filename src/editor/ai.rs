@@ -1517,10 +1517,18 @@ impl Editor {
             .map(|selection| selection.anchor.entity_id)
             .or(self.active_entity_id)?;
         let block = self.document.block_entity_by_id(entity_id)?;
-        let bounds = block.read(cx).last_bounds.or(block.read(cx).interaction_bounds)?;
+        let block_ref = block.read(cx);
+        let bounds = block_ref.last_bounds.or(block_ref.interaction_bounds)?;
+        let anchor_bounds = if self.cross_block_selection.is_none() && !block_ref.selected_range.is_empty() {
+            block_ref
+                .visible_range_bounds(block_ref.selected_range.clone())
+                .unwrap_or(bounds)
+        } else {
+            bounds
+        };
         Some(point(
-            bounds.left(),
-            px((f32::from(bounds.top()) - 42.0).max(8.0)),
+            anchor_bounds.left(),
+            px((f32::from(anchor_bounds.top()) - 36.0).max(8.0)),
         ))
     }
 
