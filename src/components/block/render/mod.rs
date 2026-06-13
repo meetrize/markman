@@ -29,7 +29,7 @@ mod tests {
         html_children_are_plain_text, html_collect_visible_text, html_node_visual_style,
         html_table_column_count, html_table_collect_rows, HtmlComputedStyle,
     };
-    use super::code::{html_code_language, html_pre_code_language};
+    use super::code::{html_pre_code_language};
     use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
     use crate::components::gfm_parser_options;
     use crate::components::highlight_code_block;

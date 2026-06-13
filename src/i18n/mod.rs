@@ -2154,6 +2154,7 @@ struct I18nLanguagePackDe {
 
 impl I18nLanguagePack {
     /// Parses a language pack from JSON text.
+    #[cfg(test)]
     pub fn from_json(json: &str) -> anyhow::Result<Self> {
         let mut value: Value = serde_json::from_str(json)?;
         prune_empty_json_values(&mut value);

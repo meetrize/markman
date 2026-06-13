@@ -19,7 +19,7 @@ use crate::components::{
 use crate::config::{read_app_preferences, set_code_execution_confirm_shown};
 use crate::export::ExportFormat;
 use crate::i18n::{I18nManager, I18nStrings};
-use crate::theme::{Theme, ThemeManager};
+use crate::theme::ThemeManager;
 fn init_editor_test_app(cx: &mut TestAppContext) {
     cx.update(|cx| {
         I18nManager::init_with_language_id(cx, "en-US");

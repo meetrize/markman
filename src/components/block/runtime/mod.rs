@@ -21,7 +21,7 @@ use self::projection::{
     ProjectedLinkSelectionSnapshot,
 };
 use super::{
-    BlockEvent, BlockKind, BlockRecord, CalloutVariant, FootnoteRegistry, InlineFootnoteHit,
+    BlockEvent, BlockKind, BlockRecord, CalloutVariant, FootnoteRegistry,
     UndoCaptureKind,
 };
 use super::{CodeHighlightResult, highlight_code_block};
@@ -30,8 +30,8 @@ use super::{
     parse_standalone_image, resolve_image_source,
 };
 use crate::components::markdown::inline::{
-    InlineFragment, InlineInsertionAttributes, InlineLinkHit, InlineRenderCache, InlineSpan,
-    InlineStyle, InlineTextTree, StyleFlag,
+    InlineFragment, InlineInsertionAttributes, InlineRenderCache, InlineSpan,
+    InlineTextTree, StyleFlag,
 };
 use crate::components::{
     TableAxisHighlight, TableAxisMarker, TableCellPosition, TableColumnAlignment, TableRuntime,
