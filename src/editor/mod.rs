@@ -25,6 +25,7 @@ use crate::components::{
     serialize_table_cell_markdown,
 };
 use crate::theme::ThemeManager;
+use crate::input::text_norm::normalize_line_endings_lf;
 mod close;
 mod controllers;
 mod code_language_menu;
@@ -286,7 +287,7 @@ impl Editor {
         markdown: String,
         file_path: Option<PathBuf>,
     ) -> Self {
-        let normalized = markdown.replace("\r\n", "\n").replace('\r', "\n");
+        let normalized = normalize_line_endings_lf(&markdown);
         let mut roots = Self::build_root_blocks_from_markdown(cx, &normalized);
         if roots.is_empty() {
             roots.push(Self::new_block(cx, BlockRecord::paragraph(String::new())));

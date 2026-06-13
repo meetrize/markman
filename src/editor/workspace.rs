@@ -26,6 +26,7 @@ use crate::components::{
 };
 use crate::i18n::I18nStrings;
 use crate::input::single_line_field::SingleLineFieldState;
+use crate::input::text_norm::flatten_paste_to_single_line;
 use crate::theme::Theme;
 
 const FOLDER_ICON: &str = "icon/workspace/folder.svg";
@@ -788,7 +789,7 @@ impl Editor {
         new_text: &str,
         cx: &mut Context<Self>,
     ) {
-        let sanitized = new_text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+        let sanitized = flatten_paste_to_single_line(new_text);
         self.replace_workspace_search_text(
             self.workspace.state.search_input.selected_range.clone(),
             &sanitized,

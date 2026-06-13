@@ -152,7 +152,7 @@ pub(crate) fn handle_mouse_up(is_selecting_flag: &mut bool) -> bool {
 }
 
 pub(crate) fn sanitize_pasted_text(text: &str) -> String {
-    text.replace("\r\n", " ").replace(['\r', '\n'], " ")
+    super::text_norm::flatten_paste_to_single_line(text)
 }
 
 pub(crate) fn text_grapheme_boundary(text: &str, offset: usize, backward: bool) -> usize {

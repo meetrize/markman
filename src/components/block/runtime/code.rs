@@ -1,6 +1,7 @@
 //! Code-block runtime cache management.
 
 use super::*;
+use crate::input::text_norm::flatten_paste_to_single_line;
 
 /// Number of code lines shown before a collapsible block folds.
 pub(crate) const CODE_BLOCK_COLLAPSED_VISIBLE_LINES: usize = 3;
@@ -24,10 +25,7 @@ pub(crate) const CODE_LANGUAGE_MENU_OPTIONS: &[&str] = &[
 ];
 
 fn normalize_code_language_input(text: &str) -> String {
-    text.replace("\r\n", " ")
-        .replace(['\r', '\n'], " ")
-        .trim()
-        .to_string()
+    flatten_paste_to_single_line(text).trim().to_string()
 }
 
 impl Block {
@@ -117,7 +115,7 @@ impl Block {
 
         let current = self.code_language_text().to_string();
         let range = range.start.min(current.len())..range.end.min(current.len());
-        let inserted = new_text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+        let inserted = flatten_paste_to_single_line(new_text);
         let mut raw_next = String::new();
         raw_next.push_str(&current[..range.start]);
         raw_next.push_str(&inserted);

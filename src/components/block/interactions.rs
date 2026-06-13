@@ -11,6 +11,7 @@ use super::CollapsedCaretAffinity;
 use super::parse_columns_markdown;
 use super::{Block, BlockEvent, BlockKind, InlineFormat, InlineTextTree, UndoCaptureKind};
 use crate::components::markdown::paste::should_split_plain_multiline_paste;
+use crate::input::text_norm::{flatten_paste_to_single_line, normalize_line_endings_lf};
 use crate::components::{
     BlockDown, BlockUp, BoldSelection, CodeSelection, Copy, Cut, Delete, DeleteBack,
     End, ExitCodeBlock, FocusNext, FocusPrev, Home, IndentBlock,
@@ -931,7 +932,7 @@ impl Block {
             }
 
             if self.is_table_cell() {
-                let flattened = text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+                let flattened = flatten_paste_to_single_line(&text);
                 self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
                 self.replace_text_in_range(None, &flattened, window, cx);
                 return;
@@ -944,7 +945,7 @@ impl Block {
             }
 
             if text.contains('\n') || text.contains('\r') {
-                let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+                let normalized = normalize_line_endings_lf(&text);
                 if self.quote_depth > 0 {
                     self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
                     self.replace_text_in_range(None, &normalized, window, cx);

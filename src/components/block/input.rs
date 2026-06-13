@@ -12,6 +12,7 @@ use gpui::*;
 use super::Block;
 use super::element;
 use crate::components::{BlockEvent, UndoCaptureKind};
+use crate::input::text_norm::flatten_paste_to_single_line;
 
 impl EntityInputHandler for Block {
     fn text_for_range(
@@ -130,7 +131,7 @@ impl EntityInputHandler for Block {
                 .map(|range| self.code_language_range_from_utf16(range))
                 .or(self.code_language_marked_range.clone())
                 .unwrap_or(self.code_language_selected_range.clone());
-            let sanitized_new_text = new_text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+            let sanitized_new_text = flatten_paste_to_single_line(new_text);
             let selected_range_relative = new_selected_range_utf16
                 .as_ref()
                 .map(|range_utf16| Self::utf16_range_to_utf8_in(&sanitized_new_text, range_utf16))

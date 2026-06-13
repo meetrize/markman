@@ -13,6 +13,7 @@ use super::footnote::{
 };
 use super::html::HtmlInlineStyle;
 use super::link::LinkReferenceDefinitions;
+use crate::input::text_norm::normalize_line_endings_lf;
 
 
 mod delimiter;
@@ -209,7 +210,7 @@ impl InlineTextTree {
     fn normalize_code_spans(&mut self) {
         for fragment in &mut self.fragments {
             if fragment.style.code && !fragment.text.is_empty() {
-                let mut s = fragment.text.replace("\r\n", "\n").replace('\r', "\n");
+                let mut s = normalize_line_endings_lf(&fragment.text);
                 let all_space = s.chars().all(|c| c == ' ');
                 if !all_space && s.starts_with(' ') && s.ends_with(' ') {
                     s.remove(0);

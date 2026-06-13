@@ -25,6 +25,7 @@ use crate::app_menu::dispatch_menu_action;
 use crate::components::OpenAiPreferences;
 use crate::config::{AiPreferences, read_app_preferences};
 use crate::net::ai::{self as ai_client, AiCompletionRequest};
+use crate::input::text_norm::normalize_line_endings_lf;
 use crate::theme::Theme;
 
 const WORKSPACE_CONTEXT_FILE_LIMIT: usize = 8;
@@ -2970,5 +2971,5 @@ fn first_markdown_excerpt(text: &str) -> &str {
 }
 
 fn normalize_multiline_text(text: &str) -> String {
-    text.replace("\r\n", "\n").replace('\r', "\n")
+    normalize_line_endings_lf(text)
 }

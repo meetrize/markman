@@ -24,6 +24,7 @@ use crate::config::store::{
 use crate::editor::Editor;
 use crate::i18n::I18nManager;
 use crate::input::single_line_field::SingleLineFieldState;
+use crate::input::text_norm::flatten_paste_to_single_line;
 use crate::theme::{Theme, ThemeCatalogEntry, ThemeManager};
 use crate::window_chrome::{
     custom_titlebar_height, render_custom_titlebar, velotype_window_options,
@@ -2318,7 +2319,7 @@ fn next_char_boundary(text: &str, offset: usize) -> usize {
 }
 
 fn sanitize_single_line_text(text: &str) -> String {
-    text.replace("\r\n", " ").replace(['\r', '\n'], " ")
+    flatten_paste_to_single_line(text)
 }
 
 fn offset_to_utf16(text: &str, offset: usize) -> usize {
