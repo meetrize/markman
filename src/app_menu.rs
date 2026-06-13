@@ -12,14 +12,16 @@ use gpui::*;
 use crate::components::{
     AddLanguageConfig, AddThemeConfig, AiExpandSelection, AiExplainSelection, AiImproveSelection,
     AiSummarizeSelection, AiTasksSelection, AskAi, CheckForUpdates, CloseWindow, ExportHtml,
-    ExportPdf, InstallCliTool, NewWindow, NoRecentFiles, OpenFile, OpenFolder, OpenPreferences,
+    ExportPdf, InstallCliTool, NewWindow, NoRecentFiles, OpenAiPreferences, OpenFile, OpenFolder,
+    OpenPreferences,
     OpenRecentFile, QuitApplication, SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme,
     ShowAbout, ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
 use crate::app_visibility;
 use crate::config::{
     apply_configured_language, apply_configured_theme, import_language_config_and_select,
-    import_theme_config_and_select, open_preferences_window, read_recent_files, record_recent_file,
+    import_theme_config_and_select, open_preferences_window, open_preferences_window_to_ai,
+    read_recent_files, record_recent_file,
     remove_recent_file,
 };
 use crate::editor::{Editor, InfoDialogKind};
@@ -556,6 +558,8 @@ pub(crate) fn dispatch_menu_action(action: &dyn Action, cx: &mut App) {
         prompt_and_open_folder(cx);
     } else if action.as_any().is::<OpenPreferences>() {
         open_preferences_window(cx);
+    } else if action.as_any().is::<OpenAiPreferences>() {
+        open_preferences_window_to_ai(cx);
     } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFile>() {
         open_recent_file(cx, PathBuf::from(&action.path));
     } else if action.as_any().is::<NoRecentFiles>() {
@@ -1216,6 +1220,9 @@ pub(crate) fn init(cx: &mut App) {
     });
     cx.on_action(|_: &OpenPreferences, cx| {
         dispatch_menu_action(&OpenPreferences, cx);
+    });
+    cx.on_action(|_: &OpenAiPreferences, cx| {
+        dispatch_menu_action(&OpenAiPreferences, cx);
     });
     cx.on_action(|action: &OpenRecentFile, cx| {
         dispatch_menu_action(action, cx);

@@ -53,6 +53,7 @@ actions!(
         OpenFile,
         OpenFolder,
         OpenPreferences,
+        OpenAiPreferences,
         NoRecentFiles,
         SaveDocumentAs,
         ExportHtml,

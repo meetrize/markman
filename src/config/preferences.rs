@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::PathBuf;
 
+use std::time::Duration;
+
 use anyhow::Context as _;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -21,11 +23,16 @@ use crate::components::{
     shortcut_conflict_for, shortcut_definitions,
 };
 use crate::app_identity::app_window_title;
+use crate::editor::Editor;
 use crate::i18n::{I18nManager, language_id_for_locale_preferences};
 use crate::theme::{Theme, ThemeCatalogEntry, ThemeManager};
 use crate::window_chrome::{
     custom_titlebar_height, render_custom_titlebar, velotype_window_options,
 };
+
+#[path = "toolbar_text_input.rs"]
+mod toolbar_text_input;
+use toolbar_text_input::{ToolbarTextField, ToolbarTextInputState};
 
 const DEFAULT_THEME_ID: &str = "velotype";
 const DEFAULT_LANGUAGE_ID: &str = "en-US";
@@ -519,8 +526,6 @@ enum AiPreferenceField {
     BaseUrl,
     Model,
     ApiKeyEnv,
-    ToolbarLabel(usize),
-    ToolbarInstruction(usize),
 }
 
 #[derive(Debug)]
@@ -572,6 +577,8 @@ pub(crate) struct PreferencesWindow {
     recording_shortcut: Option<ShortcutCommand>,
     shortcut_error: Option<String>,
     ai_input: AiPreferenceInputState,
+    toolbar_text_focus: FocusHandle,
+    toolbar_text_input: ToolbarTextInputState,
     toolbar_icon_dropdown_open: Option<usize>,
 }
 
@@ -616,6 +623,8 @@ impl PreferencesWindow {
             recording_shortcut: None,
             shortcut_error: None,
             ai_input: AiPreferenceInputState::new(cx),
+            toolbar_text_focus: cx.focus_handle(),
+            toolbar_text_input: ToolbarTextInputState::new(),
             toolbar_icon_dropdown_open: None,
         }
     }
@@ -644,7 +653,7 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.recording_shortcut = None;
-        self.clear_ai_input_state();
+        self.clear_all_ai_text_input_state();
         cx.notify();
     }
 
@@ -653,7 +662,7 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.recording_shortcut = None;
-        self.clear_ai_input_state();
+        self.clear_all_ai_text_input_state();
         cx.notify();
     }
 
@@ -670,7 +679,17 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.shortcut_error = None;
-        self.clear_ai_input_state();
+        self.clear_all_ai_text_input_state();
+        cx.notify();
+    }
+
+    fn show_ai_settings(&mut self, cx: &mut Context<Self>) {
+        self.nav = PreferencesNav::Ai;
+        self.startup_dropdown_open = false;
+        self.theme_dropdown_open = false;
+        self.recording_shortcut = None;
+        self.toolbar_icon_dropdown_open = None;
+        self.clear_all_ai_text_input_state();
         cx.notify();
     }
 
@@ -684,24 +703,17 @@ impl PreferencesWindow {
         self.ai_input.last_bounds = None;
     }
 
+    fn clear_all_ai_text_input_state(&mut self) {
+        self.clear_ai_input_state();
+        self.clear_toolbar_text_input_state();
+    }
+
     fn ai_field_text(&self, field: AiPreferenceField) -> &str {
         match field {
             AiPreferenceField::Provider => &self.ai.provider,
             AiPreferenceField::BaseUrl => &self.ai.base_url,
             AiPreferenceField::Model => &self.ai.model,
             AiPreferenceField::ApiKeyEnv => &self.ai.api_key_env,
-            AiPreferenceField::ToolbarLabel(index) => self
-                .ai
-                .selection_toolbar
-                .get(index)
-                .map(|button| button.label.as_str())
-                .unwrap_or(""),
-            AiPreferenceField::ToolbarInstruction(index) => self
-                .ai
-                .selection_toolbar
-                .get(index)
-                .and_then(|button| button.instruction.as_deref())
-                .unwrap_or(""),
         }
     }
 
@@ -711,32 +723,6 @@ impl PreferencesWindow {
             AiPreferenceField::BaseUrl => &mut self.ai.base_url,
             AiPreferenceField::Model => &mut self.ai.model,
             AiPreferenceField::ApiKeyEnv => &mut self.ai.api_key_env,
-            AiPreferenceField::ToolbarLabel(index) => {
-                if self.ai.selection_toolbar.len() <= index {
-                    self.ai
-                        .selection_toolbar
-                        .resize(index + 1, AiSelectionToolbarButton::new_custom(
-                            "新按钮".into(),
-                            "Describe what this button should do.".into(),
-                        ));
-                }
-                &mut self.ai.selection_toolbar[index].label
-            }
-            AiPreferenceField::ToolbarInstruction(index) => {
-                if self.ai.selection_toolbar.len() <= index {
-                    self.ai
-                        .selection_toolbar
-                        .resize(index + 1, AiSelectionToolbarButton::new_custom(
-                            "新按钮".into(),
-                            String::new(),
-                        ));
-                }
-                let button = &mut self.ai.selection_toolbar[index];
-                if button.instruction.is_none() {
-                    button.instruction = Some(String::new());
-                }
-                button.instruction.as_mut().expect("instruction initialized")
-            }
         }
     }
 
@@ -784,6 +770,7 @@ impl PreferencesWindow {
             self.ai_input.marked_range = None;
         }
         self.ai_input.active_field = Some(field);
+        self.clear_toolbar_text_input_state();
         window.focus(&self.ai_input.focus_handle);
         if shift {
             extend_selection(
@@ -1490,64 +1477,69 @@ impl PreferencesWindow {
                 ),
                 theme,
             ))
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap(px(12.0))
-                    .child(
-                        div()
-                            .text_size(px(14.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.colors.dialog_title)
-                            .child("选区工具栏"),
-                    )
-                    .child(self.render_ai_toolbar_config(theme, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .id("preferences-ai-toolbar-add")
-                                    .h(px(30.0))
-                                    .px(px(12.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(theme.dimensions.menu_item_radius))
-                                    .border(px(theme.dimensions.dialog_border_width))
-                                    .border_color(theme.colors.dialog_border)
-                                    .bg(theme.colors.dialog_secondary_button_bg)
-                                    .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
-                                    .cursor_pointer()
-                                    .text_size(px(12.0))
-                                    .text_color(theme.colors.dialog_secondary_button_text)
-                                    .child("添加按钮")
-                                    .on_click(cx.listener(Self::add_ai_toolbar_button)),
-                            )
-                            .child(
-                                div()
-                                    .id("preferences-ai-toolbar-reset")
-                                    .h(px(30.0))
-                                    .px(px(12.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(theme.dimensions.menu_item_radius))
-                                    .border(px(theme.dimensions.dialog_border_width))
-                                    .border_color(theme.colors.dialog_border)
-                                    .bg(theme.colors.dialog_secondary_button_bg)
-                                    .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
-                                    .cursor_pointer()
-                                    .text_size(px(12.0))
-                                    .text_color(theme.colors.dialog_secondary_button_text)
-                                    .child("恢复默认")
-                                    .on_click(cx.listener(Self::reset_ai_toolbar_buttons)),
-                            ),
-                    ),
-            )
+            .child({
+                let toolbar_config = self.render_ai_toolbar_config(theme, cx);
+                self.render_toolbar_text_input_shell(
+                    theme,
+                    cx,
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap(px(12.0))
+                        .child(
+                            div()
+                                .text_size(px(14.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme.colors.dialog_title)
+                                .child("选区工具栏"),
+                        )
+                        .child(toolbar_config)
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(8.0))
+                                .child(
+                                    div()
+                                        .id("preferences-ai-toolbar-add")
+                                        .h(px(30.0))
+                                        .px(px(12.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(theme.dimensions.menu_item_radius))
+                                        .border(px(theme.dimensions.dialog_border_width))
+                                        .border_color(theme.colors.dialog_border)
+                                        .bg(theme.colors.dialog_secondary_button_bg)
+                                        .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
+                                        .cursor_pointer()
+                                        .text_size(px(12.0))
+                                        .text_color(theme.colors.dialog_secondary_button_text)
+                                        .child("添加按钮")
+                                        .on_click(cx.listener(Self::add_ai_toolbar_button)),
+                                )
+                                .child(
+                                    div()
+                                        .id("preferences-ai-toolbar-reset")
+                                        .h(px(30.0))
+                                        .px(px(12.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(theme.dimensions.menu_item_radius))
+                                        .border(px(theme.dimensions.dialog_border_width))
+                                        .border_color(theme.colors.dialog_border)
+                                        .bg(theme.colors.dialog_secondary_button_bg)
+                                        .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
+                                        .cursor_pointer()
+                                        .text_size(px(12.0))
+                                        .text_color(theme.colors.dialog_secondary_button_text)
+                                        .child("恢复默认")
+                                        .on_click(cx.listener(Self::reset_ai_toolbar_buttons)),
+                                ),
+                        ),
+                )
+            })
     }
 
     fn render_ai_toolbar_config(&self, theme: &Theme, cx: &mut Context<Self>) -> Div {
@@ -1689,13 +1681,12 @@ impl PreferencesWindow {
                             div()
                                 .flex_1()
                                 .min_w(px(0.0))
-                                .child(self.render_ai_text_field(
+                                .child(self.render_toolbar_text_field(
                                     ("preferences-ai-toolbar-label", index),
-                                    AiPreferenceField::ToolbarLabel(index),
+                                    ToolbarTextField::Label(index),
                                     "按钮名称",
                                     theme,
                                     cx,
-                                    true,
                                 )),
                         )
                         .when(button.is_removable(), |this| {
@@ -1783,9 +1774,9 @@ impl PreferencesWindow {
                                     "指令覆盖（可选）"
                                 }),
                         )
-                        .child(self.render_ai_text_field(
+                        .child(self.render_toolbar_text_field(
                             ("preferences-ai-toolbar-instruction", index),
-                            AiPreferenceField::ToolbarInstruction(index),
+                            ToolbarTextField::Instruction(index),
                             if button.is_custom_action() {
                                 "例如：将选中文本翻译为英文"
                             } else {
@@ -1793,7 +1784,6 @@ impl PreferencesWindow {
                             },
                             theme,
                             cx,
-                            true,
                         )),
                 );
             }
@@ -1848,7 +1838,7 @@ impl PreferencesWindow {
         }
         self.ai.selection_toolbar.remove(index);
         self.toolbar_icon_dropdown_open = None;
-        self.clear_ai_input_state();
+        self.clear_all_ai_text_input_state();
         cx.notify();
     }
 
@@ -1874,7 +1864,7 @@ impl PreferencesWindow {
     ) {
         self.ai.selection_toolbar = default_ai_selection_toolbar_buttons();
         self.toolbar_icon_dropdown_open = None;
-        self.clear_ai_input_state();
+        self.clear_all_ai_text_input_state();
         cx.notify();
     }
 
@@ -2554,6 +2544,14 @@ impl EntityInputHandler for PreferencesWindow {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field?;
+            let text = self.toolbar_text_for_field(field);
+            let range = range_from_utf16(text, &range_utf16);
+            actual_range.replace(range_to_utf16(text, &range));
+            return Some(text[range].to_string());
+        }
+
         if !self.ai_input_active(window) {
             return None;
         }
@@ -2570,6 +2568,17 @@ impl EntityInputHandler for PreferencesWindow {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field?;
+            return Some(UTF16Selection {
+                range: range_to_utf16(
+                    self.toolbar_text_for_field(field),
+                    &self.toolbar_text_input.selected_range,
+                ),
+                reversed: self.toolbar_text_input.selection_reversed,
+            });
+        }
+
         if !self.ai_input_active(window) {
             return None;
         }
@@ -2581,6 +2590,15 @@ impl EntityInputHandler for PreferencesWindow {
     }
 
     fn marked_text_range(&self, window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field?;
+            return self
+                .toolbar_text_input
+                .marked_range
+                .as_ref()
+                .map(|range| range_to_utf16(self.toolbar_text_for_field(field), range));
+        }
+
         if !self.ai_input_active(window) {
             return None;
         }
@@ -2592,6 +2610,11 @@ impl EntityInputHandler for PreferencesWindow {
     }
 
     fn unmark_text(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        if self.toolbar_text_input_active(window) {
+            self.toolbar_text_input.marked_range = None;
+            return;
+        }
+
         if self.ai_input_active(window) {
             self.ai_input.marked_range = None;
         }
@@ -2604,6 +2627,24 @@ impl EntityInputHandler for PreferencesWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field.expect("active field");
+            let text = self.toolbar_text_for_field(field).to_string();
+            let range = range_utf16
+                .as_ref()
+                .map(|range| range_from_utf16(&text, range))
+                .or_else(|| self.toolbar_text_input.marked_range.clone())
+                .unwrap_or_else(|| self.toolbar_text_input.selected_range.clone());
+            self.toolbar_text_replace_for_ime(
+                range,
+                &sanitize_single_line_text(new_text),
+                false,
+                None,
+                cx,
+            );
+            return;
+        }
+
         if !self.ai_input_active(window) {
             return;
         }
@@ -2627,6 +2668,23 @@ impl EntityInputHandler for PreferencesWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field.expect("active field");
+            let text = self.toolbar_text_for_field(field).to_string();
+            let replacement = sanitize_single_line_text(new_text);
+            let range = range_utf16
+                .as_ref()
+                .map(|range| range_from_utf16(&text, range))
+                .or_else(|| self.toolbar_text_input.marked_range.clone())
+                .unwrap_or_else(|| self.toolbar_text_input.selected_range.clone());
+            let selected_after = new_selected_range_utf16
+                .as_ref()
+                .map(|range| range_from_utf16(&replacement, range))
+                .map(|relative| relative.start + range.start..relative.end + range.start);
+            self.toolbar_text_replace_for_ime(range, &replacement, true, selected_after, cx);
+            return;
+        }
+
         if !self.ai_input_active(window) {
             return;
         }
@@ -2654,6 +2712,16 @@ impl EntityInputHandler for PreferencesWindow {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field?;
+            let line = self.toolbar_text_input.last_layout.as_ref()?;
+            let range = range_from_utf16(self.toolbar_text_for_field(field), &range_utf16);
+            return Some(Bounds::from_corners(
+                point(bounds.left() + line.x_for_index(range.start), bounds.top()),
+                point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
+            ));
+        }
+
         if !self.ai_input_active(window) {
             return None;
         }
@@ -2672,6 +2740,15 @@ impl EntityInputHandler for PreferencesWindow {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
+        if self.toolbar_text_input_active(window) {
+            let field = self.toolbar_text_input.active_field?;
+            let bounds = self.toolbar_text_input.last_bounds?;
+            let line = self.toolbar_text_input.last_layout.as_ref()?;
+            let local = bounds.localize(&point)?;
+            let offset = line.index_for_x(local.x - bounds.left())?;
+            return Some(offset_to_utf16(self.toolbar_text_for_field(field), offset));
+        }
+
         if !self.ai_input_active(window) {
             return None;
         }
@@ -2998,6 +3075,58 @@ impl Render for PreferencesWindow {
     }
 }
 
+fn existing_preferences_window(cx: &App) -> Option<WindowHandle<PreferencesWindow>> {
+    cx.windows()
+        .iter()
+        .find_map(|window| window.downcast::<PreferencesWindow>())
+}
+
+fn preferences_window_bounds(cx: &mut App) -> Bounds<Pixels> {
+    let window_size = size(px(720.0), px(480.0));
+    if let Some(parent_bounds) = cx
+        .active_window()
+        .and_then(|window| window.downcast::<Editor>())
+        .and_then(|editor| editor.update(cx, |_, window, _| window.bounds()).ok())
+    {
+        Bounds::centered_at(parent_bounds.center(), window_size)
+    } else {
+        Bounds::centered(None, window_size, cx)
+    }
+}
+
+fn activate_preferences_handle(handle: &WindowHandle<PreferencesWindow>, cx: &mut App) {
+    cx.activate(true);
+    let handle_for_followup = handle.clone();
+    let _ = handle.update(cx, |preferences, window, cx| {
+        window.activate_window();
+        preferences.focus_handle.focus(window);
+        window.defer(cx, move |window, cx| {
+            cx.activate(true);
+            window.activate_window();
+            let _ = handle_for_followup.update(cx, |preferences, window, _cx| {
+                preferences.focus_handle.focus(window);
+            });
+        });
+    });
+
+    let handle_for_spawn = handle.clone();
+    cx.spawn(async move |cx| {
+        for delay in [50_u64, 150] {
+            cx.background_executor()
+                .timer(Duration::from_millis(delay))
+                .await;
+            let _ = cx.update(|cx| {
+                cx.activate(true);
+                let _ = handle_for_spawn.update(cx, |preferences, window, _cx| {
+                    window.activate_window();
+                    preferences.focus_handle.focus(window);
+                });
+            });
+        }
+    })
+    .detach();
+}
+
 fn open_preferences_window_with_state(
     cx: &mut App,
     preferences: AppPreferences,
@@ -3005,26 +3134,20 @@ fn open_preferences_window_with_state(
     title: String,
     initial_nav: PreferencesNav,
 ) -> WindowHandle<PreferencesWindow> {
-    let bounds = Bounds::centered(None, size(px(720.0), px(480.0)), cx);
+    let bounds = preferences_window_bounds(cx);
     let window_title = SharedString::from(app_window_title(Some(title.as_str())));
+    let mut options = velotype_window_options(window_title, bounds);
+    options.focus = true;
+    options.show = true;
     let handle = cx
-        .open_window(
-            velotype_window_options(window_title, bounds),
-            move |_window, cx| {
-                cx.new(move |cx| {
-                    PreferencesWindow::new(preferences, theme_options, initial_nav, cx)
-                })
-            },
-        )
+        .open_window(options, move |_window, cx| {
+            cx.new(move |cx| {
+                PreferencesWindow::new(preferences, theme_options, initial_nav, cx)
+            })
+        })
         .expect("preferences window should open");
 
-    handle
-        .update(cx, |preferences, window, _cx| {
-            window.activate_window();
-            preferences.focus_handle.focus(window);
-        })
-        .expect("newly opened preferences window should be updateable");
-
+    activate_preferences_handle(&handle, cx);
     handle
 }
 
@@ -3051,7 +3174,15 @@ pub(crate) fn open_preferences_window(cx: &mut App) -> WindowHandle<PreferencesW
     )
 }
 
-pub(crate) fn open_preferences_window_to_ai(cx: &mut App) -> WindowHandle<PreferencesWindow> {
+pub(crate) fn open_preferences_window_to_ai(cx: &mut App) {
+    if let Some(existing) = existing_preferences_window(cx) {
+        let _ = existing.update(cx, |preferences, _window, cx| {
+            preferences.show_ai_settings(cx);
+        });
+        activate_preferences_handle(&existing, cx);
+        return;
+    }
+
     let preferences = match read_app_preferences() {
         Ok(preferences) => preferences,
         Err(err) => {
@@ -3065,13 +3196,13 @@ pub(crate) fn open_preferences_window_to_ai(cx: &mut App) -> WindowHandle<Prefer
         .strings()
         .preferences_window_title
         .clone();
-    open_preferences_window_with_state(
+    let _ = open_preferences_window_with_state(
         cx,
         preferences,
         theme_options,
         title,
         PreferencesNav::Ai,
-    )
+    );
 }
 
 #[cfg(test)]

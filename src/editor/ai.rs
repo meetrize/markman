@@ -21,7 +21,9 @@ use crate::components::{
     SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, BlockKind, UndoCaptureKind,
 };
 use crate::config::ai_toolbar::{AiSelectionToolbarBuiltin, AiSelectionToolbarButton};
-use crate::config::{open_preferences_window_to_ai, read_app_preferences};
+use crate::app_menu::dispatch_menu_action;
+use crate::components::OpenAiPreferences;
+use crate::config::read_app_preferences;
 use crate::net::ai::{self as ai_client, AiCompletionRequest};
 use crate::theme::Theme;
 
@@ -1346,6 +1348,9 @@ impl Editor {
             .items_center()
             .gap(px(4.0))
             .occlude()
+            .on_mouse_up(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
             .rounded(px(d.menu_panel_radius))
             .bg(c.dialog_surface)
             .border(px(d.dialog_border_width))
@@ -1386,7 +1391,10 @@ impl Editor {
                     "自定义",
                     theme,
                     move |_, cx| {
-                        open_preferences_window_to_ai(cx);
+                        cx.stop_propagation();
+                        cx.defer(|cx| {
+                            dispatch_menu_action(&OpenAiPreferences, cx);
+                        });
                     },
                 ))
                 .into_any_element(),
@@ -1872,7 +1880,7 @@ fn ai_toolbar_action_button(
                 .text_color(c.dialog_secondary_button_text),
         )
         .child(label)
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+        .on_click(move |_, window, cx| {
             cx.stop_propagation();
             action(window, cx);
         })

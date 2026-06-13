@@ -21,6 +21,7 @@ mod components;
 mod config;
 mod editor;
 mod export;
+mod input;
 mod i18n;
 mod net;
 mod theme;
