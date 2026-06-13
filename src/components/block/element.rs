@@ -15,11 +15,11 @@ const SOURCE_LINE_NUMBER_DIGIT_WIDTH_RATIO: f32 = 0.62;
 const LINK_ACTION_ICON_WIKI: &str = "icon/workspace/markdown.svg";
 const LINK_ACTION_ICON_EXTERNAL: &str = "icon/toolbar/link.svg";
 /// Preview mode: gap from icon background right edge to visible link text left edge.
-const LINK_ACTION_ICON_TEXT_GAP: f32 = 10.0;
+const LINK_ACTION_ICON_TEXT_GAP: f32 = 2.0;
 const LINK_ACTION_ICON_SIZE_RATIO: f32 = 0.68;
 /// Projection mode: gap from icon background right edge to opening delimiter left edge (`[[`, `[`, `<`).
 /// Applied in `link_action_icon_layout()` as `bg_right = anchor_x - trailing_gap`.
-const LINK_ACTION_ICON_MARKER_GAP: f32 = 12.0;
+const LINK_ACTION_ICON_MARKER_GAP: f32 = 3.0;
 const LINK_ACTION_ICON_BG_PAD: f32 = 1.5;
 const LINK_ACTION_ICON_BG_RADIUS: f32 = 3.0;
 const LINK_ACTION_ICON_VISUAL_INSET: f32 = 1.5;
