@@ -14,7 +14,7 @@ use crate::components::{Block, BlockKind, BlockRecord, IndentBlock, Newline, Tab
 use crate::i18n::I18nManager;
 use crate::theme::ThemeManager;
 use gpui::{
-    AppContext, EntityInputHandler, Modifiers, MouseButton, MouseMoveEvent,
+    AppContext, EntityInputHandler, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
     TestAppContext, point, px,
 };
 
@@ -2646,6 +2646,38 @@ async fn non_dragging_mouse_move_ends_stale_text_selection(cx: &mut TestAppConte
             assert!(!block.is_selecting);
             assert_eq!(block.selected_range, 3..7);
             assert_eq!(block.marked_range, Some(4..6));
+        });
+    });
+}
+
+#[gpui::test]
+async fn unfocused_mouse_down_starts_pointer_selection(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        I18nManager::init(cx);
+        ThemeManager::init(cx);
+    });
+    let (block, cx) = cx.add_window_view(|_window, cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Heading { level: 1 },
+                InlineTextTree::from_markdown("Title"),
+            ),
+        )
+    });
+
+    let event = MouseDownEvent {
+        button: MouseButton::Left,
+        position: point(px(8.0), px(8.0)),
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: true,
+    };
+    cx.update(|window, cx| {
+        block.update(cx, |block, cx| {
+            assert!(!block.focus_handle.is_focused(window));
+            block.on_mouse_down(&event, window, cx);
+            assert!(block.is_selecting);
         });
     });
 }

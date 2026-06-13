@@ -301,10 +301,8 @@ impl Block {
         self.record.kind.clone()
     }
 
-    /// Headings are styled as document structure, not editable body text — skip
-    /// the blue selection overlay while still keeping selection state for copy.
     pub(crate) fn shows_text_selection_highlight(&self) -> bool {
-        !matches!(self.kind(), BlockKind::Heading { .. })
+        true
     }
 
     pub(crate) fn is_source_raw_mode(&self) -> bool {

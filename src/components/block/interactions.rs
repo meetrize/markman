@@ -1028,8 +1028,12 @@ impl Block {
                 self.move_to(offset, cx);
             }
         } else {
-            self.is_selecting = false;
-            self.move_to(offset, cx);
+            self.is_selecting = true;
+            if event.modifiers.shift {
+                self.select_to(offset, cx);
+            } else {
+                self.move_to(offset, cx);
+            }
             cx.emit(BlockEvent::RequestFocus);
         }
     }

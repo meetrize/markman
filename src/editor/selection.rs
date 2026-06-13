@@ -105,7 +105,11 @@ impl Editor {
         };
 
         if self.cross_block_selection.is_none() && drag.anchor.entity_id == focus.entity_id {
-            return;
+            if let Some(entity) = self.document.block_entity_by_id(drag.anchor.entity_id) {
+                if entity.read(cx).is_selecting {
+                    return;
+                }
+            }
         }
 
         let selection = CrossBlockSelection {
@@ -1165,6 +1169,23 @@ mod tests {
             assert_eq!(block.selected_range, 4..4);
             assert_eq!(block.marked_range, Some(2..4));
             assert!(block.editor_selection_range.is_none());
+        });
+        cx.quit();
+    }
+
+    #[test]
+    fn cross_block_selection_marks_heading_visual_ranges() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor = cx.new(|cx| {
+            Editor::from_markdown(cx, "# Title\n\nbody".to_string(), None)
+        });
+
+        editor.update(&mut cx, |editor, cx| {
+            set_selection(editor, 0, 0, 0, 3, cx);
+
+            let block = editor.document.visible_blocks()[0].entity.read(cx);
+            assert_eq!(block.editor_selection_range, Some(0..3));
         });
         cx.quit();
     }
