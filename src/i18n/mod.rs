@@ -312,6 +312,18 @@ pub struct I18nStrings {
     pub format_toolbar_image: String,
     /// Markdown toolbar button label for table-of-contents insertion.
     pub format_toolbar_table_of_contents: String,
+    /// Mermaid template menu label for flowchart diagrams.
+    pub mermaid_template_flowchart: String,
+    /// Mermaid template menu label for mind-map diagrams.
+    pub mermaid_template_mind_map: String,
+    /// Mermaid template menu label for sequence diagrams.
+    pub mermaid_template_sequence: String,
+    /// Mermaid template menu label for Gantt charts.
+    pub mermaid_template_gantt: String,
+    /// Mermaid template menu label for state diagrams.
+    pub mermaid_template_state: String,
+    /// Mermaid template menu label for class diagrams.
+    pub mermaid_template_class: String,
     /// Placeholder for the in-document search field.
     pub document_search_placeholder: String,
     /// Status text when document search is active: "{current}/{total}".
@@ -597,6 +609,12 @@ struct I18nStringsDe {
     format_toolbar_horizontal_rule: Option<String>,
     format_toolbar_image: Option<String>,
     format_toolbar_table_of_contents: Option<String>,
+    mermaid_template_flowchart: Option<String>,
+    mermaid_template_mind_map: Option<String>,
+    mermaid_template_sequence: Option<String>,
+    mermaid_template_gantt: Option<String>,
+    mermaid_template_state: Option<String>,
+    mermaid_template_class: Option<String>,
     document_search_placeholder: Option<String>,
     document_search_status: Option<String>,
     document_search_no_matches: Option<String>,
@@ -828,6 +846,12 @@ const I18N_STRING_KEYS: &[&str] = &[
     "format_toolbar_horizontal_rule",
     "format_toolbar_image",
     "format_toolbar_table_of_contents",
+    "mermaid_template_flowchart",
+    "mermaid_template_mind_map",
+    "mermaid_template_sequence",
+    "mermaid_template_gantt",
+    "mermaid_template_state",
+    "mermaid_template_class",
     "document_search_placeholder",
     "document_search_status",
     "document_search_no_matches",
@@ -1359,6 +1383,24 @@ impl I18nStringsDe {
             format_toolbar_table_of_contents: self
                 .format_toolbar_table_of_contents
                 .unwrap_or(defaults.format_toolbar_table_of_contents),
+            mermaid_template_flowchart: self
+                .mermaid_template_flowchart
+                .unwrap_or(defaults.mermaid_template_flowchart),
+            mermaid_template_mind_map: self
+                .mermaid_template_mind_map
+                .unwrap_or(defaults.mermaid_template_mind_map),
+            mermaid_template_sequence: self
+                .mermaid_template_sequence
+                .unwrap_or(defaults.mermaid_template_sequence),
+            mermaid_template_gantt: self
+                .mermaid_template_gantt
+                .unwrap_or(defaults.mermaid_template_gantt),
+            mermaid_template_state: self
+                .mermaid_template_state
+                .unwrap_or(defaults.mermaid_template_state),
+            mermaid_template_class: self
+                .mermaid_template_class
+                .unwrap_or(defaults.mermaid_template_class),
             document_search_placeholder: self
                 .document_search_placeholder
                 .unwrap_or(defaults.document_search_placeholder),
@@ -1710,6 +1752,12 @@ impl I18nStrings {
             format_toolbar_horizontal_rule: "分割线".into(),
             format_toolbar_image: "图片".into(),
             format_toolbar_table_of_contents: "目录".into(),
+            mermaid_template_flowchart: "流程图".into(),
+            mermaid_template_mind_map: "思维导图".into(),
+            mermaid_template_sequence: "时序图".into(),
+            mermaid_template_gantt: "甘特图".into(),
+            mermaid_template_state: "状态图".into(),
+            mermaid_template_class: "类图".into(),
             document_search_placeholder: "搜索本文档…".into(),
             document_search_status: "{current}/{total}".into(),
             document_search_no_matches: "无匹配".into(),
@@ -1961,6 +2009,12 @@ impl I18nStrings {
             format_toolbar_horizontal_rule: "---".into(),
             format_toolbar_image: "Img".into(),
             format_toolbar_table_of_contents: "TOC".into(),
+            mermaid_template_flowchart: "Flowchart".into(),
+            mermaid_template_mind_map: "Mind Map".into(),
+            mermaid_template_sequence: "Sequence".into(),
+            mermaid_template_gantt: "Gantt".into(),
+            mermaid_template_state: "State".into(),
+            mermaid_template_class: "Class".into(),
             document_search_placeholder: "Search this document…".into(),
             document_search_status: "{current}/{total}".into(),
             document_search_no_matches: "No matches".into(),

@@ -5,6 +5,7 @@ use gpui::*;
 
 use crate::components::markdown::source_format::{MarkdownToolbarAction, apply_markdown_toolbar_action};
 use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind, toolbar_icon_button};
+use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::Theme;
 
 use super::Editor;
@@ -47,14 +48,14 @@ enum MermaidTemplate {
 }
 
 impl MermaidTemplate {
-    fn label(self) -> &'static str {
+    fn label(self, strings: &I18nStrings) -> String {
         match self {
-            Self::Flowchart => "流程图",
-            Self::MindMap => "思维导图",
-            Self::Sequence => "时序图",
-            Self::Gantt => "甘特图",
-            Self::State => "状态图",
-            Self::Class => "类图",
+            Self::Flowchart => strings.mermaid_template_flowchart.clone(),
+            Self::MindMap => strings.mermaid_template_mind_map.clone(),
+            Self::Sequence => strings.mermaid_template_sequence.clone(),
+            Self::Gantt => strings.mermaid_template_gantt.clone(),
+            Self::State => strings.mermaid_template_state.clone(),
+            Self::Class => strings.mermaid_template_class.clone(),
         }
     }
 
@@ -525,6 +526,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let position = self.mermaid_template_menu_position?;
+        let strings = cx.global::<I18nManager>().strings().clone();
         let c = &theme.colors;
         let d = &theme.dimensions;
         let editor = cx.entity().downgrade();
@@ -558,7 +560,7 @@ impl Editor {
                         .text_color(c.text_default)
                         .hover(|this| this.bg(c.dialog_secondary_button_hover))
                         .cursor_pointer()
-                        .child(template.label())
+                        .child(template.label(&strings))
                         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                             cx.stop_propagation();
                             let _ = item_editor.update(cx, |editor, cx| {
