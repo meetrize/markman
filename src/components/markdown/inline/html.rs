@@ -65,6 +65,7 @@ pub(crate) fn inline_html_semantic_style(name: &str, style: InlineStyle) -> Inli
         "em" | "i" => style.with_italic(),
         "u" | "ins" => style.with_underline(),
         "del" => style.with_strikethrough(),
+        "mark" => style.with_highlight(),
         "code" | "kbd" => style.with_code(),
         "sup" => style.with_superscript(),
         "sub" => style.with_subscript(),

@@ -31,6 +31,8 @@ pub(super) enum ExpandedInlineKind {
     ItalicMarkdown,
     /// Strikethrough delimiters.
     Strikethrough,
+    /// Highlight delimiters.
+    Highlight,
     /// Code span backtick delimiters.
     Code,
     /// Superscript Markdown delimiters.
@@ -50,6 +52,7 @@ impl ExpandedInlineKind {
             Self::BoldMarkdown => style.bold,
             Self::ItalicMarkdown => style.italic,
             Self::Strikethrough => style.strikethrough,
+            Self::Highlight => style.highlight,
             Self::Code => style.code,
             Self::SuperscriptMarkdown | Self::SuperscriptHtml => {
                 style.script == InlineScript::Superscript
@@ -66,6 +69,7 @@ impl ExpandedInlineKind {
             Self::BoldMarkdown => "**",
             Self::ItalicMarkdown => "*",
             Self::Strikethrough => "~~",
+            Self::Highlight => "==",
             Self::Code => "`",
             Self::SuperscriptMarkdown => "^",
             Self::SuperscriptHtml => "<sup>",
@@ -89,6 +93,7 @@ impl ExpandedInlineKind {
             Self::BoldMarkdown => Some(StyleFlag::Bold),
             Self::ItalicMarkdown => Some(StyleFlag::Italic),
             Self::Strikethrough => Some(StyleFlag::Strikethrough),
+            Self::Highlight => Some(StyleFlag::Highlight),
             Self::Code => Some(StyleFlag::Code),
             Self::SuperscriptMarkdown | Self::SuperscriptHtml => Some(StyleFlag::Superscript),
             Self::SubscriptMarkdown | Self::SubscriptHtml => Some(StyleFlag::Subscript),
@@ -100,12 +105,13 @@ impl ExpandedInlineKind {
             Self::Link => 0,
             Self::BoldMarkdown => 1,
             Self::Strikethrough => 2,
+            Self::Highlight => 3,
             Self::SuperscriptMarkdown
             | Self::SuperscriptHtml
             | Self::SubscriptMarkdown
-            | Self::SubscriptHtml => 3,
-            Self::ItalicMarkdown => 4,
-            Self::Code => 5,
+            | Self::SubscriptHtml => 4,
+            Self::ItalicMarkdown => 5,
+            Self::Code => 6,
         }
     }
 }
@@ -300,6 +306,7 @@ impl ExpandedInlineProjection {
                         link: None,
                         footnote: None,
                         math: None,
+                        emoji: None,
                     });
                     segments.push(ExpandedInlineSegment {
                         display_range: display_cursor..display_cursor + open_len,
@@ -322,6 +329,7 @@ impl ExpandedInlineProjection {
                         link: None,
                         footnote: Some(footnote.clone()),
                         math: None,
+                        emoji: None,
                     });
                     segments.push(ExpandedInlineSegment {
                         display_range: display_cursor..display_cursor + id_len,
@@ -357,6 +365,7 @@ impl ExpandedInlineProjection {
                         link: None,
                         footnote: None,
                         math: None,
+                        emoji: None,
                     });
                     segments.push(ExpandedInlineSegment {
                         display_range: display_cursor..display_cursor + close_len,
@@ -432,6 +441,7 @@ impl ExpandedInlineProjection {
                         link: None,
                         footnote: None,
                         math: None,
+                        emoji: None,
                     });
                     segments.push(ExpandedInlineSegment {
                         display_range: display_cursor..display_cursor + open_len,
@@ -483,6 +493,7 @@ impl ExpandedInlineProjection {
                             link: None,
                             footnote: None,
                             math: None,
+                            emoji: None,
                         });
                         segments.push(ExpandedInlineSegment {
                             display_range: display_cursor..display_cursor + middle_len,
@@ -510,6 +521,7 @@ impl ExpandedInlineProjection {
                                 link: Some(link.clone()),
                                 footnote: None,
                                 math: None,
+                                emoji: None,
                             });
                             segments.push(ExpandedInlineSegment {
                                 display_range: display_cursor..display_cursor + target_len,
@@ -535,6 +547,7 @@ impl ExpandedInlineProjection {
                         link: None,
                         footnote: None,
                         math: None,
+                        emoji: None,
                     });
                     segments.push(ExpandedInlineSegment {
                         display_range: display_cursor..display_cursor + close_len,
@@ -585,6 +598,7 @@ impl ExpandedInlineProjection {
                     link: None,
                     footnote: None,
                     math: None,
+                    emoji: None,
                 });
                 segments.push(ExpandedInlineSegment {
                     display_range: display_cursor..display_cursor + marker_len,
@@ -631,6 +645,7 @@ impl ExpandedInlineProjection {
                     link: None,
                     footnote: None,
                     math: None,
+                    emoji: None,
                 });
                 segments.push(ExpandedInlineSegment {
                     display_range: display_cursor..display_cursor + marker_len,
@@ -663,6 +678,9 @@ impl ExpandedInlineProjection {
                         ExpandedInlineKind::Strikethrough,
                     )
                     | ExpandedInlineSegmentKind::OpeningDelimiter(
+                        ExpandedInlineKind::Highlight,
+                    )
+                    | ExpandedInlineSegmentKind::OpeningDelimiter(
                         ExpandedInlineKind::SuperscriptMarkdown,
                     )
                     | ExpandedInlineSegmentKind::OpeningDelimiter(
@@ -680,6 +698,9 @@ impl ExpandedInlineProjection {
                     | ExpandedInlineSegmentKind::ClosingDelimiter(ExpandedInlineKind::Code)
                     | ExpandedInlineSegmentKind::ClosingDelimiter(
                         ExpandedInlineKind::Strikethrough,
+                    )
+                    | ExpandedInlineSegmentKind::ClosingDelimiter(
+                        ExpandedInlineKind::Highlight,
                     )
                     | ExpandedInlineSegmentKind::ClosingDelimiter(
                         ExpandedInlineKind::SuperscriptMarkdown,
@@ -876,6 +897,7 @@ impl ExpandedInlineProjection {
             Some(ExpandedInlineKind::BoldMarkdown),
             Some(ExpandedInlineKind::ItalicMarkdown),
             Some(ExpandedInlineKind::Strikethrough),
+            Some(ExpandedInlineKind::Highlight),
             script_kind,
             Some(ExpandedInlineKind::Code),
         ]

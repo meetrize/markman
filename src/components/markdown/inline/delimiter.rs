@@ -11,6 +11,11 @@ pub(crate) enum Delimiter {
     ItalicMarkdown { marker: char },
     /// Markdown strikethrough marker `~~`.
     StrikethroughMarkdown,
+    /// Markdown highlight marker `==`.
+    HighlightMarkdown,
+    /// HTML highlight marker `<mark>`.
+    #[allow(dead_code)]
+    HighlightHtml,
     /// Markdown superscript marker `^`.
     SuperscriptMarkdown,
     /// Markdown subscript marker `~`.
@@ -37,6 +42,8 @@ impl Delimiter {
             Self::BoldMarkdown { marker } => marker.to_string().repeat(2),
             Self::ItalicMarkdown { marker } => marker.to_string(),
             Self::StrikethroughMarkdown => "~~".into(),
+            Self::HighlightMarkdown => "==".into(),
+            Self::HighlightHtml => "<mark>".into(),
             Self::SuperscriptMarkdown => "^".into(),
             Self::SubscriptMarkdown => "~".into(),
             Self::Underline => "<u>".into(),
@@ -53,9 +60,11 @@ impl Delimiter {
             Self::BoldMarkdown { marker } => marker.to_string().repeat(2),
             Self::ItalicMarkdown { marker } => marker.to_string(),
             Self::StrikethroughMarkdown => "~~".into(),
+            Self::HighlightMarkdown => "==".into(),
             Self::SuperscriptMarkdown => "^".into(),
             Self::SubscriptMarkdown => "~".into(),
             Self::Underline => "</u>".into(),
+            Self::HighlightHtml => "</mark>".into(),
             Self::SuperscriptHtml => "</sup>".into(),
             Self::SubscriptHtml => "</sub>".into(),
             Self::BoldHtml => "</strong>".into(),
@@ -76,12 +85,13 @@ impl Delimiter {
             Self::BoldMarkdown { .. } => 0,
             Self::Underline => 1,
             Self::StrikethroughMarkdown => 2,
-            Self::SuperscriptMarkdown | Self::SubscriptMarkdown => 3,
-            Self::ItalicMarkdown { .. } => 4,
-            Self::SuperscriptHtml | Self::SubscriptHtml => 5,
-            Self::BoldHtml => 6,
-            Self::ItalicHtml => 7,
-            Self::CodeMarkdown { .. } => 8,
+            Self::HighlightMarkdown | Self::HighlightHtml => 3,
+            Self::SuperscriptMarkdown | Self::SubscriptMarkdown => 4,
+            Self::ItalicMarkdown { .. } => 5,
+            Self::SuperscriptHtml | Self::SubscriptHtml => 6,
+            Self::BoldHtml => 7,
+            Self::ItalicHtml => 8,
+            Self::CodeMarkdown { .. } => 9,
         }
     }
 
@@ -89,6 +99,7 @@ impl Delimiter {
         matches!(
             self,
             Self::BoldHtml | Self::ItalicHtml | Self::SuperscriptHtml | Self::SubscriptHtml
+                | Self::HighlightHtml
         )
     }
 }

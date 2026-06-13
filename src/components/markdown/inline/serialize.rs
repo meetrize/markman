@@ -293,6 +293,17 @@ pub(crate) fn escape_literal_text_with_offset_map(text: &str) -> InlineMarkdownO
             continue;
         }
 
+        if text[index..].starts_with("==") {
+            let start = escaped.len();
+            escaped.push_str("\\=\\=");
+            markdown_to_visible.resize(escaped.len() + 1, index);
+            for local in 0..=escaped.len() - start {
+                markdown_to_visible[start + local] = index;
+            }
+            index += 2;
+            continue;
+        }
+
         if text[index..].starts_with('~') {
             let start = escaped.len();
             escaped.push_str("\\~");
@@ -486,6 +497,9 @@ pub(crate) fn stack_variants(
     if style.strikethrough {
         markdown_stack.push(Delimiter::StrikethroughMarkdown);
     }
+    if style.highlight {
+        markdown_stack.push(Delimiter::HighlightMarkdown);
+    }
     match style.script {
         InlineScript::Normal => {}
         InlineScript::Superscript
@@ -524,6 +538,9 @@ pub(crate) fn stack_variants(
     }
     if style.strikethrough {
         html_stack.push(Delimiter::StrikethroughMarkdown);
+    }
+    if style.highlight {
+        html_stack.push(Delimiter::HighlightMarkdown);
     }
     match style.script {
         InlineScript::Normal => {}
@@ -565,6 +582,8 @@ pub(crate) fn can_use_markdown_script_delimiters(
         && fragment.footnote.is_none()
         && previous.math.is_none()
         && fragment.math.is_none()
+        && previous.emoji.is_none()
+        && fragment.emoji.is_none()
         && styles_match_ignoring_script(previous.style, fragment.style)
 }
 
@@ -573,6 +592,7 @@ pub(crate) fn styles_match_ignoring_script(left: InlineStyle, right: InlineStyle
         && left.italic == right.italic
         && left.underline == right.underline
         && left.strikethrough == right.strikethrough
+        && left.highlight == right.highlight
         && left.code == right.code
 }
 

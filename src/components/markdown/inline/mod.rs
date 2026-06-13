@@ -17,6 +17,7 @@ use crate::input::text_norm::normalize_line_endings_lf;
 
 
 mod delimiter;
+mod emoji;
 mod fragment;
 mod html;
 mod link_image;
@@ -32,6 +33,7 @@ pub use fragment::{
 pub use style::{InlineScript, InlineStyle};
 pub(crate) use style::StyleFlag;
 pub(crate) use serialize::can_use_markdown_script_delimiters;
+pub(crate) use emoji::resolve_emoji_shortcode;
 
 /// Flattens the fragment tree into a visible text string plus a list of
 /// [`InlineSpan`]s.  Also maintains bidirectional mapping tables between
@@ -178,6 +180,7 @@ impl InlineTextTree {
             link: None,
             footnote: None,
             math: None,
+            emoji: None,
         }])
     }
 
@@ -261,9 +264,11 @@ impl InlineTextTree {
     }
 
     pub(crate) fn has_mixed_inline_visuals(&self) -> bool {
-        self.fragments
-            .iter()
-            .any(|fragment| fragment.math.is_some() || fragment.style.has_script())
+        self.fragments.iter().any(|fragment| {
+            fragment.math.is_some()
+                || fragment.style.has_script()
+                || fragment.style.highlight
+        })
     }
 
     pub(crate) fn has_footnote_references(&self) -> bool {
@@ -353,6 +358,38 @@ impl InlineTextTree {
                 continue;
             }
 
+            if let Some(emoji) = self.fragments[index].emoji.clone() {
+                let raw_markdown = emoji.source;
+                let raw_len = raw_markdown.len();
+                let run_visible_len = self.fragments[index].text.len();
+                let run_start = output.len();
+                output.push_str(&raw_markdown);
+                let run_end = output.len();
+
+                for local_visible in 0..=run_visible_len {
+                    let mapped = if run_visible_len == 0 {
+                        0
+                    } else {
+                        (raw_len * local_visible) / run_visible_len
+                    };
+                    visible_to_markdown[visible_cursor + local_visible] = run_start + mapped;
+                }
+
+                markdown_to_visible.resize(run_end + 1, visible_cursor);
+                for local_markdown in 0..=raw_len {
+                    let mapped = if raw_len == 0 {
+                        0
+                    } else {
+                        (run_visible_len * local_markdown) / raw_len
+                    };
+                    markdown_to_visible[run_start + local_markdown] = visible_cursor + mapped;
+                }
+
+                visible_cursor += run_visible_len;
+                index += 1;
+                continue;
+            }
+
             if let Some(math) = self.fragments[index].math.clone() {
                 let raw_markdown = math.source;
                 let raw_len = raw_markdown.len();
@@ -383,6 +420,7 @@ impl InlineTextTree {
                 && self.fragments[end].link == link
                 && self.fragments[end].footnote.is_none()
                 && self.fragments[end].math.is_none()
+                && self.fragments[end].emoji.is_none()
             {
                 end += 1;
             }
@@ -486,6 +524,7 @@ impl InlineTextTree {
                         link: fragment.link.clone(),
                         footnote: fragment.footnote.clone(),
                         math: None,
+                        emoji: None,
                     });
                 }
                 if split_offset < fragment_len {
@@ -496,6 +535,7 @@ impl InlineTextTree {
                         link: fragment.link.clone(),
                         footnote: fragment.footnote.clone(),
                         math: None,
+                        emoji: None,
                     });
                 }
             }
@@ -655,6 +695,7 @@ impl InlineTextTree {
                 link: inserted_attributes.link,
                 footnote: inserted_attributes.footnote,
                 math: inserted_attributes.math,
+                emoji: None,
             });
         }
         temp.append_tree(after);
@@ -685,6 +726,7 @@ impl InlineTextTree {
                 link: inserted_attributes.link,
                 footnote: inserted_attributes.footnote,
                 math: inserted_attributes.math,
+                emoji: None,
             });
         }
         temp.append_tree(after);
@@ -772,6 +814,8 @@ impl InlineTextTree {
                 && last.footnote == fragment.footnote
                 && last.math.is_none()
                 && fragment.math.is_none()
+                && last.emoji.is_none()
+                && fragment.emoji.is_none()
             {
                 last.text.push_str(&fragment.text);
                 continue;
@@ -1021,6 +1065,7 @@ mod tests {
                 underline: true,
                 strikethrough: false,
                 code: false,
+                highlight: false,
                 script: InlineScript::Normal,
             }
         );
@@ -1694,6 +1739,7 @@ mod tests {
                 link: None,
                 footnote: None,
                 math: None,
+                emoji: None,
             }]);
             let serialized = tree.serialize_markdown();
             let reparsed = InlineTextTree::from_markdown(&serialized);
@@ -1748,5 +1794,26 @@ mod tests {
         let cache = tree.render_cache();
         assert!(!cache.style_at(0).code);
         assert_eq!(tree.serialize_markdown(), "\\`not code\\`");
+    }
+
+    #[test]
+    fn parses_highlight_syntax() {
+        let tree = InlineTextTree::from_markdown("before ==highlighted== after");
+        assert_eq!(tree.visible_text(), "before highlighted after");
+        assert!(tree.render_cache().style_at("before ".len()).highlight);
+        assert_eq!(tree.serialize_markdown(), "before ==highlighted== after");
+    }
+
+    #[test]
+    fn parses_emoji_shortcodes() {
+        let tree = InlineTextTree::from_markdown(":smile: :+1: :rocket: :cn:");
+        assert_eq!(tree.visible_text(), "😄 👍 🚀 🇨🇳");
+        assert_eq!(tree.serialize_markdown(), ":smile: :+1: :rocket: :cn:");
+    }
+
+    #[test]
+    fn unknown_emoji_shortcodes_stay_literal() {
+        let tree = InlineTextTree::from_markdown(":unknownemoji:");
+        assert_eq!(tree.visible_text(), ":unknownemoji:");
     }
 }

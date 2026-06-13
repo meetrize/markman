@@ -8,6 +8,11 @@ use super::shared::html_css_color_to_hsla;
 use crate::components::InlineScript;
 use crate::theme::Theme;
 
+/// Marker-pen tint for `==highlight==` in div-based inline preview runs.
+fn inline_highlight_background(_theme: &Theme) -> Hsla {
+    Hsla::from(rgba(0xffe06699))
+}
+
 impl Block {
     pub(super) fn render_text_or_mixed_inline_visuals(
         &self,
@@ -26,9 +31,9 @@ impl Block {
         // anchored to editable text rather than rendered SVG/script offsets.
         // While document search highlights are active, keep BlockTextElement so
         // highlight overlays share the same text layout as the search query.
+        // Unfocused blocks with highlight/math/script use div-based preview runs.
         if focused
             || is_placeholder
-            || !self.has_mixed_inline_visuals()
             || !self.search_highlight_ranges.is_empty()
         {
             return match placeholder_text {
@@ -43,7 +48,11 @@ impl Block {
             };
         }
 
-        self.render_mixed_inline_visual_runs(theme, text_color, font_size, font_weight)
+        if self.has_mixed_inline_visuals() {
+            return self.render_mixed_inline_visual_runs(theme, text_color, font_size, font_weight);
+        }
+
+        BlockTextElement::new(cx.entity(), is_placeholder).into_any_element()
     }
 
     pub(super) fn render_mixed_inline_visual_runs(
@@ -214,6 +223,12 @@ impl Block {
                 .px(px(theme.dimensions.code_bg_pad_x))
                 .py(px(theme.dimensions.code_bg_pad_y))
                 .bg(theme.colors.code_bg);
+        }
+        if span.style.highlight {
+            element = element
+                .rounded(px(3.0))
+                .px(px(2.0))
+                .bg(inline_highlight_background(theme));
         }
         if let Some(style) = span.html_style
             && let Some(background) = style.background_color

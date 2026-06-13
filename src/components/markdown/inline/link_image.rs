@@ -175,6 +175,7 @@ pub(crate) fn parse_autolink(
         }),
         footnote: None,
         math: None,
+        emoji: None,
     }];
 
     let normalized_start = builder.normalized_len;

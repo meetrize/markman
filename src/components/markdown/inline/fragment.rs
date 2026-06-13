@@ -18,6 +18,16 @@ pub struct InlineFragment {
     pub link: Option<InlineLink>,
     pub footnote: Option<InlineFootnoteReference>,
     pub math: Option<InlineMath>,
+    pub emoji: Option<InlineEmoji>,
+}
+
+/// Source-preserving emoji shortcode metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlineEmoji {
+    /// Markdown source such as `:smile:`.
+    pub source: String,
+    /// Rendered emoji glyph.
+    pub glyph: String,
 }
 
 /// Source-preserving inline LaTeX math metadata.

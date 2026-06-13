@@ -9,6 +9,7 @@ use crate::components::markdown::html::HtmlInlineStyle;
 use crate::components::markdown::link::LinkReferenceDefinitions;
 
 use super::delimiter::Delimiter;
+use super::emoji::parse_emoji_shortcode;
 use super::fragment::InlineFragment;
 use super::fragment::InlineMath;
 use super::html::{merge_html_styles, parse_inline_html_container};
@@ -75,6 +76,9 @@ impl NormalizeBuilder {
         if extra_style.code {
             style.code = true;
         }
+        if extra_style.highlight {
+            style.highlight = true;
+        }
         if extra_style.has_script() {
             style.script = extra_style.script;
         }
@@ -93,6 +97,7 @@ impl NormalizeBuilder {
             && last.link.is_none()
             && last.footnote.is_none()
             && last.math.is_none()
+            && last.emoji.is_none()
         {
             last.text.push_str(&text);
             return;
@@ -105,6 +110,7 @@ impl NormalizeBuilder {
             link: None,
             footnote: None,
             math: None,
+            emoji: None,
         });
     }
 
@@ -139,6 +145,7 @@ impl NormalizeBuilder {
             link: None,
             footnote: None,
             math: Some(math),
+            emoji: None,
         });
     }
 }
@@ -287,6 +294,19 @@ pub(crate) fn parse_until(
                 continue;
             }
 
+            if tokens[index].ch == ':'
+                && let Some(next_index) = parse_emoji_shortcode(
+                    tokens,
+                    index,
+                    extra_style,
+                    extra_html_style,
+                    builder,
+                )
+            {
+                index = next_index;
+                continue;
+            }
+
             if let Some(delimiter) = match_open_delimiter(tokens, index) {
                 if has_closing_delimiter(tokens, index, delimiter) {
                     for token in &tokens[index..index + delimiter.token_len()] {
@@ -383,6 +403,7 @@ pub(crate) fn parse_footnote_reference(
             occurrence_index: 0,
         }),
         math: None,
+        emoji: None,
     }];
 
     let normalized_start = builder.normalized_len;
@@ -405,6 +426,8 @@ pub(crate) fn parse_footnote_reference(
             && last.footnote == fragment.footnote
             && last.math.is_none()
             && fragment.math.is_none()
+            && last.emoji.is_none()
+            && fragment.emoji.is_none()
         {
             last.text.push_str(&fragment.text);
         } else {
@@ -440,6 +463,9 @@ pub(crate) fn apply_extra_style_to_fragments(
         if extra_style.code {
             fragment.style.code = true;
         }
+        if extra_style.highlight {
+            fragment.style.highlight = true;
+        }
         if extra_style.has_script() {
             fragment.style.script = extra_style.script;
         }
@@ -456,6 +482,8 @@ pub(crate) fn match_open_delimiter(tokens: &[CharToken], index: usize) -> Option
         Some(Delimiter::Underline)
     } else if matches_sequence(tokens, index, "~~") {
         Some(Delimiter::StrikethroughMarkdown)
+    } else if matches_sequence(tokens, index, "==") {
+        Some(Delimiter::HighlightMarkdown)
     } else if matches_sequence(tokens, index, "^") && can_open_script(tokens, index, '^') {
         Some(Delimiter::SuperscriptMarkdown)
     } else if is_single_tilde_delimiter(tokens, index) && can_open_script(tokens, index, '~') {
@@ -571,6 +599,8 @@ pub(crate) fn emphasis_requires_body(delimiter: Delimiter) -> bool {
         Delimiter::BoldMarkdown { .. }
             | Delimiter::ItalicMarkdown { .. }
             | Delimiter::StrikethroughMarkdown
+            | Delimiter::HighlightMarkdown
+            | Delimiter::HighlightHtml
             | Delimiter::BoldHtml
             | Delimiter::ItalicHtml
             | Delimiter::Underline

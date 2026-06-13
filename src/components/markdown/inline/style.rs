@@ -10,6 +10,7 @@ pub struct InlineStyle {
     pub underline: bool,
     pub strikethrough: bool,
     pub code: bool,
+    pub highlight: bool,
     pub script: InlineScript,
 }
 
@@ -52,6 +53,13 @@ impl InlineStyle {
         Self { code: true, ..self }
     }
 
+    pub fn with_highlight(self) -> Self {
+        Self {
+            highlight: true,
+            ..self
+        }
+    }
+
     pub fn with_superscript(self) -> Self {
         Self {
             script: InlineScript::Superscript,
@@ -77,6 +85,9 @@ impl InlineStyle {
             super::delimiter::Delimiter::Underline => self.with_underline(),
             super::delimiter::Delimiter::StrikethroughMarkdown => self.with_strikethrough(),
             super::delimiter::Delimiter::CodeMarkdown { .. } => self.with_code(),
+            super::delimiter::Delimiter::HighlightMarkdown | super::delimiter::Delimiter::HighlightHtml => {
+                self.with_highlight()
+            }
             super::delimiter::Delimiter::SuperscriptMarkdown | super::delimiter::Delimiter::SuperscriptHtml => self.with_superscript(),
             super::delimiter::Delimiter::SubscriptMarkdown | super::delimiter::Delimiter::SubscriptHtml => self.with_subscript(),
         }
@@ -96,6 +107,8 @@ pub(crate) enum StyleFlag {
     Strikethrough,
     /// Inline code text.
     Code,
+    /// Highlighted text.
+    Highlight,
     /// Superscript text.
     Superscript,
     /// Subscript text.
@@ -108,6 +121,7 @@ pub(crate) fn style_flag_enabled(style: InlineStyle, flag: StyleFlag) -> bool {
         StyleFlag::Underline => style.underline,
         StyleFlag::Strikethrough => style.strikethrough,
         StyleFlag::Code => style.code,
+        StyleFlag::Highlight => style.highlight,
         StyleFlag::Superscript => style.script == InlineScript::Superscript,
         StyleFlag::Subscript => style.script == InlineScript::Subscript,
     }
@@ -120,6 +134,7 @@ pub(crate) fn set_style_flag(mut style: InlineStyle, flag: StyleFlag, enabled: b
         StyleFlag::Underline => style.underline = enabled,
         StyleFlag::Strikethrough => style.strikethrough = enabled,
         StyleFlag::Code => style.code = enabled,
+        StyleFlag::Highlight => style.highlight = enabled,
         StyleFlag::Superscript => {
             style.script = if enabled {
                 InlineScript::Superscript

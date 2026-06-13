@@ -12,7 +12,8 @@ use crate::components::{
     is_closing_fence_marker, is_columns_block_start, is_mermaid_closing_fence,
     opening_fence_marker, parse_columns_content, parse_display_math_source,
     parse_html_image_block, parse_mermaid_fence_source, parse_mermaid_fence_start,
-    render_latex_to_svg, render_mermaid_to_svg, sanitize_html_for_export,
+    render_latex_to_svg, render_mermaid_to_svg, resolve_emoji_shortcode,
+    sanitize_html_for_export,
 };
 use crate::net;
 use crate::theme::{FontWeightDef, Theme};
@@ -213,6 +214,18 @@ fn rewrite_inline_math_line(line: &str, theme: &Theme) -> String {
             continue;
         }
 
+        if let Some((end, body)) = locate_highlight_source(line, index) {
+            output.push_str(&format!("<mark>{}</mark>", escape_html_text(&body)));
+            index = end;
+            continue;
+        }
+
+        if let Some((end, glyph)) = locate_emoji_shortcode_source(line, index) {
+            output.push_str(&glyph);
+            index = end;
+            continue;
+        }
+
         let Some(ch) = line[index..].chars().next() else {
             break;
         };
@@ -270,6 +283,53 @@ fn locate_inline_script_source(line: &str, index: usize) -> Option<(usize, Strin
     } else {
         None
     }
+}
+
+fn locate_highlight_source(line: &str, index: usize) -> Option<(usize, String)> {
+    if is_escaped_ascii(line, index) || !line[index..].starts_with("==") {
+        return None;
+    }
+
+    let body_start = index + 2;
+    let mut cursor = body_start;
+    while cursor < line.len() {
+        if line[cursor..].starts_with("==")
+            && !is_escaped_ascii(line, cursor)
+            && cursor > body_start
+        {
+            return Some((cursor + 2, line[body_start..cursor].to_string()));
+        }
+        cursor += line[cursor..].chars().next()?.len_utf8();
+    }
+
+    None
+}
+
+fn locate_emoji_shortcode_source(line: &str, index: usize) -> Option<(usize, String)> {
+    if line.as_bytes().get(index) != Some(&b':') {
+        return None;
+    }
+
+    let mut cursor = index + 1;
+    let name_start = cursor;
+    while cursor < line.len() {
+        let ch = line[cursor..].chars().next()?;
+        if ch == ':' {
+            if cursor == name_start {
+                return None;
+            }
+            let name = &line[name_start..cursor];
+            let glyph = resolve_emoji_shortcode(name)?;
+            return Some((cursor + ch.len_utf8(), glyph));
+        }
+        if ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '_') {
+            cursor += ch.len_utf8();
+            continue;
+        }
+        return None;
+    }
+
+    None
 }
 
 fn locate_script_close(line: &str, index: usize, marker: char) -> Option<(usize, String)> {
@@ -728,6 +788,7 @@ fn theme_css(theme: &Theme) -> String {
   --vlt-callout-warning-border: {};
   --vlt-callout-caution-bg: {};
   --vlt-callout-caution-border: {};
+  --vlt-selection: {};
 }}
 
 * {{ box-sizing: border-box; }}
@@ -782,6 +843,12 @@ code {{
   padding: 0.12em 0.32em;
   font-family: {};
   font-size: {}px;
+}}
+mark {{
+  background-color: rgba(255, 224, 102, 0.60);
+  color: inherit;
+  border-radius: 0.15em;
+  padding: 0.05em 0.15em;
 }}
 pre {{
   {}
@@ -956,6 +1023,7 @@ hr {{ border: 0; border-top: 1px solid; border-color: var(--vlt-border); }}
         css_color(c.callout_warning_border),
         css_color(c.callout_caution_bg),
         css_color(c.callout_caution_border),
+        css_color(c.selection),
         body_font_stack(),
         t.text_size,
         t.text_line_height,
@@ -1375,6 +1443,22 @@ mod tests {
 
         assert!(html.contains("x<sup>2</sup>"));
         assert!(html.contains("H<sub>2</sub>O"));
+    }
+
+    #[test]
+    fn exports_highlight_and_emoji_shortcodes() {
+        let html = render_html(
+            "==marked== :smile: :+1: :rocket: :cn:",
+            &Theme::default_theme(),
+            "Doc",
+        );
+
+        assert!(html.contains("<mark>marked</mark>"));
+        assert!(html.contains("😄"));
+        assert!(html.contains("👍"));
+        assert!(html.contains("🚀"));
+        assert!(html.contains("🇨🇳"));
+        assert!(!html.contains(":smile:"));
     }
 
     #[test]

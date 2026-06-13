@@ -1889,7 +1889,7 @@ impl Block {
             && result.tree.visible_text().len() < expected_visible_len
             && new_text
                 .chars()
-                .all(|ch| matches!(ch, '*' | '_' | '`' | '~'));
+                .all(|ch| matches!(ch, '*' | '_' | '`' | '~' | '='));
         let quote_structure_edit = !self.uses_raw_text_editing()
             && self.quote_depth > 0
             && (new_text.contains('\n')
