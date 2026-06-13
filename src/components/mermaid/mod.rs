@@ -8,11 +8,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, anyhow};
 use directories::ProjectDirs;
 
-const SIMPLE_MERMAID_LINE_LIMIT: usize = 8;
-const MERMAID_COMPLEX_TARGET_WIDTH_RATIO: f32 = 0.9;
-const MERMAID_MAX_VIEWPORT_WIDTH_RATIO: f32 = 1.15;
-const MERMAID_SCALE_PER_EXTRA_LINE: f32 = 0.035;
-const MERMAID_MAX_SCALE: f32 = 1.75;
+const MERMAID_MIN_DISPLAY_SCALE: f32 = 0.1;
+const MERMAID_MAX_DISPLAY_SCALE: f32 = 4.0;
 
 /// Opening fence metadata for a Mermaid fenced code block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,15 +121,15 @@ pub(crate) fn parse_mermaid_fence_source(raw: &str) -> Option<MermaidSource> {
 pub(crate) fn render_mermaid_svg_for_display(
     source: &MermaidSource,
     available_width: f32,
-    viewport_width: f32,
+    available_height: f32,
 ) -> anyhow::Result<MermaidSvgRender> {
-    render_mermaid_svg_for_display_with(source, available_width, viewport_width, render_mermaid_raw)
+    render_mermaid_svg_for_display_with(source, available_width, available_height, render_mermaid_raw)
 }
 
 fn render_mermaid_svg_for_display_with(
     source: &MermaidSource,
     available_width: f32,
-    viewport_width: f32,
+    available_height: f32,
     renderer: MermaidRenderer,
 ) -> anyhow::Result<MermaidSvgRender> {
     let base_key = mermaid_cache_key(&source.body);
@@ -144,7 +141,7 @@ fn render_mermaid_svg_for_display_with(
         intrinsic.width,
         intrinsic.height,
         available_width,
-        viewport_width,
+        available_height,
     );
 
     let display_key = mermaid_display_cache_key(&source.body, scale);
@@ -156,7 +153,7 @@ fn render_mermaid_svg_for_display_with(
                 display_path.display()
             )
         })?;
-        let size = mermaid_svg_intrinsic_size(&svg)?;
+        let size = mermaid_svg_display_size(&svg)?;
         return Ok(MermaidSvgRender {
             path: display_path,
             svg,
@@ -239,6 +236,7 @@ pub(crate) fn mermaid_display_cache_key(source: &str, scale: f32) -> String {
 }
 
 /// Counts diagram lines that materially contribute to rendered complexity.
+#[cfg(test)]
 pub(crate) fn semantic_mermaid_line_count(source: &str) -> usize {
     let mut in_frontmatter = false;
     source
@@ -259,43 +257,21 @@ pub(crate) fn semantic_mermaid_line_count(source: &str) -> usize {
 
 /// Display scale used by the editor for rendered Mermaid diagrams.
 pub(crate) fn mermaid_display_scale(
-    source: &str,
+    _source: &str,
     intrinsic_width: f32,
     intrinsic_height: f32,
     available_width: f32,
-    viewport_width: f32,
+    available_height: f32,
 ) -> f32 {
-    let line_count = semantic_mermaid_line_count(source);
-    if line_count <= SIMPLE_MERMAID_LINE_LIMIT {
-        return 1.0;
-    }
-
     let intrinsic_width = intrinsic_width.max(1.0);
     let intrinsic_height = intrinsic_height.max(1.0);
     let available_width = available_width.max(1.0);
-    let viewport_width = viewport_width.max(available_width);
-    let extra_lines = line_count.saturating_sub(SIMPLE_MERMAID_LINE_LIMIT) as f32;
-
-    let complexity_scale = (1.0 + extra_lines * MERMAID_SCALE_PER_EXTRA_LINE)
-        .max(1.0)
-        .min(MERMAID_MAX_SCALE);
-    let target_column_width = available_width * MERMAID_COMPLEX_TARGET_WIDTH_RATIO;
-    let column_fit_scale = if intrinsic_width < target_column_width {
-        target_column_width / intrinsic_width
-    } else {
-        1.0
-    };
-    let viewport_limit_scale =
-        (viewport_width * MERMAID_MAX_VIEWPORT_WIDTH_RATIO / intrinsic_width).max(1.0);
-    let height_sanity_scale =
-        (viewport_width * MERMAID_MAX_VIEWPORT_WIDTH_RATIO / intrinsic_height).max(1.0);
-
-    complexity_scale
-        .max(column_fit_scale)
-        .min(viewport_limit_scale)
-        .min(height_sanity_scale)
-        .min(MERMAID_MAX_SCALE)
-        .max(1.0)
+    let available_height = available_height.max(1.0);
+    let width_scale = available_width / intrinsic_width;
+    let height_scale = available_height / intrinsic_height;
+    width_scale
+        .min(height_scale)
+        .clamp(MERMAID_MIN_DISPLAY_SCALE, MERMAID_MAX_DISPLAY_SCALE)
 }
 
 fn strip_fence_indent(line: &str) -> Option<&str> {
@@ -327,6 +303,18 @@ pub(crate) fn scale_mermaid_svg_for_display(
 fn mermaid_svg_intrinsic_size(svg: &str) -> anyhow::Result<MermaidSvgSize> {
     let (start, end) = svg_root_tag_range(svg)?;
     svg_root_size(&svg[start..end])
+}
+
+fn mermaid_svg_display_size(svg: &str) -> anyhow::Result<MermaidSvgSize> {
+    let (start, end) = svg_root_tag_range(svg)?;
+    let root_tag = &svg[start..end];
+    let width = svg_root_attr(root_tag, "width")
+        .and_then(|value| parse_svg_length(&value))
+        .ok_or_else(|| anyhow!("Mermaid SVG root did not expose a usable display width"))?;
+    let height = svg_root_attr(root_tag, "height")
+        .and_then(|value| parse_svg_length(&value))
+        .ok_or_else(|| anyhow!("Mermaid SVG root did not expose a usable display height"))?;
+    Ok(MermaidSvgSize { width, height })
 }
 
 fn svg_root_tag_range(svg: &str) -> anyhow::Result<(usize, usize)> {
@@ -669,32 +657,23 @@ mod tests {
     }
 
     #[test]
-    fn display_scale_uses_intrinsic_size_and_caps_growth() {
-        let simple = "flowchart LR\nA --> B\nB --> C";
-        assert_eq!(
-            mermaid_display_scale(simple, 240.0, 120.0, 720.0, 960.0),
-            1.0
-        );
+    fn display_scale_fills_width_when_height_allows() {
+        let source = "flowchart LR\nA --> B\nB --> C";
+        let scale = mermaid_display_scale(source, 240.0, 120.0, 720.0, 960.0);
 
-        let complex = std::iter::once("flowchart LR".to_string())
-            .chain((0..20).map(|index| format!("A{index} --> A{}", index + 1)))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let scale = mermaid_display_scale(&complex, 260.0, 140.0, 720.0, 960.0);
-        assert!(scale > 1.0);
-        assert!(scale <= MERMAID_MAX_SCALE);
-        assert!(260.0 * scale <= 960.0 * MERMAID_MAX_VIEWPORT_WIDTH_RATIO);
+        assert_eq!(scale, 3.0);
+        assert_eq!(240.0 * scale, 720.0);
+        assert!(120.0 * scale <= 960.0);
     }
 
     #[test]
-    fn display_scale_does_not_overgrow_already_wide_diagrams() {
-        let complex = std::iter::once("flowchart LR".to_string())
-            .chain((0..30).map(|index| format!("A{index} --> A{}", index + 1)))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let scale = mermaid_display_scale(&complex, 1400.0, 400.0, 720.0, 960.0);
+    fn display_scale_is_limited_by_available_height() {
+        let source = "flowchart TD\nA --> B";
+        let scale = mermaid_display_scale(source, 240.0, 900.0, 720.0, 600.0);
 
-        assert_eq!(scale, 1.0);
+        assert_eq!(scale, 600.0 / 900.0);
+        assert!(240.0 * scale <= 720.0);
+        assert_eq!(900.0 * scale, 600.0);
     }
 
     #[test]

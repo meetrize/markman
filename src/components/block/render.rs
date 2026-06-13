@@ -899,10 +899,19 @@ impl Block {
                 .into_any_element();
         };
 
-        let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
+        let viewport = window.viewport_size();
+        let viewport_width = f32::from(viewport.width.max(px(1.0)));
+        let viewport_height = f32::from(viewport.height.max(px(1.0)));
         let available_width = effective_image_width(self, viewport_width, d);
+        let reserved_height = d.menu_bar_height
+            + d.format_toolbar_button_height
+            + d.format_toolbar_padding_y * 2.0
+            + d.format_toolbar_border_width
+            + d.editor_padding * 2.0
+            + d.block_padding_y * 2.0;
+        let available_height = (viewport_height - reserved_height).max(1.0);
 
-        match render_mermaid_svg_for_display(&source, available_width, viewport_width) {
+        match render_mermaid_svg_for_display(&source, available_width, available_height) {
             Ok(rendered) => {
                 let display_width = rendered.display_width.max(1.0);
                 let display_height = rendered.display_height.max(1.0);
