@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Watch source files and auto-rebuild + restart Velotype on changes.
+# Watch source files and auto-rebuild + restart Markman on changes.
 #
 # Requires cargo-watch: cargo install cargo-watch
 #
 # Usage:
-#   ./scripts/watch.sh [app args passed to velotype...]
+#   ./scripts/watch.sh [app args passed to markman...]
 #
 # Examples:
 #   ./scripts/watch.sh
@@ -19,7 +19,7 @@ fi
 
 cd "$VELOTYPE_PROJECT_ROOT"
 
-velotype_info "Watching sources; Velotype restarts on change (cargo watch)..."
+velotype_info "Watching sources; Markman restarts on change (cargo watch)..."
 velotype_warn "GPUI desktop apps do not hot-reload UI state — the process restarts after each rebuild."
 
 if (($# > 0)); then

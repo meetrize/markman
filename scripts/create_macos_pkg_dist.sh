@@ -18,7 +18,7 @@ RESOURCES_DIR="$PROJECT_ROOT/resources/macos"
 
 APP_NAME="Markman"
 APP_BUNDLE="${APP_NAME}.app"
-BINARY_NAME="velotype"
+BINARY_NAME="markman"
 BUNDLE_ID="com.manyougz.Velotype"
 
 PKG_DIR="$DIST_DIR/pkg"

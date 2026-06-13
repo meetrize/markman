@@ -1,6 +1,6 @@
 # 开发与构建
 
-本文档说明 Velotype 的日常开发、构建、测试与打包流程。项目根目录下的 `scripts/` 提供了一组封装好的 shell 脚本，避免每次手动输入较长的 Cargo 命令。
+本文档说明 Markman 的日常开发、构建、测试与打包流程。项目根目录下的 `scripts/` 提供了一组封装好的 shell 脚本，避免每次手动输入较长的 Cargo 命令。
 
 [English](development.md) | [中文](development.zh-CN.md)
 
@@ -13,7 +13,7 @@
 
 ## 运行模式概览
 
-Velotype 是 GPUI 桌面应用，**没有内置 UI 热重载**。开发时有三种常用方式：
+Markman 是 GPUI 桌面应用，**没有内置 UI 热重载**。开发时有三种常用方式：
 
 | 模式 | 脚本 | 说明 |
 | --- | --- | --- |
@@ -100,7 +100,7 @@ cargo install cargo-watch
 ./scripts/build.sh
 ```
 
-等价于 `cargo build --release`。构建产物位于 `target/release/velotype`（Windows 为 `velotype.exe`）。
+等价于 `cargo build --release`。构建产物位于 `target/release/markman`（Windows 为 `markman.exe`）。
 
 如需锁定依赖版本（与 CI 一致）：
 
@@ -122,7 +122,7 @@ cargo install cargo-watch
 
 ```bash
 cargo build --release
-./target/release/velotype
+./target/release/markman
 ```
 
 ## 测试与基准
@@ -155,7 +155,7 @@ cargo build --release
 
 ```bash
 ./scripts/package.sh                  # 自动检测平台
-./scripts/package.sh macos-app      # macOS：创建 Velotype.app
+./scripts/package.sh macos-app      # macOS：创建 Markman.app
 ./scripts/package.sh macos-pkg 0.5.7  # macOS：创建 PKG 安装包
 ./scripts/package.sh linux          # Linux：tar.gz 压缩包
 ./scripts/package.sh windows        # Windows：zip 压缩包

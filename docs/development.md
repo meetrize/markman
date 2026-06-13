@@ -1,6 +1,6 @@
 # Development & Build
 
-This guide covers day-to-day development, building, testing, and packaging for Velotype. The `scripts/` directory at the project root provides shell wrappers so you do not have to type long Cargo commands every time.
+This guide covers day-to-day development, building, testing, and packaging for Markman. The `scripts/` directory at the project root provides shell wrappers so you do not have to type long Cargo commands every time.
 
 [English](development.md) | [中文](development.zh-CN.md)
 
@@ -13,7 +13,7 @@ This guide covers day-to-day development, building, testing, and packaging for V
 
 ## Run Modes
 
-Velotype is a GPUI desktop app and does **not** ship with built-in UI hot reload. Three common workflows:
+Markman is a GPUI desktop app and does **not** ship with built-in UI hot reload. Three common workflows:
 
 | Mode | Script | Description |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ Watched paths: `src/`, `assets/`, `resources/`, `build.rs`, and `Cargo.toml`.
 ./scripts/build.sh --locked   # lock deps, same as CI
 ```
 
-Output: `target/release/velotype` (or `velotype.exe` on Windows).
+Output: `target/release/markman` (or `markman.exe` on Windows).
 
 ### Run release binary
 
@@ -103,7 +103,7 @@ Equivalent manual commands:
 
 ```bash
 cargo build --release
-./target/release/velotype
+./target/release/markman
 ```
 
 ## Tests & Benchmarks

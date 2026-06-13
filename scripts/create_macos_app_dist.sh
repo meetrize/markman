@@ -3,7 +3,7 @@
 # Usage: ./scripts/create_app_dist.sh
 set -euo pipefail
 
-BINARY_NAME="velotype"
+BINARY_NAME="markman"
 APP_NAME="Markman"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

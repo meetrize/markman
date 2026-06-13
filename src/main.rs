@@ -221,17 +221,17 @@ fn main() {
     while i < args.len() {
         match args[i].as_str() {
             "--version" | "-v" => {
-                println!("velotype {}", env!("CARGO_PKG_VERSION"));
+                println!("markman {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
             "--help" | "-h" => {
                 println!(
-                    "velotype {} - Markman, a block-based Markdown memo app",
+                    "markman {} - Markman, a block-based Markdown memo app",
                     env!("CARGO_PKG_VERSION")
                 );
                 println!();
                 println!("USAGE:");
-                println!("    velotype [OPTIONS] [FILES...]");
+                println!("    markman [OPTIONS] [FILES...]");
                 println!();
                 println!("OPTIONS:");
                 println!("    -v, --version    Print version information");

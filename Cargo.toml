@@ -197,7 +197,7 @@ harness = false
 # without this, Criterion-specific CLI flags (`--save-baseline`, etc.) trip
 # the libtest stub before Criterion's `main` runs (rust-lang/rust#47241).
 [[bin]]
-name = "velotype"
+name = "markman"
 path = "src/main.rs"
 bench = false
 

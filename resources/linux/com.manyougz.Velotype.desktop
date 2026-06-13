@@ -2,7 +2,7 @@
 Type=Application
 Name=Markman
 Comment=Native Markdown editor built with Rust and GPUI
-Exec=velotype %F
+Exec=markman %F
 Icon=com.manyougz.Velotype
 Terminal=false
 Categories=Office;TextEditor;Utility;

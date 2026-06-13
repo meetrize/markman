@@ -2,7 +2,7 @@
 # Run the release binary. Builds first if the artifact is missing.
 #
 # Usage:
-#   ./scripts/run.sh [velotype args...]
+#   ./scripts/run.sh [markman args...]
 #
 # Examples:
 #   ./scripts/run.sh

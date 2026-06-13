@@ -103,12 +103,28 @@ fn record_recent_file_and_refresh(path: &Path, cx: &mut App) {
 }
 
 #[cfg(target_os = "macos")]
-/// Check whether `/usr/local/bin/velotype` is correctly installed for this app.
+const CLI_BIN_LINK: &str = "/usr/local/bin/markman";
+#[cfg(target_os = "macos")]
+const LEGACY_CLI_BIN_LINK: &str = "/usr/local/bin/velotype";
+
+#[cfg(target_os = "macos")]
+/// Check whether `/usr/local/bin/markman` is correctly installed for this app.
 ///
 /// Returns `true` only if the symlink exists **and** resolves (directly or via
 /// one level of canonicalization) to the currently running executable.
+/// Legacy `/usr/local/bin/velotype` symlinks are also recognized.
 fn is_cli_symlink_current_app() -> bool {
-    let link = std::path::Path::new("/usr/local/bin/velotype");
+    for link in [CLI_BIN_LINK, LEGACY_CLI_BIN_LINK] {
+        if cli_symlink_points_to_current_exe(link) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn cli_symlink_points_to_current_exe(link: &str) -> bool {
+    let link = std::path::Path::new(link);
     let Ok(target) = std::fs::read_link(link) else {
         return false; // does not exist or not a symlink
     };
@@ -150,7 +166,8 @@ fn applescript_string_literal(value: &str) -> String {
 pub(crate) fn install_cli_tool(cx: &mut App) {
     use std::process::Command;
 
-    let bin_link = "/usr/local/bin/velotype";
+    let bin_link = CLI_BIN_LINK;
+    let legacy_bin_link = LEGACY_CLI_BIN_LINK;
     let strings = cx.global::<I18nManager>().strings();
 
     let current_exe = match std::env::current_exe() {
@@ -177,10 +194,12 @@ pub(crate) fn install_cli_tool(cx: &mut App) {
 
     let exe_path = applescript_string_literal(&current_exe.to_string_lossy());
     let link_path = applescript_string_literal(bin_link);
+    let legacy_link_path = applescript_string_literal(legacy_bin_link);
     let script = format!(
         r#"set exePath to {exe_path}
 set linkPath to {link_path}
-do shell script "rm -f " & quoted form of linkPath & linefeed & "ln -s " & quoted form of exePath & space & quoted form of linkPath with administrator privileges"#
+set legacyLinkPath to {legacy_link_path}
+do shell script "rm -f " & quoted form of linkPath & linefeed & "rm -f " & quoted form of legacyLinkPath & linefeed & "ln -s " & quoted form of exePath & space & quoted form of linkPath with administrator privileges"#
     );
 
     match Command::new("osascript").arg("-e").arg(&script).output() {
@@ -188,12 +207,12 @@ do shell script "rm -f " & quoted form of linkPath & linefeed & "ln -s " & quote
             if output.status.success() {
                 let title = "CLI Command Installed";
                 let detail = format!(
-                    "Successfully installed! You can now use 'velotype' from the terminal:\n\n\
-                     \x1b[1mvelotype README.md\x1b[0m\n\
-                     \x1b[1mvelotype file1.md file2.md\x1b[0m\n\n\
+                    "Successfully installed! You can now use 'markman' from the terminal:\n\n\
+                     \x1b[1mmarkman README.md\x1b[0m\n\
+                     \x1b[1mmarkman file1.md file2.md\x1b[0m\n\n\
                      Location: {bin_link}\n\n\
                      Note: If you move or delete Markman.app,\n\
-                     the 'velotype' command will stop working\n\
+                     the 'markman' command will stop working\n\
                      automatically (no cleanup needed)."
                 );
                 if let Some(window) = cx.active_window() {
@@ -232,7 +251,8 @@ do shell script "rm -f " & quoted form of linkPath & linefeed & "ln -s " & quote
 pub(crate) fn uninstall_cli_tool(cx: &mut App) {
     use std::process::Command;
 
-    let bin_link = "/usr/local/bin/velotype";
+    let bin_link = CLI_BIN_LINK;
+    let legacy_bin_link = LEGACY_CLI_BIN_LINK;
     let strings = cx.global::<I18nManager>().strings();
 
     if !is_cli_symlink_current_app() {
@@ -241,9 +261,11 @@ pub(crate) fn uninstall_cli_tool(cx: &mut App) {
     }
 
     let link_path = applescript_string_literal(bin_link);
+    let legacy_link_path = applescript_string_literal(legacy_bin_link);
     let script = format!(
         r#"set linkPath to {link_path}
-do shell script "rm -f " & quoted form of linkPath with administrator privileges"#
+set legacyLinkPath to {legacy_link_path}
+do shell script "rm -f " & quoted form of linkPath & linefeed & "rm -f " & quoted form of legacyLinkPath with administrator privileges"#
     );
 
     match Command::new("osascript").arg("-e").arg(&script).output() {
@@ -1341,17 +1363,17 @@ mod tests {
     fn applescript_string_literal_escapes_special_characters() {
         assert_eq!(
             applescript_string_literal(
-                r#"/Applications/Velotype "Test".app/Contents/MacOS/velotype"#
+                r#"/Applications/Markman "Test".app/Contents/MacOS/markman"#
             ),
-            r#""/Applications/Velotype \"Test\".app/Contents/MacOS/velotype""#
+            r#""/Applications/Markman \"Test\".app/Contents/MacOS/markman""#
         );
         assert_eq!(
-            applescript_string_literal(r#"/Applications/O'Brien\Velotype.app"#),
-            r#""/Applications/O'Brien\\Velotype.app""#
+            applescript_string_literal(r#"/Applications/O'Brien\Markman.app"#),
+            r#""/Applications/O'Brien\\Markman.app""#
         );
     }
 
-    // On macOS the menu bar is: [Velotype app menu, File, Export, Language, Theme, AI, Workspace, Help]
+    // On macOS the menu bar is: [Markman app menu, File, Export, Language, Theme, AI, Workspace, Help]
     // On other platforms:       [File, Export, Language, Theme, AI, Workspace, Help]
     #[cfg(target_os = "macos")]
     const EXPORT_IDX: usize = 2;

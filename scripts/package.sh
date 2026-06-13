@@ -45,7 +45,7 @@ package_linux() {
     local version tag archive package_dir
     version="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
     tag="v${version}"
-    archive="velotype-${tag}-linux-$(uname -m).tar.gz"
+    archive="markman-${tag}-linux-$(uname -m).tar.gz"
     package_dir="dist/package"
 
     rm -rf dist
@@ -72,7 +72,7 @@ package_windows() {
     local version tag archive package_dir
     version="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
     tag="v${version}"
-    archive="velotype-${tag}-windows-$(uname -m).zip"
+    archive="markman-${tag}-windows-$(uname -m).zip"
     package_dir="dist/package"
 
     rm -rf dist

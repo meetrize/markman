@@ -24,7 +24,7 @@
 
 Markman is a block-based Markdown editor and memo app powered by Rust and [GPUI](https://gpui.rs/). Edit in rendered WYSIWYG mode or switch to Markdown source — no WebView, no preview-pane sync loop.
 
-> **Note:** The display name is **Markman**. The executable and CLI command remain `velotype` for compatibility with existing scripts and releases.
+> **Note:** The display name is **Markman**. The executable and CLI command are `markman`. Older releases used `velotype`.
 
 ## Features
 
@@ -81,24 +81,24 @@ Download the build for your platform from [GitHub Releases](https://github.com/m
 #### Windows and Linux
 
 1. Download the `.zip` or `.tar.gz` archive for your platform.
-2. Extract the `velotype` executable.
+2. Extract the `markman` executable.
 3. Run it directly.
 
 #### macOS
 
 **Option 1: `.app` bundle**
 
-1. Download `velotype-*.zip`.
-2. Unzip to get `Markman.app` (or `Velotype.app` on older releases).
+1. Download `markman-*.zip`.
+2. Unzip to get `Markman.app`.
 3. Drag to `/Applications` or run in place.
 
 **Option 2: PKG installer (recommended)**
 
-1. Download `velotype-*.pkg`.
+1. Download `markman-*.pkg`.
 2. Run the installer — the app is placed in `/Applications`.
-3. The `velotype` CLI command is configured automatically.
+3. The `markman` CLI command is configured automatically.
 
-> **CLI note:** PKG installs manage the `/usr/local/bin/velotype` symlink via `postinstall` / `preuninstall` scripts. For `.app`-only installs, use **Help → Install CLI Command** inside the app. Moving or deleting the app bundle breaks the symlink.
+> **CLI note:** PKG installs manage the `/usr/local/bin/markman` symlink via `postinstall` / `preuninstall` scripts. For `.app`-only installs, use **Help → Install CLI Command** inside the app. Moving or deleting the app bundle breaks the symlink.
 
 ### 2. Build from source
 
@@ -115,7 +115,7 @@ cd markman
 cargo build --release
 ```
 
-The binary is at `target/release/velotype`.
+The binary is at `target/release/markman`.
 
 For development, testing, and packaging, see the [Development & Build guide](docs/development.md).
 

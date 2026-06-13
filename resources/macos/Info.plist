@@ -8,9 +8,9 @@
   <key>CFBundleDisplayName</key>
   <string>Markman</string>
   <key>CFBundleExecutable</key>
-  <string>velotype</string>
+  <string>markman</string>
   <key>CFBundleIconFile</key>
-  <string>velotype</string>
+  <string>markman</string>
   <key>CFBundleIdentifier</key>
   <string>com.manyougz.Velotype</string>
   <key>CFBundleName</key>

@@ -24,7 +24,7 @@
 
 Markman 是一款基于 Rust 与 [GPUI](https://gpui.rs/) 的块级 Markdown 编辑器与备忘录应用。支持所见即所得渲染编辑和 Markdown 源码编辑，无需 WebView，也无需预览窗同步循环。
 
-> **说明：** 应用显示名称为 **Markman**。可执行文件与 CLI 命令仍为 `velotype`，以兼容现有脚本与发布包。
+> **说明：** 应用显示名称为 **Markman**。可执行文件与 CLI 命令为 `markman`。旧版 release 可能仍为 `velotype`。
 
 ## 特性
 
@@ -81,24 +81,24 @@ Markman 是一款基于 Rust 与 [GPUI](https://gpui.rs/) 的块级 Markdown 编
 #### Windows 与 Linux
 
 1. 下载对应平台的 `.zip` 或 `.tar.gz`。
-2. 解压得到 `velotype` 可执行文件。
+2. 解压得到 `markman` 可执行文件。
 3. 直接运行。
 
 #### macOS
 
 **方式 1：`.app` 应用包**
 
-1. 下载 `velotype-*.zip`。
-2. 解压得到 `Markman.app`（旧版 release 可能仍为 `Velotype.app`）。
+1. 下载 `markman-*.zip`。
+2. 解压得到 `Markman.app`。
 3. 拖到 `/Applications` 或直接运行。
 
 **方式 2：PKG 安装包（推荐）**
 
-1. 下载 `velotype-*.pkg`。
+1. 下载 `markman-*.pkg`。
 2. 运行安装程序，应用安装到 `/Applications`。
-3. 自动配置 `velotype` CLI 命令。
+3. 自动配置 `markman` CLI 命令。
 
-> **CLI 说明：** PKG 安装通过 `postinstall` / `preuninstall` 脚本管理 `/usr/local/bin/velotype` 符号链接。仅使用 `.app` 时，可在应用内 **帮助 → 安装 CLI 命令** 手动配置。移动或删除应用包会导致符号链接失效。
+> **CLI 说明：** PKG 安装通过 `postinstall` / `preuninstall` 脚本管理 `/usr/local/bin/markman` 符号链接。仅使用 `.app` 时，可在应用内 **帮助 → 安装 CLI 命令** 手动配置。移动或删除应用包会导致符号链接失效。
 
 ### 2. 从源码构建
 
@@ -115,7 +115,7 @@ cd markman
 cargo build --release
 ```
 
-构建产物位于 `target/release/velotype`。
+构建产物位于 `target/release/markman`。
 
 日常开发、测试与打包说明见 [开发与构建指南](development.zh-CN.md)。
 
