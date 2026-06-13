@@ -9,11 +9,15 @@ use crate::components::{
     SelectHome, SelectLeft, SelectRight,
 };
 use crate::input::single_line::{
-    self, handle_mouse_down, handle_mouse_move, handle_mouse_up,
+    handle_mouse_down, handle_mouse_move, handle_mouse_up,
     index_for_mouse_position, move_caret_to, primary_shortcut_modifiers, select_caret_to,
     text_grapheme_boundary,
 };
 use crate::input::single_line_field::SingleLineFieldState;
+use crate::input::single_line_field_element::{
+    paint_single_line_field, prepaint_single_line_field, request_single_line_field_layout,
+    SingleLineFieldElementStyle, SingleLineFieldPrepaint, SingleLineFieldView,
+};
 use crate::theme::{Theme, ThemeManager};
 
 use crate::config::ui::preferences::window::{PreferencesNav, PreferencesWindow};
@@ -686,14 +690,6 @@ struct ToolbarTextInputElement {
     placeholder: SharedString,
 }
 
-struct ToolbarTextInputPrepaintState {
-    line: Option<ShapedLine>,
-    selection: Option<PaintQuad>,
-    cursor: Option<PaintQuad>,
-    marked: Option<PaintQuad>,
-    hitbox: Option<Hitbox>,
-}
-
 impl ToolbarTextInputElement {
     fn new(
         preferences: Entity<PreferencesWindow>,
@@ -718,7 +714,7 @@ impl IntoElement for ToolbarTextInputElement {
 
 impl Element for ToolbarTextInputElement {
     type RequestLayoutState = ();
-    type PrepaintState = ToolbarTextInputPrepaintState;
+    type PrepaintState = SingleLineFieldPrepaint;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -735,10 +731,7 @@ impl Element for ToolbarTextInputElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let mut style = Style::default();
-        style.size.width = relative(1.).into();
-        style.size.height = relative(1.).into();
-        (window.request_layout(style, [], cx), ())
+        (request_single_line_field_layout(window, cx), ())
     }
 
     fn prepaint(
@@ -752,8 +745,8 @@ impl Element for ToolbarTextInputElement {
     ) -> Self::PrepaintState {
         let theme = cx.global::<ThemeManager>().current_arc();
         let preferences = self.preferences.read(cx);
-        let focused = preferences.toolbar_text_input.active_field == Some(self.field)
-            && preferences.toolbar_text_focus.is_focused(window);
+        let active = preferences.toolbar_text_input.active_field == Some(self.field);
+        let focused = active && preferences.toolbar_text_focus.is_focused(window);
         let is_placeholder = preferences.toolbar_text_is_empty(self.field);
         let content = preferences.toolbar_text_display(self.field, &self.placeholder);
         let text_color = if is_placeholder {
@@ -761,96 +754,50 @@ impl Element for ToolbarTextInputElement {
         } else {
             theme.colors.text_default
         };
-        let style = window.text_style();
-        let font_size = px(theme.typography.text_size * 0.78);
-        let runs = vec![TextRun {
-            len: content.len(),
-            font: style.font(),
-            color: text_color,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }];
-        let line = window.text_system().shape_line(content, font_size, &runs, None);
-        let line_height = bounds.size.height;
-        let padding_top = (line_height - line.ascent - line.descent) / 2.0;
-        let text_top = bounds.top() + padding_top;
-        let text_bottom = text_top + line.ascent + line.descent;
-
-        let marked = preferences
-            .toolbar_text_input
-            .input
-            .marked_range
-            .as_ref()
-            .filter(|_| focused && !is_placeholder)
-            .map(|range| {
-                fill(
-                    Bounds::from_corners(
-                        point(bounds.left() + line.x_for_index(range.start), text_top),
-                        point(bounds.left() + line.x_for_index(range.end), text_bottom),
-                    ),
-                    theme.colors.selection.opacity(0.35),
-                )
-            });
-        let selected_range = if preferences.toolbar_text_input.active_field == Some(self.field) {
+        let selected_range = if active {
             preferences.toolbar_text_input.input.selected_range.clone()
         } else {
             0..0
         };
-        let selection = if focused && !is_placeholder && !selected_range.is_empty() {
-            Some(fill(
-                Bounds::from_corners(
-                    point(
-                        bounds.left() + line.x_for_index(selected_range.start),
-                        text_top,
-                    ),
-                    point(
-                        bounds.left() + line.x_for_index(selected_range.end),
-                        text_bottom,
-                    ),
-                ),
-                theme.colors.selection.opacity(0.35),
-            ))
+        let marked_range = if active {
+            preferences.toolbar_text_input.input.marked_range.clone()
         } else {
             None
         };
-        let cursor = if focused
-            && preferences.toolbar_text_input.input.marked_range.is_none()
-            && selected_range.is_empty()
-        {
-            let mut cursor_color = theme.colors.cursor;
-            cursor_color.a *= 0.85;
-            Some(fill(
-                Bounds::new(
-                    point(
-                        bounds.left()
-                            + line.x_for_index(single_line::cursor_offset(
-                                &selected_range,
-                                preferences.toolbar_text_input.input.selection_reversed,
-                            )),
-                        text_top,
-                    ),
-                    size(px(theme.dimensions.cursor_width), text_bottom - text_top),
-                ),
-                cursor_color,
-            ))
+        let cursor_offset = if active {
+            preferences.toolbar_text_input.input.cursor_offset()
         } else {
-            None
+            0
         };
-        let hitbox = Some(window.insert_hitbox(bounds, HitboxBehavior::Normal));
-        if preferences.toolbar_text_input.active_field == Some(self.field) {
+
+        let prepaint = prepaint_single_line_field(
+            bounds,
+            window,
+            cx,
+            &theme,
+            &SingleLineFieldView {
+                content,
+                is_placeholder,
+                text_color,
+                focused,
+                marked_range,
+                selected_range,
+                cursor_offset,
+            },
+            &SingleLineFieldElementStyle {
+                font_scale: 0.78,
+                truncation_suffix: "",
+                marked_underline_in_runs: false,
+            },
+        );
+
+        if active {
             self.preferences.update(cx, |preferences, _cx| {
-                preferences.set_toolbar_text_layout(line.clone(), bounds);
+                preferences.set_toolbar_text_layout(prepaint.line.clone(), bounds);
             });
         }
 
-        ToolbarTextInputPrepaintState {
-            line: Some(line),
-            selection,
-            cursor,
-            marked,
-            hitbox,
-        }
+        prepaint
     }
 
     fn paint(
@@ -863,11 +810,7 @@ impl Element for ToolbarTextInputElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if let Some(hitbox) = prepaint.hitbox.as_ref()
-            && hitbox.is_hovered(window)
-        {
-            window.set_cursor_style(CursorStyle::IBeam, hitbox);
-        }
+        paint_single_line_field(bounds, prepaint, window, cx);
 
         let focus_handle = self.preferences.read(cx).toolbar_text_focus.clone();
         if focus_handle.is_focused(window)
@@ -912,18 +855,5 @@ impl Element for ToolbarTextInputElement {
                 preferences.on_toolbar_text_mouse_move(event, window, cx);
             });
         });
-
-        if let Some(selection) = prepaint.selection.take() {
-            window.paint_quad(selection);
-        }
-        if let Some(marked) = prepaint.marked.take() {
-            window.paint_quad(marked);
-        }
-        if let Some(line) = prepaint.line.take() {
-            line.paint(bounds.origin, bounds.size.height, window, cx).ok();
-        }
-        if let Some(cursor) = prepaint.cursor.take() {
-            window.paint_quad(cursor);
-        }
     }
 }

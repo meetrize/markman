@@ -2,4 +2,5 @@
 
 pub(crate) mod single_line;
 pub(crate) mod single_line_field;
+pub(crate) mod single_line_field_element;
 pub(crate) mod text_norm;
