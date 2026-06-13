@@ -81,6 +81,7 @@ pub(super) struct AiState {
     streaming_started_at: Instant,
     streaming_progress_task: Option<Task<()>>,
     preview_scroll_handle: ScrollHandle,
+    preview_scroll_drag: Option<AiPreviewScrollDrag>,
     preview: Option<AiPreview>,
     error: Option<String>,
     prompt_open: bool,
@@ -112,6 +113,15 @@ struct AiContext {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct AiPreviewScrollDrag {
+    pointer_start_y: f32,
+    thumb_start_top: f32,
+    track_height: f32,
+    thumb_height: f32,
+    max_scroll_y: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct AiPromptDialogDrag {
     pointer_start: Point<Pixels>,
     dialog_start: Point<Pixels>,
@@ -125,6 +135,7 @@ impl AiState {
             streaming_started_at: Instant::now(),
             streaming_progress_task: None,
             preview_scroll_handle: ScrollHandle::new(),
+            preview_scroll_drag: None,
             preview: None,
             error: None,
             prompt_open: false,
@@ -1349,7 +1360,71 @@ impl Editor {
     fn dismiss_ai_preview(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.ai.preview = None;
         self.ai.error = None;
+        self.ai.preview_scroll_drag = None;
         cx.notify();
+    }
+
+    fn on_ai_preview_scrollbar_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+        track_height: f32,
+        thumb_top: f32,
+        thumb_height: f32,
+        max_scroll_y: f32,
+    ) {
+        cx.stop_propagation();
+        self.ai.preview_scroll_drag = Some(AiPreviewScrollDrag {
+            pointer_start_y: f32::from(event.position.y),
+            thumb_start_top: thumb_top,
+            track_height,
+            thumb_height,
+            max_scroll_y,
+        });
+        cx.notify();
+    }
+
+    pub(super) fn on_ai_preview_scrollbar_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(drag) = self.ai.preview_scroll_drag else {
+            return;
+        };
+        if !event.dragging() {
+            self.ai.preview_scroll_drag = None;
+            cx.notify();
+            return;
+        }
+        let travel = (drag.track_height - drag.thumb_height).max(0.0);
+        let delta_y = f32::from(event.position.y) - drag.pointer_start_y;
+        let thumb_top = (drag.thumb_start_top + delta_y).clamp(0.0, travel);
+        let scroll_y = Self::scroll_offset_for_thumb_top(
+            thumb_top,
+            drag.track_height,
+            drag.thumb_height,
+            drag.max_scroll_y,
+        );
+        let mut offset = self.ai.preview_scroll_handle.offset();
+        offset.y = -px(scroll_y);
+        self.ai.preview_scroll_handle.set_offset(offset);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    pub(super) fn on_ai_preview_scrollbar_mouse_up(
+        &mut self,
+        _event: &MouseUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai.preview_scroll_drag.take().is_some() {
+            cx.stop_propagation();
+            cx.notify();
+        }
     }
 
     fn apply_ai_result(
@@ -1938,7 +2013,13 @@ impl Editor {
             preview_max_scroll_y,
             preview_scroll_y,
         );
+        let preview_track_height = preview_scrollbar.track_height;
+        let preview_thumb_top = preview_scrollbar.thumb_top;
+        let preview_thumb_height = preview_scrollbar.thumb_height;
         let show_preview_scrollbar = preview_max_scroll_y > 0.5;
+        let editor = cx.entity().downgrade();
+        let preview_drag_editor = editor.clone();
+        let preview_capture_editor = editor.clone();
 
         Some(
             div()
@@ -1953,6 +2034,8 @@ impl Editor {
                 .items_center()
                 .justify_center()
                 .bg(c.dialog_backdrop)
+                .on_mouse_move(cx.listener(Self::on_ai_preview_scrollbar_mouse_move))
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::on_ai_preview_scrollbar_mouse_up))
                 .child(
                     div()
                         .id("ai-preview-dialog")
@@ -2055,7 +2138,60 @@ impl Editor {
                                                     .w_full()
                                                     .h(px(preview_scrollbar.thumb_height))
                                                     .rounded(px(999.0))
-                                                    .bg(c.dialog_primary_button_bg),
+                                                    .bg(c.dialog_primary_button_bg)
+                                                    .cursor_pointer()
+                                                    .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                                                        let _ = preview_drag_editor.update(cx, |editor, cx| {
+                                                            editor.on_ai_preview_scrollbar_mouse_down(
+                                                                event,
+                                                                window,
+                                                                cx,
+                                                                preview_track_height,
+                                                                preview_thumb_top,
+                                                                preview_thumb_height,
+                                                                preview_max_scroll_y,
+                                                            );
+                                                        });
+                                                    })
+                                                    .child(
+                                                        canvas(
+                                                            |_, _, _| (),
+                                                            move |_thumb_bounds, _, window, _| {
+                                                                window.on_mouse_event({
+                                                                    let editor = preview_capture_editor.clone();
+                                                                    move |event: &MouseMoveEvent, phase, window, cx| {
+                                                                        if !phase.bubble() || !event.dragging() {
+                                                                            return;
+                                                                        }
+                                                                        let _ = editor.update(cx, |editor, cx| {
+                                                                            editor.on_ai_preview_scrollbar_mouse_move(
+                                                                                event,
+                                                                                window,
+                                                                                cx,
+                                                                            );
+                                                                        });
+                                                                    }
+                                                                });
+
+                                                                window.on_mouse_event({
+                                                                    let editor = preview_capture_editor.clone();
+                                                                    move |event: &MouseUpEvent, phase, window, cx| {
+                                                                        if !phase.bubble() {
+                                                                            return;
+                                                                        }
+                                                                        let _ = editor.update(cx, |editor, cx| {
+                                                                            editor.on_ai_preview_scrollbar_mouse_up(
+                                                                                event,
+                                                                                window,
+                                                                                cx,
+                                                                            );
+                                                                        });
+                                                                    }
+                                                                });
+                                                            },
+                                                        )
+                                                        .size_full(),
+                                                    ),
                                             ),
                                     )
                                 }),
