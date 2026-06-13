@@ -130,7 +130,7 @@ Markman already covers most day-to-day Markdown authoring needs. Planned work in
 
 ## Theme & language customization
 
-Theme and UI language are managed separately. Theme files can override global colors, fonts, sizes, menus, dialogs, table controls, image placeholders, code highlighting, and layout tokens. Missing fields inherit the base theme (`velotype` or `velotype-light` via `base_theme_id`).
+Theme and UI language are managed separately. Theme files can override global colors, fonts, sizes, menus, dialogs, table controls, image placeholders, code highlighting, and layout tokens. Missing fields inherit the base theme (`markman` or `markman-light` via `base_theme_id`; legacy `velotype` ids still work).
 
 Language packs use the same partial-config approach — missing strings fall back to English.
 

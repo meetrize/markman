@@ -1,4 +1,4 @@
-//! Velotype - a block-based Markdown editor built with GPUI.
+//! Markman - a block-based Markdown editor built with GPUI.
 //!
 //! Reads file paths from command-line arguments and opens one GPUI window per
 //! file. With no arguments, a single empty window is created.
@@ -226,7 +226,7 @@ fn main() {
             }
             "--help" | "-h" => {
                 println!(
-                    "velotype {} - A block-based Markdown editor",
+                    "velotype {} - Markman, a block-based Markdown memo app",
                     env!("CARGO_PKG_VERSION")
                 );
                 println!();

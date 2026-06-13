@@ -141,7 +141,7 @@ impl PreferencesWindow {
             .iter()
             .find(|entry| entry.id == self.selected_theme_id)
             .map(|entry| entry.name.clone())
-            .unwrap_or_else(|| "Velotype".into())
+            .unwrap_or_else(|| "Markman".into())
     }
 
     fn has_unsaved_changes(&self) -> bool {
@@ -2724,15 +2724,15 @@ mod tests {
     fn init_preferences_test_app(cx: &mut TestAppContext) {
         cx.update(|cx| {
             I18nManager::init_with_language_id(cx, "en-US");
-            ThemeManager::init_with_theme_id(cx, "velotype");
+            ThemeManager::init_with_theme_id(cx, "markman");
             crate::components::init_with_keybindings(cx, &BTreeMap::new());
         });
     }
 
     fn default_theme_options() -> Vec<ThemeCatalogEntry> {
         vec![ThemeCatalogEntry {
-            id: "velotype".into(),
-            name: "Velotype".into(),
+            id: "markman".into(),
+            name: "Markman".into(),
         }]
     }
 

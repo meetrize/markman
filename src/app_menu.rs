@@ -192,7 +192,7 @@ do shell script "rm -f " & quoted form of linkPath & linefeed & "ln -s " & quote
                      \x1b[1mvelotype README.md\x1b[0m\n\
                      \x1b[1mvelotype file1.md file2.md\x1b[0m\n\n\
                      Location: {bin_link}\n\n\
-                     Note: If you move or delete Velotype.app,\n\
+                     Note: If you move or delete Markman.app,\n\
                      the 'velotype' command will stop working\n\
                      automatically (no cleanup needed)."
                 );
@@ -1664,8 +1664,8 @@ mod tests {
         }
 
         let theme_items = &menus[THEME_IDX].items;
-        assert_eq!(action_name(&theme_items[0]), "\u{2713} Velotype");
-        assert_eq!(action_name(&theme_items[1]), "Velotype Light");
+        assert_eq!(action_name(&theme_items[0]), "\u{2713} Markman");
+        assert_eq!(action_name(&theme_items[1]), "Markman Light");
         assert!(matches!(
             theme_items[theme_items.len() - 2],
             MenuItem::Separator
@@ -1691,20 +1691,20 @@ mod tests {
     #[test]
     fn theme_menu_marks_selected_builtin_light_theme() {
         let mut theme_manager = ThemeManager::default();
-        assert!(theme_manager.set_theme_by_id("velotype-light"));
+        assert!(theme_manager.set_theme_by_id("markman-light"));
         let i18n_manager = I18nManager::default();
         let menus = build_menus(&theme_manager, &i18n_manager, &[]);
         let theme_items = &menus[THEME_IDX].items;
 
-        assert_eq!(action_name(&theme_items[0]), "Velotype");
-        assert_eq!(action_name(&theme_items[1]), "\u{2713} Velotype Light");
+        assert_eq!(action_name(&theme_items[0]), "Markman");
+        assert_eq!(action_name(&theme_items[1]), "\u{2713} Markman Light");
         match &theme_items[1] {
             MenuItem::Action { action, .. } => {
                 let action = action
                     .as_any()
                     .downcast_ref::<SelectTheme>()
                     .expect("light theme item should dispatch SelectTheme");
-                assert_eq!(action.theme_id, "velotype-light");
+                assert_eq!(action.theme_id, "markman-light");
             }
             _ => panic!("expected light theme action item"),
         }

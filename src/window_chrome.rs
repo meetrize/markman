@@ -353,9 +353,9 @@ mod tests {
 
     #[test]
     fn titlebar_options_enable_transparency_on_mac_and_windows() {
-        assert!(titlebar_options_for_target_os("windows", "Velotype".into()).appears_transparent);
-        assert!(titlebar_options_for_target_os("macos", "Velotype".into()).appears_transparent);
-        assert!(!titlebar_options_for_target_os("linux", "Velotype".into()).appears_transparent);
+        assert!(titlebar_options_for_target_os("windows", "Markman".into()).appears_transparent);
+        assert!(titlebar_options_for_target_os("macos", "Markman".into()).appears_transparent);
+        assert!(!titlebar_options_for_target_os("linux", "Markman".into()).appears_transparent);
     }
 
     #[test]

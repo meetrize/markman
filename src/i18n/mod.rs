@@ -1737,7 +1737,7 @@ impl I18nStrings {
             code_language_placeholder: "语言".into(),
             code_run_confirm_title: "允许运行代码？".into(),
             code_run_confirm_message:
-                "Velotype 会在本机执行代码块中的脚本。请仅在信任的来源上运行代码。".into(),
+                "Markman 会在本机执行代码块中的脚本。请仅在信任的来源上运行代码。".into(),
             code_run_confirm_allow: "允许运行".into(),
             code_run_confirm_cancel: "取消".into(),
             code_run_unsaved_title: "从未保存的文档运行代码？".into(),
@@ -1989,7 +1989,7 @@ impl I18nStrings {
             code_language_placeholder: "language".into(),
             code_run_confirm_title: "Allow Code Execution?".into(),
             code_run_confirm_message:
-                "Velotype will run scripts from code blocks on this machine. Only run code you trust."
+                "Markman will run scripts from code blocks on this machine. Only run code you trust."
                     .into(),
             code_run_confirm_allow: "Allow".into(),
             code_run_confirm_cancel: "Cancel".into(),
@@ -2455,10 +2455,10 @@ mod tests {
         let mut theme_manager = ThemeManager::default();
         let mut i18n_manager = I18nManager::new_with_language_id("zh-CN");
 
-        assert!(theme_manager.set_theme_by_id("velotype"));
+        assert!(theme_manager.set_theme_by_id("markman"));
         assert!(!i18n_manager.set_language_by_id("missing"));
 
-        assert_eq!(theme_manager.current_theme_id(), "velotype");
+        assert_eq!(theme_manager.current_theme_id(), "markman");
         assert_eq!(i18n_manager.current_language_id(), "zh-CN");
         assert_eq!(i18n_manager.strings().menu_file, "文件");
     }

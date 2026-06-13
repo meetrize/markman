@@ -16,8 +16,9 @@ use super::ai_toolbar::{
 use super::{VelotypeConfigDirs, read_recent_files};
 use crate::components::normalize_shortcut_config;
 use crate::i18n::language_id_for_locale_preferences;
+use crate::theme::normalize_builtin_theme_id;
 
-pub(crate) const DEFAULT_THEME_ID: &str = "velotype";
+pub(crate) const DEFAULT_THEME_ID: &str = "markman";
 const DEFAULT_LANGUAGE_ID: &str = "en-US";
 
 /// Startup document selection stored in `config.toml`.
@@ -229,14 +230,15 @@ fn app_preferences_from_toml_value(
         .filter(|id| !id.is_empty())
         .unwrap_or(fallback_language_id)
         .to_string();
-    let default_theme_id = value
-        .get("theme")
-        .and_then(|theme| theme.get("default_theme_id"))
-        .and_then(|id| id.as_str())
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(DEFAULT_THEME_ID)
-        .to_string();
+    let default_theme_id = normalize_builtin_theme_id(
+        value
+            .get("theme")
+            .and_then(|theme| theme.get("default_theme_id"))
+            .and_then(|id| id.as_str())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(DEFAULT_THEME_ID),
+    );
     let keybindings = value
         .get("keybindings")
         .and_then(|keybindings| keybindings.as_table())
@@ -376,7 +378,9 @@ pub(crate) fn save_app_preferences_with_dirs(
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create '{}'", parent.display()))?;
     }
-    let text = toml::to_string_pretty(&PreferencesFile::from(preferences))?;
+    let mut normalized = preferences.clone();
+    normalized.default_theme_id = normalize_builtin_theme_id(&normalized.default_theme_id);
+    let text = toml::to_string_pretty(&PreferencesFile::from(&normalized))?;
     std::fs::write(&path, text).with_context(|| format!("failed to write '{}'", path.display()))
 }
 
@@ -417,7 +421,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     let mut preferences =
         load_or_create_app_preferences_with_dirs_and_locales(dirs, sys_locale::get_locales())?;
     preferences.startup_open = startup_open;
-    preferences.default_theme_id = default_theme_id.into();
+    preferences.default_theme_id = normalize_builtin_theme_id(default_theme_id);
     preferences.keybindings = normalize_shortcut_config(&keybindings);
     preferences.allow_code_execution = allow_code_execution;
     preferences.inline_code_run_in_system_terminal = inline_code_run_in_system_terminal;
@@ -484,7 +488,7 @@ mod tests {
             read_app_preferences_with_dirs(&dirs).expect("partial preferences should load");
         assert_eq!(preferences.startup_open, StartupOpenPreference::NewFile);
         assert_eq!(preferences.default_language_id, "en-US");
-        assert_eq!(preferences.default_theme_id, "velotype-light");
+        assert_eq!(preferences.default_theme_id, "markman-light");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -515,7 +519,7 @@ mod tests {
         let preferences = AppPreferences {
             startup_open: StartupOpenPreference::LastOpenedFile,
             default_language_id: "zh-CN".into(),
-            default_theme_id: "velotype-light".into(),
+            default_theme_id: "markman-light".into(),
             keybindings: BTreeMap::new(),
             allow_code_execution: true,
             code_execution_confirm_shown: false,
@@ -532,7 +536,7 @@ mod tests {
             std::fs::read_to_string(dirs.app_config_file()).expect("config.toml should exist");
         assert!(text.contains("open = \"last_opened_file\""));
         assert!(text.contains("default_language_id = \"zh-CN\""));
-        assert!(text.contains("default_theme_id = \"velotype-light\""));
+        assert!(text.contains("default_theme_id = \"markman-light\""));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -581,7 +585,7 @@ mod tests {
             StartupOpenPreference::LastOpenedFile
         );
         assert_eq!(preferences.default_language_id, "en-US");
-        assert_eq!(preferences.default_theme_id, "velotype-light");
+        assert_eq!(preferences.default_theme_id, "markman-light");
         let text =
             std::fs::read_to_string(dirs.app_config_file()).expect("config.toml should exist");
         assert!(text.contains("[language]"));
@@ -620,7 +624,7 @@ mod tests {
         .expect("window preferences should save");
         assert_eq!(saved.default_language_id, "zh-CN");
         assert_eq!(saved.startup_open, StartupOpenPreference::LastOpenedFile);
-        assert_eq!(saved.default_theme_id, "velotype-light");
+        assert_eq!(saved.default_theme_id, "markman-light");
         assert_eq!(
             saved.keybindings.get("save_document"),
             Some(&vec!["ctrl-alt-s".to_string()])

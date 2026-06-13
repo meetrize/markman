@@ -20,7 +20,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const UPDATE_ACCEPT: &str = "text/plain,application/toml,*/*;q=0.8";
 const UPDATE_USER_AGENT: &str = concat!(
-    "Velotype/",
+    "Markman/",
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/meetrize/markman)"
 );

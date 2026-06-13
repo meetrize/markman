@@ -255,7 +255,7 @@ jobs:
           set -euo pipefail
 
           if [[ -z "$RELEASE_TITLE" ]]; then
-            RELEASE_TITLE="Velotype $RELEASE_TAG"
+            RELEASE_TITLE="Markman $RELEASE_TAG"
           fi
 
           if [[ -n "$RELEASE_NOTES" ]]; then

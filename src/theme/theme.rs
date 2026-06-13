@@ -16,7 +16,6 @@ use crate::config::{
     VelotypeConfigDirs, catalog, merge_non_empty_json_values, object_without_empty_values,
     prune_empty_json_values, read_json_or_jsonc, sanitize_config_file_stem,
 };
-use crate::config::catalog::ConfigCatalog;
 
 /// Serializable font weight that maps to GPUI's [`FontWeight`] constants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1107,7 +1106,7 @@ impl Theme {
     /// Returns the built-in fallback theme used when no custom theme is loaded.
     pub fn default_theme() -> Self {
         Self {
-            name: "Velotype".into(),
+            name: "Markman".into(),
             colors: ThemeColors {
                 editor_background: Hsla::from(rgba(0x191919ff)),
                 source_mode_block_bg: Hsla::from(rgba(0x313131ff)),
@@ -1355,7 +1354,7 @@ impl Theme {
     pub fn light_theme() -> Self {
         let base = Self::default_theme();
         Self {
-            name: BUILTIN_THEME_VELOTYPE_LIGHT_NAME.into(),
+            name: BUILTIN_THEME_MARKMAN_LIGHT_NAME.into(),
             colors: ThemeColors {
                 editor_background: Hsla::from(rgba(0xf7f8fbff)),
                 source_mode_block_bg: Hsla::from(rgba(0xeef2f7ff)),
@@ -1472,31 +1471,42 @@ pub struct ThemeCatalogEntry {
     pub name: String,
 }
 
-const BUILTIN_THEME_VELOTYPE_ID: &str = "velotype";
-const BUILTIN_THEME_VELOTYPE_NAME: &str = "Velotype";
-const BUILTIN_THEME_VELOTYPE_LIGHT_ID: &str = "velotype-light";
-const BUILTIN_THEME_VELOTYPE_LIGHT_NAME: &str = "Velotype Light";
+const BUILTIN_THEME_MARKMAN_ID: &str = "markman";
+const BUILTIN_THEME_MARKMAN_NAME: &str = "Markman";
+const BUILTIN_THEME_MARKMAN_LIGHT_ID: &str = "markman-light";
+const BUILTIN_THEME_MARKMAN_LIGHT_NAME: &str = "Markman Light";
 const CUSTOM_THEME_ID: &str = "custom";
+
+/// Maps legacy built-in theme ids/names to the current Markman identifiers.
+pub(crate) fn normalize_builtin_theme_id(theme_id: &str) -> String {
+    match theme_id.trim() {
+        "velotype" => BUILTIN_THEME_MARKMAN_ID.into(),
+        "velotype-light" => BUILTIN_THEME_MARKMAN_LIGHT_ID.into(),
+        other => other.to_string(),
+    }
+}
+
+fn is_builtin_theme_id(theme_id: &str) -> bool {
+    matches!(
+        theme_id.trim(),
+        BUILTIN_THEME_MARKMAN_ID
+            | BUILTIN_THEME_MARKMAN_LIGHT_ID
+            | "velotype"
+            | "velotype-light"
+    )
+}
 
 fn builtin_theme_catalog() -> Vec<ThemeCatalogEntry> {
     vec![
         ThemeCatalogEntry {
-            id: BUILTIN_THEME_VELOTYPE_ID.into(),
-            name: BUILTIN_THEME_VELOTYPE_NAME.into(),
+            id: BUILTIN_THEME_MARKMAN_ID.into(),
+            name: BUILTIN_THEME_MARKMAN_NAME.into(),
         },
         ThemeCatalogEntry {
-            id: BUILTIN_THEME_VELOTYPE_LIGHT_ID.into(),
-            name: BUILTIN_THEME_VELOTYPE_LIGHT_NAME.into(),
+            id: BUILTIN_THEME_MARKMAN_LIGHT_ID.into(),
+            name: BUILTIN_THEME_MARKMAN_LIGHT_NAME.into(),
         },
     ]
-}
-
-struct ThemeCatalog;
-
-impl ConfigCatalog for ThemeCatalog {
-    fn builtin_ids() -> &'static [&'static str] {
-        &[BUILTIN_THEME_VELOTYPE_ID, BUILTIN_THEME_VELOTYPE_LIGHT_ID]
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -1525,7 +1535,7 @@ impl Default for ThemeManager {
     fn default() -> Self {
         Self {
             current: Arc::new(Theme::default_theme()),
-            current_theme_id: BUILTIN_THEME_VELOTYPE_ID.into(),
+            current_theme_id: BUILTIN_THEME_MARKMAN_ID.into(),
             custom_themes: Vec::new(),
             theme_catalog: builtin_theme_catalog(),
         }
@@ -1538,7 +1548,7 @@ impl ThemeManager {
     pub fn init(cx: &mut App) {
         let theme_id = crate::config::read_app_preferences()
             .map(|preferences| preferences.default_theme_id)
-            .unwrap_or_else(|_| BUILTIN_THEME_VELOTYPE_ID.into());
+            .unwrap_or_else(|_| BUILTIN_THEME_MARKMAN_ID.into());
         Self::init_with_theme_id(cx, &theme_id);
     }
 
@@ -1550,7 +1560,8 @@ impl ThemeManager {
         {
             eprintln!("failed to load custom themes: {err}");
         }
-        let _ = manager.set_theme_by_id(theme_id);
+        let theme_id = normalize_builtin_theme_id(theme_id);
+        let _ = manager.set_theme_by_id(&theme_id);
         cx.set_global(manager);
     }
 
@@ -1601,20 +1612,21 @@ impl ThemeManager {
     /// Restores the built-in default theme.
     pub fn reset(&mut self) {
         self.current = Arc::new(Theme::default_theme());
-        self.current_theme_id = BUILTIN_THEME_VELOTYPE_ID.into();
+        self.current_theme_id = BUILTIN_THEME_MARKMAN_ID.into();
     }
 
     /// Activates a theme by identifier.
     pub fn set_theme_by_id(&mut self, theme_id: &str) -> bool {
-        match theme_id {
-            id if id == BUILTIN_THEME_VELOTYPE_ID => {
+        let theme_id = normalize_builtin_theme_id(theme_id);
+        match theme_id.as_str() {
+            BUILTIN_THEME_MARKMAN_ID => {
                 self.current = Arc::new(Theme::default_theme());
-                self.current_theme_id = BUILTIN_THEME_VELOTYPE_ID.into();
+                self.current_theme_id = BUILTIN_THEME_MARKMAN_ID.into();
                 true
             }
-            id if id == BUILTIN_THEME_VELOTYPE_LIGHT_ID => {
+            BUILTIN_THEME_MARKMAN_LIGHT_ID => {
                 self.current = Arc::new(Theme::light_theme());
-                self.current_theme_id = BUILTIN_THEME_VELOTYPE_LIGHT_ID.into();
+                self.current_theme_id = BUILTIN_THEME_MARKMAN_LIGHT_ID.into();
                 true
             }
             id => {
@@ -1685,31 +1697,31 @@ impl ThemeManager {
     }
 
     fn theme_id_for_loaded_theme(&self, theme: &Theme) -> String {
-        if theme.name == BUILTIN_THEME_VELOTYPE_NAME {
-            BUILTIN_THEME_VELOTYPE_ID.into()
-        } else if theme.name == BUILTIN_THEME_VELOTYPE_LIGHT_NAME {
-            BUILTIN_THEME_VELOTYPE_LIGHT_ID.into()
-        } else {
-            CUSTOM_THEME_ID.into()
+        match theme.name.as_str() {
+            BUILTIN_THEME_MARKMAN_NAME | "Velotype" => BUILTIN_THEME_MARKMAN_ID.into(),
+            BUILTIN_THEME_MARKMAN_LIGHT_NAME | "Velotype Light" => {
+                BUILTIN_THEME_MARKMAN_LIGHT_ID.into()
+            }
+            _ => CUSTOM_THEME_ID.into(),
         }
     }
 
     fn theme_import_base_theme_id(&self) -> String {
-        match self.current_theme_id.as_str() {
-            BUILTIN_THEME_VELOTYPE_LIGHT_ID => BUILTIN_THEME_VELOTYPE_LIGHT_ID.into(),
-            BUILTIN_THEME_VELOTYPE_ID => BUILTIN_THEME_VELOTYPE_ID.into(),
+        match normalize_builtin_theme_id(&self.current_theme_id).as_str() {
+            BUILTIN_THEME_MARKMAN_LIGHT_ID => BUILTIN_THEME_MARKMAN_LIGHT_ID.into(),
+            BUILTIN_THEME_MARKMAN_ID => BUILTIN_THEME_MARKMAN_ID.into(),
             id => self
                 .custom_themes
                 .iter()
                 .find(|entry| entry.id == id)
-                .map(|entry| entry.base_theme_id.clone())
-                .unwrap_or_else(|| BUILTIN_THEME_VELOTYPE_ID.into()),
+                .map(|entry| normalize_builtin_theme_id(&entry.base_theme_id))
+                .unwrap_or_else(|| BUILTIN_THEME_MARKMAN_ID.into()),
         }
     }
 }
 
 fn custom_theme_from_value(value: Value) -> anyhow::Result<(CustomThemeEntry, Value)> {
-    custom_theme_from_value_with_default_base(value, BUILTIN_THEME_VELOTYPE_ID)
+    custom_theme_from_value_with_default_base(value, BUILTIN_THEME_MARKMAN_ID)
 }
 
 fn custom_theme_from_value_with_default_base(
@@ -1723,7 +1735,8 @@ fn custom_theme_from_value_with_default_base(
     let object = object_without_empty_values(std::mem::take(&mut object));
     let name = required_string(&object, "name")?;
     let creator = required_string(&object, "creator")?;
-    let base_theme_id = resolved_custom_theme_base_id(&object, default_base_theme_id);
+    let base_theme_id =
+        normalize_builtin_theme_id(resolved_custom_theme_base_id(&object, default_base_theme_id));
     let raw_theme_patch = object
         .get("theme")
         .cloned()
@@ -1732,7 +1745,7 @@ fn custom_theme_from_value_with_default_base(
         bail!("field 'theme' must be a JSON object when present");
     }
 
-    let base_theme = custom_theme_base_theme(&base_theme_id);
+    let base_theme = custom_theme_base_theme(base_theme_id.as_str());
     let mut merged = serde_json::to_value(base_theme)?;
     let mut theme_patch = filter_json_by_schema(&raw_theme_patch, &merged);
     if let Value::Object(theme_patch_object) = &mut theme_patch {
@@ -1754,7 +1767,7 @@ fn custom_theme_from_value_with_default_base(
     normalized_object.insert("creator".into(), Value::String(creator.clone()));
     normalized_object.insert(
         "base_theme_id".into(),
-        Value::String(base_theme_id.to_string()),
+        Value::String(base_theme_id.clone()),
     );
     for key in ["description", "version", "homepage", "license"] {
         if let Some(value) = object.get(key) {
@@ -1775,7 +1788,7 @@ fn custom_theme_from_value_with_default_base(
             id,
             name,
             creator,
-            base_theme_id: base_theme_id.to_string(),
+            base_theme_id: base_theme_id.clone(),
             theme,
         },
         normalized,
@@ -1795,17 +1808,13 @@ fn resolved_custom_theme_base_id<'a>(
             if is_builtin_theme_id(default_base_theme_id) {
                 default_base_theme_id
             } else {
-                BUILTIN_THEME_VELOTYPE_ID
+                BUILTIN_THEME_MARKMAN_ID
             }
         })
 }
 
-fn is_builtin_theme_id(theme_id: &str) -> bool {
-    catalog::is_builtin_id(theme_id, ThemeCatalog::builtin_ids())
-}
-
 fn custom_theme_base_theme(theme_id: &str) -> Theme {
-    if theme_id == BUILTIN_THEME_VELOTYPE_LIGHT_ID {
+    if normalize_builtin_theme_id(theme_id).as_str() == BUILTIN_THEME_MARKMAN_LIGHT_ID {
         Theme::light_theme()
     } else {
         Theme::default_theme()
@@ -2096,7 +2105,7 @@ mod tests {
         let dark = Theme::default_theme();
         let light = Theme::light_theme();
 
-        assert_eq!(light.name, "Velotype Light");
+        assert_eq!(light.name, "Markman Light");
         assert_eq!(light.colors.editor_background, rgba(0xf7f8fbff).into());
         assert_eq!(light.colors.text_default, rgba(0x1f2937ff).into());
         assert_eq!(light.colors.text_link, rgba(0x2563ebff).into());
@@ -2197,7 +2206,7 @@ mod tests {
             .expect("normalized theme config should exist");
         assert!(normalized.contains("\"name\": \"Night Writer\""));
         assert!(normalized.contains("\"creator\": \"Ada\""));
-        assert!(normalized.contains("\"base_theme_id\": \"velotype\""));
+        assert!(normalized.contains("\"base_theme_id\": \"markman\""));
         assert!(normalized.contains("\"block_gap\": 12.0"));
         assert!(!normalized.contains("menu_text_size"));
         assert!(!normalized.contains("empty_editing"));
@@ -2226,7 +2235,7 @@ mod tests {
             super::custom_theme_from_value(value).expect("theme should import");
         let light = Theme::light_theme();
 
-        assert_eq!(entry.base_theme_id, "velotype-light");
+        assert_eq!(entry.base_theme_id, "markman-light");
         assert_eq!(
             entry.theme.colors.editor_background,
             light.colors.editor_background
@@ -2238,7 +2247,7 @@ mod tests {
             normalized
                 .get("base_theme_id")
                 .and_then(|value| value.as_str()),
-            Some("velotype-light")
+            Some("markman-light")
         );
         assert!(
             normalized
@@ -2265,7 +2274,7 @@ mod tests {
         let (entry, normalized) =
             super::custom_theme_from_value(value).expect("invalid base should not fail import");
 
-        assert_eq!(entry.base_theme_id, "velotype");
+        assert_eq!(entry.base_theme_id, "markman");
         assert_eq!(
             entry.theme.colors.editor_background,
             Theme::default_theme().colors.editor_background
@@ -2274,7 +2283,7 @@ mod tests {
             normalized
                 .get("base_theme_id")
                 .and_then(|value| value.as_str()),
-            Some("velotype")
+            Some("markman")
         );
     }
 
@@ -2300,7 +2309,7 @@ mod tests {
 
         let dirs = VelotypeConfigDirs::from_root(&root);
         let mut manager = ThemeManager::default();
-        assert!(manager.set_theme_by_id("velotype-light"));
+        assert!(manager.set_theme_by_id("markman-light"));
         let imported_id = manager
             .import_theme_config_with_dirs(&source, &dirs)
             .expect("theme config should import");
@@ -2314,7 +2323,7 @@ mod tests {
 
         let normalized = std::fs::read_to_string(dirs.themes_dir().join("Light_Radius_Ada.json"))
             .expect("normalized theme config should exist");
-        assert!(normalized.contains("\"base_theme_id\": \"velotype-light\""));
+        assert!(normalized.contains("\"base_theme_id\": \"markman-light\""));
 
         let mut reloaded = ThemeManager::default();
         reloaded
@@ -2332,28 +2341,28 @@ mod tests {
     #[test]
     fn theme_manager_switches_builtin_themes() {
         let mut manager = ThemeManager::default();
-        assert_eq!(manager.current_theme_id(), "velotype");
-        assert_eq!(manager.current().name, "Velotype");
+        assert_eq!(manager.current_theme_id(), "markman");
+        assert_eq!(manager.current().name, "Markman");
         assert_eq!(
             manager
                 .available_themes()
                 .iter()
                 .map(|entry| entry.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Velotype", "Velotype Light"]
+            vec!["Markman", "Markman Light"]
         );
 
-        assert!(manager.set_theme_by_id("velotype-light"));
-        assert_eq!(manager.current_theme_id(), "velotype-light");
-        assert_eq!(manager.current().name, "Velotype Light");
+        assert!(manager.set_theme_by_id("markman-light"));
+        assert_eq!(manager.current_theme_id(), "markman-light");
+        assert_eq!(manager.current().name, "Markman Light");
         assert_eq!(
             manager.current().colors.editor_background,
             rgba(0xf7f8fbff).into()
         );
 
         assert!(manager.set_theme_by_id("velotype"));
-        assert_eq!(manager.current_theme_id(), "velotype");
-        assert_eq!(manager.current().name, "Velotype");
+        assert_eq!(manager.current_theme_id(), "markman");
+        assert_eq!(manager.current().name, "Markman");
         assert!(!manager.set_theme_by_id("missing"));
     }
 }
