@@ -39,7 +39,7 @@ impl AiSelectionToolbarBuiltin {
 
     pub(crate) fn default_label(self) -> &'static str {
         match self {
-            Self::CustomPrompt => "自定义",
+            Self::CustomPrompt => "对话",
             Self::Improve => "润色",
             Self::Summarize => "总结",
             Self::Expand => "扩写",
@@ -135,6 +135,13 @@ pub(crate) fn normalize_ai_selection_toolbar_buttons(
         buttons
     };
     for button in &mut normalized {
+        if button.action == AiSelectionToolbarBuiltin::CustomPrompt.id()
+            && button.label == "自定义"
+        {
+            button.label = AiSelectionToolbarBuiltin::CustomPrompt
+                .default_label()
+                .into();
+        }
         if button.label.trim().is_empty() {
             if let Some(builtin) = AiSelectionToolbarBuiltin::from_id(&button.action) {
                 button.label = builtin.default_label().into();
