@@ -112,7 +112,7 @@ fn application_is_hidden(cx: &mut App) -> bool {
         cx.windows().is_empty()
             || cx.windows().iter().all(|window| {
                 window
-                    .update(cx, |_, window, _| !window.is_active(cx).unwrap_or(false))
+                    .update(cx, |_, window, _| !window.is_window_active())
                     .unwrap_or(true)
             })
     }
