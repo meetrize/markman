@@ -1,5 +1,7 @@
 //! OpenAI-compatible chat completions client used by editor AI actions.
 
+use std::io::Read;
+
 use anyhow::{Context as _, bail};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -30,21 +32,24 @@ struct ChatMessage<'a> {
 }
 
 #[derive(Deserialize)]
-struct ChatCompletionResponse {
-    choices: Vec<ChatCompletionChoice>,
+struct ChatCompletionStreamResponse {
+    choices: Vec<ChatCompletionStreamChoice>,
 }
 
 #[derive(Deserialize)]
-struct ChatCompletionChoice {
-    message: ChatCompletionMessage,
+struct ChatCompletionStreamChoice {
+    delta: ChatCompletionDelta,
 }
 
 #[derive(Deserialize)]
-struct ChatCompletionMessage {
-    content: String,
+struct ChatCompletionDelta {
+    content: Option<String>,
 }
 
-pub(crate) fn complete_markdown(request: AiCompletionRequest) -> anyhow::Result<String> {
+pub(crate) fn complete_markdown_streaming(
+    request: AiCompletionRequest,
+    mut on_delta: impl FnMut(String),
+) -> anyhow::Result<String> {
     if request.preferences.provider != "openai-compatible" {
         bail!(
             "unsupported AI provider '{}'; only openai-compatible is supported",
@@ -77,7 +82,7 @@ pub(crate) fn complete_markdown(request: AiCompletionRequest) -> anyhow::Result<
             },
         ],
         temperature: 0.2,
-        stream: false,
+        stream: true,
     };
 
     let mut headers = HeaderMap::new();
@@ -88,26 +93,77 @@ pub(crate) fn complete_markdown(request: AiCompletionRequest) -> anyhow::Result<
             .context("AI API key contains invalid header characters")?,
     );
 
-    let response = reqwest::blocking::Client::new()
+    let mut response = reqwest::blocking::Client::new()
         .post(endpoint)
         .headers(headers)
         .body(serde_json::to_vec(&body).context("failed to encode AI request")?)
         .send()
         .context("failed to send AI request")?;
     let status = response.status();
-    let text = response.text().context("failed to read AI response")?;
     if !status.is_success() {
+        let text = response.text().context("failed to read AI error response")?;
         bail!("AI request failed with {status}: {text}");
     }
-    let response: ChatCompletionResponse =
-        serde_json::from_str(&text).context("failed to parse AI response")?;
-    let content = response
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content.trim().to_string())
-        .filter(|content| !content.is_empty())
-        .context("AI response did not contain message content")?;
+
+    let mut output = String::new();
+    let mut pending = String::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let read = response
+            .read(&mut buf)
+            .context("failed to read AI streaming response")?;
+        if read == 0 {
+            break;
+        }
+        pending.push_str(&String::from_utf8_lossy(&buf[..read]));
+        while let Some(index) = pending.find("\n\n") {
+            let event = pending[..index].to_string();
+            pending.drain(..index + 2);
+            if parse_stream_event(&event, &mut output, &mut on_delta)? {
+                return finalize_stream_output(output);
+            }
+        }
+    }
+    if !pending.trim().is_empty() {
+        parse_stream_event(&pending, &mut output, &mut on_delta)?;
+    }
+    finalize_stream_output(output)
+}
+
+fn parse_stream_event(
+    event: &str,
+    output: &mut String,
+    on_delta: &mut impl FnMut(String),
+) -> anyhow::Result<bool> {
+    for line in event.lines() {
+        let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+            continue;
+        };
+        if data == "[DONE]" {
+            return Ok(true);
+        }
+        if data.is_empty() {
+            continue;
+        }
+        let chunk: ChatCompletionStreamResponse = serde_json::from_str(data)
+            .with_context(|| format!("failed to parse AI stream chunk: {data}"))?;
+        for choice in chunk.choices {
+            if let Some(content) = choice.delta.content
+                && !content.is_empty()
+            {
+                output.push_str(&content);
+                on_delta(content);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn finalize_stream_output(output: String) -> anyhow::Result<String> {
+    let content = output.trim().to_string();
+    if content.is_empty() {
+        bail!("AI response did not contain streamed content");
+    }
     Ok(content)
 }
 

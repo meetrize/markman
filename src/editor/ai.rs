@@ -5,8 +5,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use futures::FutureExt;
-use futures::channel::oneshot;
+use std::sync::mpsc;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
@@ -64,6 +63,11 @@ struct AiPreview {
     result_markdown: String,
 }
 
+enum AiStreamEvent {
+    Delta(String),
+    Done(anyhow::Result<String>),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AiPromptContextMode {
     Selection,
@@ -73,6 +77,9 @@ enum AiPromptContextMode {
 
 pub(super) struct AiState {
     in_flight: bool,
+    streaming_markdown: String,
+    streaming_started_at: Instant,
+    streaming_progress_task: Option<Task<()>>,
     preview: Option<AiPreview>,
     error: Option<String>,
     prompt_open: bool,
@@ -113,6 +120,9 @@ impl AiState {
     pub(super) fn new(cx: &mut Context<Editor>) -> Self {
         Self {
             in_flight: false,
+            streaming_markdown: String::new(),
+            streaming_started_at: Instant::now(),
+            streaming_progress_task: None,
             preview: None,
             error: None,
             prompt_open: false,
@@ -1116,43 +1126,117 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.ai.in_flight = true;
+        self.ai.streaming_markdown.clear();
+        self.ai.streaming_started_at = Instant::now();
         self.ai.preview = None;
         self.ai.error = None;
+        self.start_ai_streaming_progress_task(cx);
         let weak_editor = cx.entity().downgrade();
         let target = context.target;
         let context_markdown = context.context_markdown;
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = ai_client::complete_markdown(AiCompletionRequest {
+            let request = AiCompletionRequest {
                 preferences: ai_preferences,
                 instruction,
                 context_markdown,
+            };
+            let stream_tx = tx.clone();
+            let result = ai_client::complete_markdown_streaming(request, move |delta| {
+                let _ = stream_tx.send(AiStreamEvent::Delta(delta));
             });
-            let _ = tx.send(result);
+            let _ = tx.send(AiStreamEvent::Done(result));
         });
 
         cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let result = rx
-                .map(|result| {
-                    result.unwrap_or_else(|_| Err(anyhow::anyhow!("AI worker ended early")))
-                })
-                .await;
-            let _ = weak_editor.update(cx, move |editor, cx| {
-                editor.ai.in_flight = false;
-                match result {
-                    Ok(result_markdown) => {
-                        editor.ai.preview = Some(AiPreview {
-                            target,
-                            result_markdown,
-                        });
+            let mut target = Some(target);
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(33))
+                    .await;
+
+                let mut deltas = Vec::new();
+                let mut done = None;
+                loop {
+                    match rx.try_recv() {
+                        Ok(AiStreamEvent::Delta(delta)) => deltas.push(delta),
+                        Ok(AiStreamEvent::Done(result)) => {
+                            done = Some(result);
+                            break;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            done = Some(Err(anyhow::anyhow!("AI worker ended early")));
+                            break;
+                        }
                     }
-                    Err(err) => editor.ai.error = Some(err.to_string()),
                 }
-                cx.notify();
-            });
+
+                let is_done = done.is_some();
+                let next_target = if is_done { target.take() } else { None };
+                if weak_editor
+                    .update(cx, move |editor, cx| {
+                        for delta in deltas {
+                            editor.ai.streaming_markdown.push_str(&delta);
+                        }
+                        if let Some(result) = done {
+                            editor.ai.in_flight = false;
+                            editor.ai.streaming_progress_task = None;
+                            match result {
+                                Ok(result_markdown) => {
+                                    editor.ai.streaming_markdown = result_markdown.clone();
+                                    if let Some(target) = next_target {
+                                        editor.ai.preview = Some(AiPreview {
+                                            target,
+                                            result_markdown,
+                                        });
+                                    }
+                                }
+                                Err(err) => editor.ai.error = Some(err.to_string()),
+                            }
+                        }
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                if is_done {
+                    break;
+                }
+            }
         })
         .detach();
         cx.notify();
+    }
+
+    fn start_ai_streaming_progress_task(&mut self, cx: &mut Context<Self>) {
+        self.ai.streaming_progress_task = Some(cx.spawn(
+            async |this: WeakEntity<Editor>, cx: &mut AsyncApp| loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(50))
+                    .await;
+                let should_continue = this
+                    .update(cx, |editor, cx| {
+                        if editor.ai.in_flight {
+                            cx.notify();
+                            true
+                        } else {
+                            editor.ai.streaming_progress_task = None;
+                            false
+                        }
+                    })
+                    .unwrap_or(false);
+                if !should_continue {
+                    break;
+                }
+            },
+        ));
+    }
+
+    fn ai_streaming_progress(&self) -> f32 {
+        let elapsed = self.ai.streaming_started_at.elapsed().as_secs_f32();
+        ((elapsed * 0.85).sin() * 0.5 + 0.5).clamp(0.0, 1.0)
     }
 
     fn collect_ai_context(
@@ -1819,13 +1903,20 @@ impl Editor {
             return None;
         }
         let body = if self.ai.in_flight {
-            "正在生成 Markdown 预览...".to_string()
+            if self.ai.streaming_markdown.trim().is_empty() {
+                "等待模型返回内容...".to_string()
+            } else {
+                self.ai.streaming_markdown.clone()
+            }
         } else if let Some(preview) = &self.ai.preview {
             preview.result_markdown.clone()
         } else {
             self.ai.error.clone().unwrap_or_default()
         };
         let has_preview = self.ai.preview.is_some();
+        let progress = self.ai_streaming_progress();
+        let progress_width = 0.18 + progress * 0.72;
+        let progress_dots = ".".repeat(((self.ai.streaming_started_at.elapsed().as_secs_f32() * 2.4) as usize % 3) + 1);
 
         Some(
             div()
@@ -1855,6 +1946,36 @@ impl Editor {
                         .border_color(c.dialog_border)
                         .rounded(px(d.dialog_radius))
                         .shadow_lg()
+                        .when(self.ai.in_flight, |this| {
+                            this.child(
+                                div()
+                                    .id("ai-preview-progress")
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(6.0))
+                                    .child(
+                                        div()
+                                            .text_size(px((t.dialog_body_size - 1.0).max(11.0)))
+                                            .text_color(c.dialog_muted)
+                                            .child(format!("AI 正在实时生成{progress_dots}")),
+                                    )
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .h(px(3.0))
+                                            .rounded(px(999.0))
+                                            .overflow_hidden()
+                                            .bg(c.dialog_border.opacity(0.55))
+                                            .child(
+                                                div()
+                                                    .h_full()
+                                                    .w(relative(progress_width))
+                                                    .rounded(px(999.0))
+                                                    .bg(c.dialog_primary_button_bg),
+                                            ),
+                                    ),
+                            )
+                        })
                         .child(
                             div()
                                 .id("ai-preview-result-scroll")
