@@ -376,6 +376,14 @@ impl Editor {
 
     fn normalized_cross_block_selection(&self, cx: &App) -> Option<NormalizedCrossBlockSelection> {
         let selection = self.cross_block_selection?;
+        self.normalize_cross_block_selection(selection, cx)
+    }
+
+    fn normalize_cross_block_selection(
+        &self,
+        selection: CrossBlockSelection,
+        cx: &App,
+    ) -> Option<NormalizedCrossBlockSelection> {
         let anchor = self.clamp_cross_block_endpoint(selection.anchor, cx)?;
         let focus = self.clamp_cross_block_endpoint(selection.focus, cx)?;
         let anchor_index = self
@@ -399,6 +407,15 @@ impl Editor {
             end_index,
             reversed,
         })
+    }
+
+    pub(super) fn cross_block_selection_end_entity_id(
+        &self,
+        selection: CrossBlockSelection,
+        cx: &App,
+    ) -> Option<EntityId> {
+        self.normalize_cross_block_selection(selection, cx)
+            .map(|selection| selection.end.entity_id)
     }
 
     fn clamp_cross_block_endpoint(

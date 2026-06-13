@@ -1322,7 +1322,9 @@ impl Editor {
         }
         let after = match target {
             AiTarget::SingleBlockSelection { entity_id, .. } => Some(self.root_ancestor_entity_id(entity_id)),
-            AiTarget::CrossBlockSelection(selection) => Some(self.root_ancestor_entity_id(selection.focus.entity_id)),
+            AiTarget::CrossBlockSelection(selection) => self
+                .cross_block_selection_end_entity_id(selection, cx)
+                .map(|entity_id| self.root_ancestor_entity_id(entity_id)),
             AiTarget::InsertOnly { after } => after,
             AiTarget::FullDocument => self.active_entity_id.map(|id| self.root_ancestor_entity_id(id)),
         };
