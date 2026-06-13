@@ -1838,6 +1838,11 @@ impl Render for Editor {
         } else {
             base
         };
+        let base = if let Some(mermaid_menu) = self.render_mermaid_template_menu_overlay(&theme, cx) {
+            base.child(mermaid_menu)
+        } else {
+            base
+        };
         let base = if let Some(file_menu) = self.render_workspace_file_context_menu_overlay(&theme, cx)
         {
             base.child(file_menu)

@@ -166,6 +166,9 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/table-of-contents.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/table-of-contents.svg"
             )))),
+            "icon/toolbar/workflow.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/workflow.svg"
+            )))),
             "icon/toolbar/wand-sparkles.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/wand-sparkles.svg"
             )))),

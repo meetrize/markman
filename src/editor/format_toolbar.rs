@@ -33,6 +33,54 @@ const ICON_SAVE: &str = "icon/toolbar/save.svg";
 const ICON_AUTO_SAVE: &str = "icon/toolbar/auto-save.svg";
 const ICON_SEARCH: &str = "icon/toolbar/search.svg";
 const ICON_AI_CUSTOM: &str = "icon/toolbar/sparkles.svg";
+const ICON_WORKFLOW: &str = "icon/toolbar/workflow.svg";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MermaidTemplate {
+    Flowchart,
+    MindMap,
+    Sequence,
+    Gantt,
+    State,
+    Class,
+}
+
+impl MermaidTemplate {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Flowchart => "流程图",
+            Self::MindMap => "思维导图",
+            Self::Sequence => "时序图",
+            Self::Gantt => "甘特图",
+            Self::State => "状态图",
+            Self::Class => "类图",
+        }
+    }
+
+    fn source(self) -> &'static str {
+        match self {
+            Self::Flowchart => "flowchart TD\n    A[开始] --> B{是否满足条件?}\n    B -- 是 --> C[执行任务]\n    B -- 否 --> D[调整方案]\n    C --> E[结束]\n    D --> B",
+            Self::MindMap => "mindmap\n  root((项目计划))\n    目标\n      业务目标\n      用户目标\n    阶段\n      调研\n      设计\n      开发\n      发布\n    风险\n      需求变化\n      时间紧张",
+            Self::Sequence => "sequenceDiagram\n    participant 用户\n    participant 前端\n    participant 服务端\n    用户->>前端: 提交请求\n    前端->>服务端: 调用 API\n    服务端-->>前端: 返回结果\n    前端-->>用户: 展示结果",
+            Self::Gantt => "gantt\n    title 项目排期\n    dateFormat  YYYY-MM-DD\n    section 准备\n    需求调研      :a1, 2026-01-01, 3d\n    原型设计      :a2, after a1, 4d\n    section 实施\n    开发实现      :b1, after a2, 7d\n    测试验收      :b2, after b1, 3d",
+            Self::State => "stateDiagram-v2\n    [*] --> 待处理\n    待处理 --> 处理中: 开始\n    处理中 --> 已完成: 完成\n    处理中 --> 待处理: 退回\n    已完成 --> [*]",
+            Self::Class => "classDiagram\n    class 用户 {\n      +String 姓名\n      +登录()\n    }\n    class 订单 {\n      +String 编号\n      +支付()\n    }\n    用户 \"1\" --> \"*\" 订单",
+        }
+    }
+
+    fn fenced(self) -> String {
+        format!("```mermaid\n{}\n```", self.source())
+    }
+}
+
+const MERMAID_TEMPLATES: [MermaidTemplate; 6] = [
+    MermaidTemplate::Flowchart,
+    MermaidTemplate::MindMap,
+    MermaidTemplate::Sequence,
+    MermaidTemplate::Gantt,
+    MermaidTemplate::State,
+    MermaidTemplate::Class,
+];
 
 enum FormatToolbarItem {
     Action(MarkdownToolbarAction),
@@ -136,6 +184,90 @@ impl Editor {
             cx.notify();
         });
         self.mark_dirty(cx);
+        cx.notify();
+    }
+
+    fn toggle_mermaid_template_menu_at(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        self.mermaid_template_menu_position = if self.mermaid_template_menu_position.is_some() {
+            None
+        } else {
+            Some(position)
+        };
+        cx.notify();
+    }
+
+    fn insert_mermaid_template(
+        &mut self,
+        template: MermaidTemplate,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.mermaid_template_menu_position = None;
+        let markdown = template.fenced();
+        if self.view_mode == ViewMode::Source {
+            self.insert_mermaid_template_in_source(&markdown, cx);
+        } else {
+            self.insert_mermaid_template_in_rendered(&markdown, window, cx);
+        }
+    }
+
+    fn insert_mermaid_template_in_source(&mut self, markdown: &str, cx: &mut Context<Self>) {
+        let Some(block_entity) = self
+            .document
+            .visible_blocks()
+            .first()
+            .map(|visible| visible.entity.clone())
+        else {
+            return;
+        };
+
+        block_entity.update(cx, |block, cx| {
+            if !block.show_source_line_numbers() {
+                return;
+            }
+            block.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+            let text = block.display_text().to_string();
+            let selection = block.selected_range.clone();
+            let prefix = if selection.start == 0 {
+                String::new()
+            } else if text[..selection.start].ends_with("\n\n") {
+                String::new()
+            } else if text[..selection.start].ends_with('\n') {
+                "\n".to_string()
+            } else {
+                "\n\n".to_string()
+            };
+            let suffix = if selection.end == text.len() || text[selection.end..].starts_with('\n') {
+                "\n".to_string()
+            } else {
+                "\n\n".to_string()
+            };
+            let insertion = format!("{prefix}{markdown}{suffix}");
+            let cursor = selection.start + insertion.len();
+            block.replace_text_in_visible_range(selection, &insertion, Some(cursor..cursor), true, cx);
+            block.selection_reversed = false;
+            block.marked_range = None;
+            block.cursor_blink_epoch = std::time::Instant::now();
+            cx.emit(crate::components::BlockEvent::Changed);
+            cx.notify();
+        });
+        self.mark_dirty(cx);
+        cx.notify();
+    }
+
+    fn insert_mermaid_template_in_rendered(
+        &mut self,
+        markdown: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        let block = Self::new_block(cx, BlockRecord::mermaid(markdown));
+        self.insert_blocks_after_focused(vec![block.clone()], window, cx);
+        self.focus_block(block.entity_id());
+        self.mark_dirty(cx);
+        self.request_active_block_scroll_into_view(cx);
+        self.finalize_pending_undo_capture(cx);
         cx.notify();
     }
 
@@ -288,7 +420,12 @@ impl Editor {
                                     .into_any_element()
                             }
                         }
-                    })),
+                    }))
+                    .child(Self::render_mermaid_template_button(
+                        theme,
+                        editor.clone(),
+                        self.mermaid_template_menu_position.is_some(),
+                    )),
             )
             .child(
                 div()
@@ -403,6 +540,94 @@ impl Editor {
                             .on_click(cx.listener(Self::on_toggle_view_mode)),
                     ),
             )
+    }
+
+    fn render_mermaid_template_button(
+        theme: &Theme,
+        editor: WeakEntity<Self>,
+        menu_open: bool,
+    ) -> impl IntoElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let icon_color = c.dialog_secondary_button_text;
+        let icon_size = px(d.format_toolbar_icon_size);
+        let menu_offset_y = px(d.format_toolbar_button_height + 6.0);
+        div()
+            .id("mermaid-template-toolbar-button")
+            .w(px(d.format_toolbar_button_height))
+            .h(px(d.format_toolbar_button_height))
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .rounded(px(d.format_toolbar_button_radius))
+            .bg(if menu_open {
+                c.selection.opacity(0.35)
+            } else {
+                c.dialog_surface
+            })
+            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+            .active(|this| this.opacity(0.92))
+            .cursor_pointer()
+            .child(svg().path(ICON_WORKFLOW).size(icon_size).text_color(icon_color))
+            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+                cx.stop_propagation();
+                let position = point(event.position.x, event.position.y + menu_offset_y);
+                let _ = editor.update(cx, |editor, cx| {
+                    editor.toggle_mermaid_template_menu_at(position, cx);
+                });
+            })
+    }
+
+    pub(super) fn render_mermaid_template_menu_overlay(
+        &self,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let position = self.mermaid_template_menu_position?;
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let editor = cx.entity().downgrade();
+        Some(
+            div()
+                .id("mermaid-template-menu")
+                .absolute()
+                .left(position.x)
+                .top(position.y)
+                .w(px(132.0))
+                .p(px(4.0))
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .rounded(px(d.menu_panel_radius))
+                .bg(c.dialog_surface)
+                .border(px(d.dialog_border_width))
+                .border_color(c.dialog_border)
+                .shadow_lg()
+                .occlude()
+                .children(MERMAID_TEMPLATES.into_iter().enumerate().map(|(index, template)| {
+                    let item_editor = editor.clone();
+                    div()
+                        .id(("mermaid-template-menu-item", index))
+                        .h(px(26.0))
+                        .px(px(8.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .text_size(px(12.0))
+                        .text_color(c.text_default)
+                        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                        .cursor_pointer()
+                        .child(template.label())
+                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                            cx.stop_propagation();
+                            let _ = item_editor.update(cx, |editor, cx| {
+                                editor.insert_mermaid_template(template, window, cx);
+                            });
+                        })
+                }))
+                .into_any_element(),
+        )
     }
 
     fn render_history_toolbar_button(

@@ -267,6 +267,7 @@ impl Editor {
         let had_quick_file_open = self.quick_file_open.open;
         let had_menu = self.context_menu.take().is_some();
         let had_dialog = self.table_insert_dialog.take().is_some();
+        let had_mermaid_menu = self.mermaid_template_menu_position.take().is_some();
         let had_submenu_close = self.context_menu_submenu_close_task.take().is_some();
         let had_file_menu = self.workspace_file_context_menu.take().is_some();
         let had_name_dialog = self.workspace_name_dialog.take().is_some();
@@ -280,6 +281,7 @@ impl Editor {
         if had_inline_code_popover
             || had_menu
             || had_dialog
+            || had_mermaid_menu
             || had_submenu_close
             || had_file_menu
             || had_name_dialog

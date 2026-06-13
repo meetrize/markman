@@ -19,6 +19,7 @@ Without step 2, the icon will not render.
 | `workspace/search.svg` | `search` | Lucide | ISC |
 | `workspace/files.svg` | `files` | Lucide | ISC |
 | `workspace/list-tree.svg` | `list-tree` | Lucide | ISC |
+| `toolbar/workflow.svg` | `workflow` | Lucide | ISC |
 | `titlebar/chrome-close.svg` | [`codicon:chrome-close`](https://icon-sets.iconify.design/codicon/chrome-close/) | Codicons by Microsoft Corporation | CC BY 4.0 |
 | `titlebar/chrome-minimize.svg` | [`codicon:chrome-minimize`](https://icon-sets.iconify.design/codicon/chrome-minimize/) | Codicons by Microsoft Corporation | CC BY 4.0 |
 | `titlebar/chrome-maximize.svg` | [`codicon:chrome-maximize`](https://icon-sets.iconify.design/codicon/chrome-maximize/) | Codicons by Microsoft Corporation | CC BY 4.0 |
