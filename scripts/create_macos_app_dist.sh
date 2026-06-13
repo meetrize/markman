@@ -1,33 +1,34 @@
 #!/usr/bin/env bash
-# Create a macOS .app for Markman
-# Usage: ./scripts/create_app_dist.sh
+# Create a macOS .app bundle for Markman.
+#
+# Usage:
+#   ./scripts/create_macos_app_dist.sh
 set -euo pipefail
 
-BINARY_NAME="markman"
-APP_NAME="Markman"
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$PROJECT_ROOT/dist"
-ICON_SOURCE="$PROJECT_ROOT/resources/AppIcon.png"
+DIST_DIR="$MARKMAN_PROJECT_ROOT/dist"
 
-echo "==> Clean old dists."
+markman_info "Clean old dist output."
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-echo "==> Build Release binary."
+markman_info "Build release binary."
 cargo build --release
 
-echo "==> Create App Bundle struct."
-APP_DIR="$DIST_DIR/$APP_NAME.app"
+markman_info "Create $MARKMAN_APP_NAME.app bundle."
+APP_DIR="$DIST_DIR/$MARKMAN_APP_NAME.app"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
-cp "$PROJECT_ROOT/target/release/$BINARY_NAME" "$APP_DIR/Contents/MacOS/"
-cp resources/macos/Info.plist "$APP_DIR/Contents/"
-cp resources/macos/$BINARY_NAME.icns "$APP_DIR/Contents/Resources/$BINARY_NAME.icns"
+cp "$MARKMAN_PROJECT_ROOT/target/release/$MARKMAN_BINARY_NAME" \
+    "$APP_DIR/Contents/MacOS/$MARKMAN_BINARY_NAME"
+cp "$MARKMAN_PROJECT_ROOT/resources/macos/Info.plist" "$APP_DIR/Contents/"
+cp "$MARKMAN_PROJECT_ROOT/resources/macos/$MARKMAN_BINARY_NAME.icns" \
+    "$APP_DIR/Contents/Resources/$MARKMAN_BINARY_NAME.icns"
 
-echo "==> Copy resources files"
-[ -f "$PROJECT_ROOT/README.md" ] && cp "$PROJECT_ROOT/README.md" "$APP_DIR/Contents/Resources/"
+if [[ -f "$MARKMAN_PROJECT_ROOT/README.md" ]]; then
+    cp "$MARKMAN_PROJECT_ROOT/README.md" "$APP_DIR/Contents/Resources/"
+fi
 
-echo "==> ✅ Done"
-echo "    Output: $APP_DIR"
+markman_info "Done: $APP_DIR"
 echo "       Use: open '$APP_DIR'"

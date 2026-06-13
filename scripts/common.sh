@@ -2,17 +2,17 @@
 # Shared helpers for Markman build scripts.
 set -euo pipefail
 
-VELOTYPE_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VELOTYPE_BINARY_NAME="markman"
-VELOTYPE_APP_NAME="Markman"
+MARKMAN_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MARKMAN_BINARY_NAME="markman"
+MARKMAN_APP_NAME="Markman"
 # Must stay in sync with `APP_DISPLAY_NAME` in `src/app_identity.rs`.
-VELOTYPE_DISPLAY_NAME="Markman"
+MARKMAN_DISPLAY_NAME="Markman"
 
-velotype_binary_path() {
+markman_binary_path() {
     local profile="${1:-release}"
-    local dir="$VELOTYPE_PROJECT_ROOT/target/$profile"
-    local unix_path="$dir/$VELOTYPE_BINARY_NAME"
-    local windows_path="$dir/${VELOTYPE_BINARY_NAME}.exe"
+    local dir="$MARKMAN_PROJECT_ROOT/target/$profile"
+    local unix_path="$dir/$MARKMAN_BINARY_NAME"
+    local windows_path="$dir/${MARKMAN_BINARY_NAME}.exe"
 
     if [[ -x "$windows_path" ]]; then
         echo "$windows_path"
@@ -25,31 +25,44 @@ velotype_binary_path() {
     fi
 }
 
-velotype_info() {
+markman_info() {
     echo "==> $*"
 }
 
-velotype_warn() {
+markman_warn() {
     echo "==> ⚠️  $*" >&2
 }
 
-velotype_die() {
+markman_die() {
     echo "==> ❌ $*" >&2
     exit 1
 }
 
 # Launch a built binary. On macOS, run via a `Markman` symlink so the process
 # name matches the display name when not running from a .app bundle.
-velotype_launch_binary() {
+markman_launch_binary() {
     local binary="$1"
     shift
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        local dir base display_binary
+        local dir real_binary display_binary
+        local binary_key display_key
         dir="$(cd "$(dirname "$binary")" && pwd)"
-        base="$(basename "$binary")"
-        display_binary="$dir/$VELOTYPE_DISPLAY_NAME"
-        ln -sf "$base" "$display_binary"
+        real_binary="$dir/$MARKMAN_BINARY_NAME"
+        if [[ ! -x "$real_binary" ]]; then
+            markman_die "Binary not found: $real_binary"
+        fi
+
+        binary_key="$(printf '%s' "$MARKMAN_BINARY_NAME" | tr '[:upper:]' '[:lower:]')"
+        display_key="$(printf '%s' "$MARKMAN_DISPLAY_NAME" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$binary_key" == "$display_key" ]]; then
+            # Case-insensitive volumes treat Markman/markman as one path — skip symlinks.
+            exec "$real_binary" "$@"
+        fi
+
+        display_binary="$dir/$MARKMAN_DISPLAY_NAME"
+        rm -f "$display_binary"
+        ln -sf "$MARKMAN_BINARY_NAME" "$display_binary"
         exec "$display_binary" "$@"
     else
         exec "$binary" "$@"

@@ -7,7 +7,7 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-cd "$VELOTYPE_PROJECT_ROOT"
+cd "$MARKMAN_PROJECT_ROOT"
 
-velotype_info "Checking Velotype (cargo check)..."
+markman_info "Checking $MARKMAN_DISPLAY_NAME (cargo check)..."
 cargo check

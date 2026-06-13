@@ -15,10 +15,14 @@ if [[ "${1:-}" == "--locked" ]]; then
     LOCKED=(--locked)
 fi
 
-cd "$VELOTYPE_PROJECT_ROOT"
+cd "$MARKMAN_PROJECT_ROOT"
 
-velotype_info "Building Markman (release)..."
-cargo build --release "${LOCKED[@]}"
+markman_info "Building $MARKMAN_DISPLAY_NAME (release)..."
+if ((${#LOCKED[@]})); then
+    cargo build --release "${LOCKED[@]}"
+else
+    cargo build --release
+fi
 
-BINARY="$(velotype_binary_path release)"
-velotype_info "Done: $BINARY"
+BINARY="$(markman_binary_path release)"
+markman_info "Done: $BINARY"

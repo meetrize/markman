@@ -26,21 +26,21 @@ EOF
 }
 
 package_macos_app() {
-    "$VELOTYPE_PROJECT_ROOT/scripts/create_macos_app_dist.sh"
+    "$MARKMAN_PROJECT_ROOT/scripts/create_macos_app_dist.sh"
 }
 
 package_macos_pkg() {
     local version="${1:-}"
     if [[ -z "$version" ]]; then
-        version="$(grep '^version' "$VELOTYPE_PROJECT_ROOT/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-        velotype_warn "No version given, using Cargo.toml version: $version"
+        version="$(grep '^version' "$MARKMAN_PROJECT_ROOT/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+        markman_warn "No version given, using Cargo.toml version: $version"
     fi
-    "$VELOTYPE_PROJECT_ROOT/scripts/create_macos_pkg_dist.sh" "$version"
+    "$MARKMAN_PROJECT_ROOT/scripts/create_macos_pkg_dist.sh" "$version"
 }
 
 package_linux() {
-    cd "$VELOTYPE_PROJECT_ROOT"
-    "$VELOTYPE_PROJECT_ROOT/scripts/build.sh" --locked
+    cd "$MARKMAN_PROJECT_ROOT"
+    "$MARKMAN_PROJECT_ROOT/scripts/build.sh" --locked
 
     local version tag archive package_dir
     version="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
@@ -53,7 +53,7 @@ package_linux() {
     mkdir -p "$package_dir/share/icons/hicolor/256x256/apps"
     mkdir -p "$package_dir/share/icons/hicolor/512x512/apps"
 
-    cp "target/release/$VELOTYPE_BINARY_NAME" "$package_dir/"
+    cp "target/release/$MARKMAN_BINARY_NAME" "$package_dir/"
     cp README.md LICENSE-APACHE "$package_dir/"
     cp resources/linux/com.manyougz.Markman.desktop "$package_dir/share/applications/"
     cp resources/linux/icons/hicolor/256x256/apps/com.manyougz.Markman.png \
@@ -62,12 +62,12 @@ package_linux() {
         "$package_dir/share/icons/hicolor/512x512/apps/"
 
     tar -C "$package_dir" -czf "dist/$archive" .
-    velotype_info "Done: dist/$archive"
+    markman_info "Done: dist/$archive"
 }
 
 package_windows() {
-    cd "$VELOTYPE_PROJECT_ROOT"
-    "$VELOTYPE_PROJECT_ROOT/scripts/build.sh" --locked
+    cd "$MARKMAN_PROJECT_ROOT"
+    "$MARKMAN_PROJECT_ROOT/scripts/build.sh" --locked
 
     local version tag archive package_dir
     version="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
@@ -78,7 +78,7 @@ package_windows() {
     rm -rf dist
     mkdir -p "$package_dir"
 
-    cp "target/release/${VELOTYPE_BINARY_NAME}.exe" "$package_dir/"
+    cp "target/release/${MARKMAN_BINARY_NAME}.exe" "$package_dir/"
     cp README.md LICENSE-APACHE "$package_dir/"
 
     if command -v powershell.exe >/dev/null 2>&1; then
@@ -87,10 +87,10 @@ package_windows() {
     elif command -v zip >/dev/null 2>&1; then
         (cd dist/package && zip -r "../$archive" .)
     else
-        velotype_die "Need powershell.exe or zip to create Windows archive"
+        markman_die "Need powershell.exe or zip to create Windows archive"
     fi
 
-    velotype_info "Done: dist/$archive"
+    markman_info "Done: dist/$archive"
 }
 
 TARGET="${1:-auto}"
@@ -124,11 +124,11 @@ case "$TARGET" in
                 package_windows
                 ;;
             *)
-                velotype_die "Unsupported platform: $(uname -s). Pass an explicit target."
+                markman_die "Unsupported platform: $(uname -s). Pass an explicit target."
                 ;;
         esac
         ;;
     *)
-        velotype_die "Unknown target: $TARGET"
+        markman_die "Unknown target: $TARGET"
         ;;
 esac

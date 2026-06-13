@@ -1,79 +1,69 @@
 #!/usr/bin/env bash
-# Create a macOS PKG installer for Markman
-# Usage: ./scripts/create_pkg_dist.sh <version>
-
+# Create a macOS PKG installer for Markman.
+#
+# Usage:
+#   ./scripts/create_macos_pkg_dist.sh <version>
+#
+# Example:
+#   ./scripts/create_macos_pkg_dist.sh 0.5.7
 set -euo pipefail
 
-if [ $# -eq 0 ]; then
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+if [[ $# -eq 0 ]]; then
     echo "Usage: $0 <version>"
-    echo "Example: $0 0.1.0"
+    echo "Example: $0 0.5.7"
     exit 1
 fi
 
 VERSION="$1"
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$PROJECT_ROOT/dist"
-RESOURCES_DIR="$PROJECT_ROOT/resources/macos"
-
-APP_NAME="Markman"
-APP_BUNDLE="${APP_NAME}.app"
-BINARY_NAME="markman"
+DIST_DIR="$MARKMAN_PROJECT_ROOT/dist"
+RESOURCES_DIR="$MARKMAN_PROJECT_ROOT/resources/macos"
+APP_BUNDLE="${MARKMAN_APP_NAME}.app"
 BUNDLE_ID="com.manyougz.Markman"
 
 PKG_DIR="$DIST_DIR/pkg"
-PKG_NAME="${APP_NAME}-${VERSION}.pkg"
-COMPONENT_PKG="${APP_NAME}-component.pkg"
+PKG_NAME="${MARKMAN_APP_NAME}-${VERSION}.pkg"
+COMPONENT_PKG="${MARKMAN_APP_NAME}-component.pkg"
+CLI_LINK="/usr/local/bin/${MARKMAN_BINARY_NAME}"
 
-INSTALL_LOCATION="/Applications"
-CLI_LINK="/usr/local/bin/${BINARY_NAME}"
-
-if [ ! -d "$DIST_DIR/$APP_BUNDLE" ]; then
-    echo "Error: $APP_BUNDLE not found at $DIST_DIR"
-    echo "Please run create_app_dist.sh first"
-    exit 1
+if [[ ! -d "$DIST_DIR/$APP_BUNDLE" ]]; then
+    markman_die "$APP_BUNDLE not found at $DIST_DIR — run ./scripts/create_macos_app_dist.sh first"
 fi
 
-if [ ! -f "$RESOURCES_DIR/pkg/Distribution.xml" ]; then
-    echo "Error: Distribution.xml not found at $RESOURCES_DIR/pkg/"
-    exit 1
+if [[ ! -f "$RESOURCES_DIR/pkg/Distribution.xml" ]]; then
+    markman_die "Distribution.xml not found at $RESOURCES_DIR/pkg/"
 fi
 
-if [ ! -f "$RESOURCES_DIR/pkg/postinstall" ]; then
-    echo "Error: postinstall script not found at $RESOURCES_DIR/pkg/"
-    exit 1
+if [[ ! -f "$RESOURCES_DIR/pkg/postinstall" ]]; then
+    markman_die "postinstall script not found at $RESOURCES_DIR/pkg/"
 fi
 
-echo "==> Creating PKG installer for $APP_NAME $VERSION"
+markman_info "Creating PKG installer for $MARKMAN_APP_NAME $VERSION"
 echo "    Bundle ID: $BUNDLE_ID"
-echo "    Install location: $INSTALL_LOCATION"
+echo "    Install location: /Applications"
 echo "    CLI tool: $CLI_LINK"
 
 rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR/root/Applications"
 mkdir -p "$PKG_DIR/scripts"
 
-echo "==> Preparing installation payload..."
+markman_info "Preparing installation payload..."
 cp -R "$DIST_DIR/$APP_BUNDLE" "$PKG_DIR/root/Applications/"
 
-echo "==> Copying installation scripts..."
+markman_info "Copying installation scripts..."
 cp "$RESOURCES_DIR/pkg/postinstall" "$PKG_DIR/scripts/"
 cp "$RESOURCES_DIR/pkg/preuninstall" "$PKG_DIR/scripts/"
 chmod +x "$PKG_DIR/scripts/"*
 
-# Sign the app bundle (ad-hoc signature for development)
-# This is required for the PKG installer to work properly
-echo "==> Signing app bundle..."
-# Remove old signature first
+markman_info "Signing app bundle..."
 xattr -cr "$PKG_DIR/root/Applications/$APP_BUNDLE" 2>/dev/null || true
-# Apply ad-hoc signature
 codesign --force --deep --sign - "$PKG_DIR/root/Applications/$APP_BUNDLE" 2>&1 || {
-    echo "Warning: Code signing failed. This may prevent proper installation."
-    echo "For production: sign with a developer certificate"
-    echo "For development: users may need to manually allow the app in System Preferences"
+    markman_warn "Code signing failed. PKG installation may require manual approval."
 }
 
-echo "==> Creating component package..."
+markman_info "Creating component package..."
 pkgbuild --identifier "$BUNDLE_ID" \
     --version "$VERSION" \
     --scripts "$PKG_DIR/scripts" \
@@ -81,7 +71,7 @@ pkgbuild --identifier "$BUNDLE_ID" \
     --install-location "/" \
     "$PKG_DIR/$COMPONENT_PKG"
 
-echo "==> Creating distribution package..."
+markman_info "Creating distribution package..."
 cp "$RESOURCES_DIR/pkg/Distribution.xml" "$PKG_DIR/"
 sed -i '' "s/__MARKMAN_VERSION__/${VERSION}/g" "$PKG_DIR/Distribution.xml"
 
@@ -89,14 +79,13 @@ productbuild --distribution "$PKG_DIR/Distribution.xml" \
     --package-path "$PKG_DIR" \
     "$DIST_DIR/$PKG_NAME"
 
-echo "==> Fixing package metadata..."
+markman_info "Fixing package metadata..."
 pkgutil --expand "$DIST_DIR/$PKG_NAME" "$PKG_DIR/expanded" || true
-if [ -f "$PKG_DIR/expanded/$COMPONENT_PKG/PackageInfo" ]; then
+if [[ -f "$PKG_DIR/expanded/$COMPONENT_PKG/PackageInfo" ]]; then
     sed -i '' '/<relocate>/,/<\/relocate>/d' "$PKG_DIR/expanded/$COMPONENT_PKG/PackageInfo"
     pkgutil --flatten "$PKG_DIR/expanded" "$DIST_DIR/$PKG_NAME"
     rm -rf "$PKG_DIR/expanded"
 fi
 
-echo "==> ✅ PKG installer created successfully!"
-echo "    Output: $DIST_DIR/$PKG_NAME"
+markman_info "Done: $DIST_DIR/$PKG_NAME"
 echo "      Size: $(du -h "$DIST_DIR/$PKG_NAME" | cut -f1)"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Launch the debug build with the macOS display name (Markman).
+# Launch the debug Markman binary (used by dev.sh and watch.sh).
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-velotype_launch_binary "$(velotype_binary_path debug)" "$@"
+markman_launch_binary "$(markman_binary_path debug)" "$@"
