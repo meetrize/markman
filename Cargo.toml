@@ -203,6 +203,11 @@ bench = false
 [build-dependencies]
 embed-resource = "3"
 
+# gpui → cocoa/metal 仍依赖 block 0.1.6；上游未修复 rust-lang/rust#74840 的
+# uninhabited static 警告，本地 patch 将 `enum Class {}` 改为 inhabited 的 unit struct。
+[patch.crates-io]
+block = { path = "patches/block" }
+
 [profile.bench]
 # Keep DWARF for samply / perf / cargo flamegraph; doesn't disable opts.
 debug = true

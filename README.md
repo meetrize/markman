@@ -1,10 +1,10 @@
-# Velotype
+# Markman
 
 <div align="center">
 
-![Velotype banner](./assets/icon/velotype-banner.png)
+![Markman](./assets/icon/markman-banner.png)
 
-**A Rust + GPUI native Markdown editor with WYSIWYG and source editing modes.**
+**A native Markdown memo app built with Rust and GPUI — WYSIWYG editing, source mode, and a full workspace.**
 
 [Editor Showcase](./assets/showcase/showcase.md)
 
@@ -20,134 +20,149 @@
 
 </div>
 
-Velotype is a block-based Markdown editor built with Rust and [GPUI](https://gpui.rs/). It supports both WYSIWYG-style rendered editing and Markdown source-text editing.
+Markman is a block-based Markdown editor and memo app powered by Rust and [GPUI](https://gpui.rs/). Edit in rendered WYSIWYG mode or switch to Markdown source — no WebView, no preview-pane sync loop.
 
-The project is still early, but the core direction is stable: native UI, instant rendered editing, source-text fallback, canonical Markdown serialization, and customization across color, typography, spacing, and layout tokens.
+> **Note:** The display name is **Markman**. The executable and CLI command remain `velotype` for compatibility with existing scripts and releases.
 
 ## Features
 
-- **🧱 Block model:** Markdown structure is represented as editable blocks, keeping document structure clear, controllable, and extensible without a preview-pane synchronization loop.
-- **⚡ Native UI:** Desktop-native rendering based on GPUI, without depending on Electron, Tauri, or any WebView shell.
-- **✍️ Editing modes:** Velotype supports both WYSIWYG-style rendered editing and raw Markdown source editing for common authoring workflows.
-- **🚀 Performance and stability:** Rust drives parsing, state updates, and rendering; the parser follows a standard-oriented strategy and falls back to raw Markdown in unstable cases.
-- **🎨 Theme customization:** Themes can customize global colors, typography, spacing, menus, dialogs, editor layout tokens, and language packs.
-- **📦 Portable single file:** After compilation, Velotype exists as a single executable file. It requires no installation, stays natively portable, and targets Windows, Linux, and macOS.
+### Editing experience
 
-Velotype already supports exporting the current Markdown document to HTML and PDF. HTML export maps the active theme into CSS, while PDF export reuses the same themed HTML pipeline so visual output stays consistent.
+- **Block model** — Markdown structure lives in an editable block tree; parsing and rendering stay in sync without a separate preview pane.
+- **Dual view modes** — WYSIWYG rendered editing and raw Markdown source mode with line numbers.
+- **Format toolbar** — One-click formatting for headings, bold, italic, lists, tasks, quotes, links, images, tables, and more.
+- **Rich navigation** — Word-by-word and block-by-block movement, cross-block selection, double-click word select, and configurable keyboard shortcuts.
+- **Document tools** — In-document search, global search, quick-open file picker, auto-save, and context menus (copy, cut, paste, select all).
 
-Velotype targets Windows, Linux, and macOS. The app is naturally suitable for distribution as a standalone binary; release builds can run directly without installation.
+### Workspace
+
+- **Folder workspace** — Open a directory, browse files in a side drawer, and jump between notes quickly.
+- **Outline panel** — Navigate document structure from headings and blocks.
+- **Workspace search** — Search across files with match highlighting and jump-to-result.
+
+### Markdown & content
+
+- **Common syntax** — Headings, paragraphs, lists, task lists, quotes, callouts, tables, footnotes, reference-style links and images, standalone images, and comment blocks.
+- **Column blocks** — Multi-column layout blocks with inline tree preview.
+- **Code blocks** — Tree-sitter syntax highlighting, line numbers, folding, language picker, copy, and run-in-terminal with an expandable output panel.
+- **Inline code** — Run snippets in the system terminal directly from rendered mode.
+- **Mermaid** — Render diagrams in the editor; insert from built-in templates.
+- **Tables** — Adjustable column widths and extended cell border styling.
+- **Safe HTML** — Controlled native HTML handling where supported.
+- **Math & extras** — Superscript/subscript inline editing; RaTeX-based math rendering where enabled.
+
+### AI assistance
+
+- **Selection-aware AI** — Invoke AI on the current selection or block context.
+- **Streaming responses** — Results stream in with a draggable preview panel and scroll support.
+- **Custom prompts** — Save and reuse prompt buttons from the toolbar or preferences.
+
+### Export & customization
+
+- **HTML & PDF export** — HTML maps the active theme to CSS; PDF reuses the same themed pipeline via local Chromium.
+- **Themes** — Import JSONC theme packs for colors, typography, spacing, menus, dialogs, code highlighting, and layout tokens.
+- **Language packs** — Partial JSONC locale files with English fallback.
+- **Global hotkey** — Toggle app visibility from anywhere on supported platforms.
+
+### Platform
+
+- **Native GPUI UI** — No Electron, Tauri, or WebView shell.
+- **Portable binary** — Single executable after build; runs on Windows, Linux, and macOS.
+- **macOS packaging** — `.app` bundle or PKG installer with optional CLI symlink setup.
 
 ## Quick Start
 
 ### 1. Download a release
 
-Download the build for your platform from the [Velotype Releases](https://github.com/manyougz/velotype/releases) page.
+Download the build for your platform from [GitHub Releases](https://github.com/manyougz/velotype/releases).
 
-#### Windows and Linux Users
+#### Windows and Linux
 
-- Download the corresponding `.zip` or `.tar.gz` file
-- Unzip to get the executable
-- Run directly
+1. Download the `.zip` or `.tar.gz` archive for your platform.
+2. Extract the `velotype` executable.
+3. Run it directly.
 
-#### macOS Users
+#### macOS
 
-Two installation options are available:
+**Option 1: `.app` bundle**
 
-**Option 1: Single .app package**
-- Download `velotype-*.zip` file
-- Unzip to get `Velotype.app`
-- Drag to `/Applications` or any location
-- Double-click to run
+1. Download `velotype-*.zip`.
+2. Unzip to get `Markman.app` (or `Velotype.app` on older releases).
+3. Drag to `/Applications` or run in place.
 
-**Option 2: PKG Installer(Recommended)**
-- Download `velotype-*.pkg` file
-- Double-click to run the installer
-- Automatically installs to `/Applications`
-- Automatically configures command-line tool `velotype`
+**Option 2: PKG installer (recommended)**
 
-> **If using the PKG installer:** The CLI command is configured automatically during installation. The PKG installer manages the symlink automatically via its `postinstall` / `preuninstall` scripts. You can still manually trigger installation/uninstallation while in use. 
-> 
-> **If using the .app package:** Install or Uninstall the CLI command directly from the menu:
-> 1. Open Velotype.app
-> 2. Click the menu **Help → Install CLI Command**
-> 3. Enter administrator password
-> 4. Done!
->
-> Be careful, if you move or delete `Velotype.app`, the symlink will automatically become invalid. Running `velotype` will report "command not found".
+1. Download `velotype-*.pkg`.
+2. Run the installer — the app is placed in `/Applications`.
+3. The `velotype` CLI command is configured automatically.
+
+> **CLI note:** PKG installs manage the `/usr/local/bin/velotype` symlink via `postinstall` / `preuninstall` scripts. For `.app`-only installs, use **Help → Install CLI Command** inside the app. Moving or deleting the app bundle breaks the symlink.
 
 ### 2. Build from source
 
 Prerequisites:
 
 - Git
-- A Rust toolchain with Rust 2024 edition support
+- Rust toolchain with **2024 edition** support
 - Cargo
-- Platform-native build dependencies required by GPUI and the system toolchain
-
-Build Velotype locally:
+- Platform build dependencies required by GPUI
 
 ```bash
 git clone https://github.com/manyougz/velotype.git
-```
-
-```bash
+cd velotype
 cargo build --release
 ```
 
-If everything works, the build artifact will be stored under `target/release`. You can use the executable directly.
+The binary is at `target/release/velotype`.
 
-For day-to-day development, testing, and packaging, see the [Development & Build guide](docs/development.md).
+For development, testing, and packaging, see the [Development & Build guide](docs/development.md).
 
 ## Roadmap
 
-Velotype already supports almost all basic Markdown syntax and most commonly used extended Markdown syntax, including headings, paragraphs, lists, task lists, quotes, callouts, tables, code blocks, inline formatting, links, reference-style links and images, footnotes, standalone images, comment blocks, and safe native HTML handling.
+Markman already covers most day-to-day Markdown authoring needs. Planned work includes:
 
-Syntax support will continue to improve. Planned work includes:
-
-- [x] ~~Optimize the parsing and rendering capabilities for extremely large Markdown documents~~
-- [x] ~~Workspace Mode and Outline Parsing~~
+- [x] Performance for very large documents
+- [x] Workspace mode and outline navigation
 - [ ] Built-in image hosting
 - [ ] More complete IME behavior
 
-## Theme Customization & Translation
+## Theme & language customization
 
-Velotype separates visual themes and UI language packs for separate management. Theme files can override global colors, fonts, sizes, menus, dialogs, table controls, image placeholders, code highlighting colors, and layout-related tokens. Missing fields or empty values inherit the built-in base theme specified by the theme pack (`velotype` or `velotype-light`, following `base_theme_id`; when this field is empty or invalid, it falls back to the `velotype` theme values), so a custom theme file can be very small, while still being able to fully override the theme.
+Theme and UI language are managed separately. Theme files can override global colors, fonts, sizes, menus, dialogs, table controls, image placeholders, code highlighting, and layout tokens. Missing fields inherit the base theme (`velotype` or `velotype-light` via `base_theme_id`).
 
-Language packs use the same partial-configuration strategy. Missing strings fall back to English, and imported language packs are normalized before being written into the app configuration directory.
+Language packs use the same partial-config approach — missing strings fall back to English.
 
-Start with the example files:
+Example files:
 
 - [Custom theme JSONC](assets/custom-theme.example.jsonc)
 - [Custom language JSONC](assets/custom-language.example.jsonc)
 
-In the app, use `Theme -> Add Theme Config` or `Language -> Add Language Config` to import a `.json` or `.jsonc` file. JSONC comments are accepted for writing and sharing examples; normalized configuration files saved by the app are strict JSON.
-
-> Thank you for helping translate Velotype or enrich the Velotype theme ecosystem. The project is evolving rapidly, so theme field changes may occur frequently.
+Import via **Theme → Add Theme Config** or **Language → Add Language Config** in the app. JSONC comments are accepted on import; saved configs are normalized to strict JSON.
 
 ## Architecture
 
 | Layer | Responsibility |
 | --- | --- |
-| `editor` | Window-level editor state: view mode, save/close flow, undo, selection, source mapping, tree mutation, export, and file drop. |
-| `components::block` | Editable block runtime, GPUI input handling, block rendering, block events, image/table/code runtime state. |
-| `components::markdown` | Markdown data models and parse/serialize helpers for inline text, links, images, footnotes, tables, HTML, and code highlighting. |
-| `config` | Velotype behavior and theme configuration interfaces. |
+| `editor` | Window state: view mode, save/close, undo, selection, source mapping, tree mutation, export, workspace, AI, and file drop. |
+| `components::block` | Editable block runtime, GPUI input, rendering, block events, image/table/code runtime state. |
+| `components::markdown` | Markdown models and parse/serialize helpers for inline text, links, images, footnotes, tables, HTML, and code highlighting. |
+| `config` | App behavior and theme configuration. |
 | `export` | HTML and PDF export pipelines. |
-| `theme` | Visual theme tokens, built-in theme defaults, imported custom themes, and the global theme manager. |
-| `i18n` | Built-in UI strings, imported language packs, system locale matching, and runtime language selection. |
-| `net` | HTTP client integration for remote image loading. |
+| `theme` | Visual tokens, built-in defaults, custom theme import, global theme manager. |
+| `i18n` | Built-in UI strings, language packs, locale matching, runtime language selection. |
+| `net` | HTTP client for remote image loading. |
 
-The editor uses a native block tree as its runtime model. During import, stable supported Markdown is converted into structured blocks; during save, the block tree is serialized back into canonical Markdown. For syntax that is not stable enough in the current runtime, Velotype preserves the original source and keeps it visible and editable.
+The editor uses a native block tree as its runtime model. Supported Markdown is converted to structured blocks on import and serialized back to canonical Markdown on save. Unstable syntax is preserved as raw source and remains visible and editable.
 
 ## Contributing
 
-This repository is still moving fast. When reporting parsing or rendering issues, please fill out the issue template so the problem can be reproduced and handled efficiently.
+This repository moves quickly. When reporting parsing or rendering issues, please use the issue template so problems can be reproduced.
 
-For code changes, we recommend developing on the `dev` branch first and keeping patches small. Please extend the existing parser/runtime model instead of replacing the current implementation wholesale.
+For code changes, prefer small patches on the `dev` branch and extend the existing parser/runtime model rather than replacing it wholesale.
 
 ## License
 
-Velotype is licensed under the [Apache License 2.0](LICENSE).
+Markman is licensed under the [Apache License 2.0](LICENSE).
 
 ## Star History
 

@@ -1,12 +1,12 @@
-# Velotype
+# Markman
 
 <div align="center">
 
-![Velotype banner](../assets/icon/velotype-banner.png)
+![Markman](../assets/icon/markman-banner.png)
 
-**使用 Rust 与 GPUI 构建的原生 Markdown 即时渲染编辑器。**
+**基于 Rust 与 GPUI 的原生 Markdown 备忘录 — 所见即所得、源码模式与工作区一体化。**
 
-[编辑器展示](./showcase/showcase.md)
+[编辑器展示](../assets/showcase/showcase.md)
 
 [English](../README.md) | [中文](README.zh-CN.md)
 
@@ -20,134 +20,149 @@
 
 </div>
 
-Velotype 是一个基于 Rust 与 [GPUI](https://gpui.rs/) 的块级 Markdown 编辑器，支持所见即所得模式(WYSIWYG)和 Markdown 原文本编辑双模式。
+Markman 是一款基于 Rust 与 [GPUI](https://gpui.rs/) 的块级 Markdown 编辑器与备忘录应用。支持所见即所得渲染编辑和 Markdown 源码编辑，无需 WebView，也无需预览窗同步循环。
 
-项目仍处于早期阶段，但核心方向已经稳定：原生 UI、即时渲染编辑、源文本兜底、规范化 Markdown 序列化，以及覆盖颜色、字体、间距和布局 token 的自定义能力。
+> **说明：** 应用显示名称为 **Markman**。可执行文件与 CLI 命令仍为 `velotype`，以兼容现有脚本与发布包。
 
 ## 特性
 
-- **🧱 Block 模型:** Markdown 结构会被表达为可编辑块，让文档结构清晰可控易扩展，无需预览窗同步循环。
-- **⚡ 原生 UI:** 基于 GPUI 的桌面原生渲染，不依赖 Electron、Tauri 或任何 WebView 外壳。
-- **✍️ 编辑模式:** Velotype 支持所见即所得模式(WYSIWYG)和原文本编辑两种模式，满足常见编辑场景需求。
-- **🚀 性能与稳定:** Rust 驱动解析、状态更新和渲染；解析策略遵循标准导向，并在不稳定场景回退为 raw Markdown。
-- **🎨 主题自定义:** 主题可自定义全局颜色、字体、间距、菜单、弹窗、编辑器布局 token 和语言包。
-- **📦 便携单文件:** Velotype 编译后以单文件形式存在，无需安装，原生便携，支持 Windows、Linux 和 macOS 平台。
+### 编辑体验
 
-Velotype 已经支持将当前 Markdown 文档导出为 HTML 和 PDF。HTML 导出会把当前主题映射为 CSS，PDF 导出复用同一套主题化 HTML 管线，以保证视觉输出一致。
+- **Block 模型** — Markdown 结构表达为可编辑块树，解析与渲染天然一致，无需独立预览窗。
+- **双视图模式** — 所见即所得渲染模式与带行号的 Markdown 源码模式。
+- **格式工具栏** — 一键设置标题、加粗、斜体、列表、待办、引用、链接、图片、表格等格式。
+- **丰富导航** — 按词/按块移动、跨块选择、双击选词，以及可配置的快捷键。
+- **文档工具** — 文内搜索、全局搜索、快速打开文件、自动保存，以及复制/剪切/粘贴/全选上下文菜单。
 
-Velotype 目标支持 Windows、Linux 和 macOS。应用天然适合作为独立二进制文件分发，release 构建可以直接运行，无需安装。
+### 工作区
+
+- **文件夹工作区** — 打开目录，在侧栏浏览文件，快速切换笔记。
+- **大纲面板** — 按标题与块结构跳转文档。
+- **工作区搜索** — 跨文件搜索，高亮匹配项并跳转到结果。
+
+### Markdown 与内容
+
+- **常用语法** — 标题、段落、列表、任务列表、引用、callout、表格、脚注、reference 式链接与图片、独立图片、注释块等。
+- **列块** — 多列布局块，支持内联树预览。
+- **代码块** — Tree-sitter 语法高亮、行号、折叠、语言选择、复制，以及可在系统终端运行并展开输出面板。
+- **行内代码** — 在渲染模式下直接在系统终端运行片段。
+- **Mermaid** — 编辑器内渲染图表，支持从内置模板插入。
+- **表格** — 可调列宽与扩展单元格边框样式。
+- **安全 HTML** — 在支持范围内受控处理原生 HTML。
+- **数学与扩展** — 上标/下标行内编辑；在启用时使用 RaTeX 渲染公式。
+
+### AI 辅助
+
+- **上下文 AI** — 对当前选区或块上下文调用 AI。
+- **流式响应** — 结果流式展示，支持可拖拽预览面板与滚动。
+- **自定义提示词** — 在工具栏或偏好设置中保存并复用提示按钮。
+
+### 导出与自定义
+
+- **HTML 与 PDF 导出** — HTML 将当前主题映射为 CSS；PDF 通过本地 Chromium 复用同一套主题化管线。
+- **主题** — 导入 JSONC 主题包，覆盖颜色、字体、间距、菜单、弹窗、代码高亮与布局 token。
+- **语言包** — 局部 JSONC 语言文件，缺失文案回退英文。
+- **全局热键** — 在支持的平台上随时切换应用可见性。
+
+### 平台
+
+- **原生 GPUI 界面** — 不依赖 Electron、Tauri 或 WebView。
+- **便携单文件** — 编译后为单个可执行文件，支持 Windows、Linux、macOS。
+- **macOS 打包** — 提供 `.app` 或 PKG 安装包，可选配置 CLI 符号链接。
 
 ## 快速开始
 
 ### 1. 下载 release
 
-从 [Velotype Releases](https://github.com/manyougz/velotype/releases) 页面下载对应平台的构建。
+从 [GitHub Releases](https://github.com/manyougz/velotype/releases) 下载对应平台构建。
 
-#### Windows 和 Linux 用户
+#### Windows 与 Linux
 
-- 下载对应的 `.zip` 或 `.tar.gz` 文件
-- 解压得到可执行文件
-- 直接运行即可
+1. 下载对应平台的 `.zip` 或 `.tar.gz`。
+2. 解压得到 `velotype` 可执行文件。
+3. 直接运行。
 
-#### macOS 用户
+#### macOS
 
-提供两种安装方式：
+**方式 1：`.app` 应用包**
 
-**方式 1：单一 .app 应用包**
-- 下载 `velotype-*.zip` 文件
-- 解压得到 `Velotype.app`
-- 拖到 `/Applications` 或任意位置
-- 双击即可运行
+1. 下载 `velotype-*.zip`。
+2. 解压得到 `Markman.app`（旧版 release 可能仍为 `Velotype.app`）。
+3. 拖到 `/Applications` 或直接运行。
 
 **方式 2：PKG 安装包（推荐）**
-- 下载 `velotype-*.pkg` 文件
-- 双击运行安装程序
-- 自动安装到 `/Applications`
-- 自动配置命令行工具 `velotype`
 
-> **如果使用 PKG 安装**：命令行工具在安装过程中已自动配置，可直接使用。PKG安装程序通过 `postinstall` / `preuninstall`脚本自动管理CLI链接。你仍然可以在使用时手动触发安装/卸载。
-> 
-> **如果使用 .app 应用包**：可通过应用内菜单一键安装/卸载：
-> 1. 打开 Velotype.app
-> 2. 点击菜单 **帮助 → 安装CLI命令**
-> 3. 输入管理员密码
-> 4. 完成！
-> 
-> 注意，如果你移动或删除了 `Velotype.app`，符号链接会自动失效，运行 `velotype` 会提示找不到命令。
+1. 下载 `velotype-*.pkg`。
+2. 运行安装程序，应用安装到 `/Applications`。
+3. 自动配置 `velotype` CLI 命令。
+
+> **CLI 说明：** PKG 安装通过 `postinstall` / `preuninstall` 脚本管理 `/usr/local/bin/velotype` 符号链接。仅使用 `.app` 时，可在应用内 **帮助 → 安装 CLI 命令** 手动配置。移动或删除应用包会导致符号链接失效。
 
 ### 2. 从源码构建
 
 前置需求：
 
 - Git
-- 支持 Rust 2024 edition 的 Rust toolchain
+- 支持 **Rust 2024 edition** 的工具链
 - Cargo
-- GPUI 与系统工具链所需的平台原生构建依赖
-
-本地构建并运行 Velotype：
+- GPUI 所需的平台原生构建依赖
 
 ```bash
 git clone https://github.com/manyougz/velotype.git
-```
-
-```bash
+cd velotype
 cargo build --release
 ```
 
-如果一切正常，构建产物将在 `target/release` 下储存，取出可执行文件即可使用。
+构建产物位于 `target/release/velotype`。
 
-日常开发、测试与打包的详细说明见 [开发与构建指南](development.zh-CN.md)。
+日常开发、测试与打包说明见 [开发与构建指南](development.zh-CN.md)。
 
 ## Roadmap
 
-Velotype 目前已经支持几乎所有基础 Markdown 语法，以及绝大多数常见扩展 Markdown 语法，包括标题、段落、列表、任务列表、引用、callout、表格、代码块、行内格式、链接、reference-style 链接与图片、脚注、独立图片、注释块和安全的原生 HTML 处理。
+Markman 已覆盖大多数日常 Markdown 写作需求。仍在计划中的能力包括：
 
-语法支持仍会持续更新。仍在计划中的能力包括：
-
-- [x] ~~优化对超大 Markdown 文档的解析与渲染能力~~
-- [x] ~~工作区模式与大纲解析~~
+- [x] 超大文档的性能优化
+- [x] 工作区模式与大纲导航
 - [ ] 内置图床
-- [ ] 更完善的 IME 功能
+- [ ] 更完善的 IME 行为
 
-## 自定义主题 & 翻译
+## 自定义主题与语言
 
-Velotype 将视觉主题和界面语言包拆分管理。主题文件可以覆盖全局颜色、字体、尺寸、菜单、弹窗、表格控件、图片占位、代码高亮颜色，以及布局相关 token。缺失字段或空值会继承主题包指定的内置基准主题（`velotype` 或 `velotype-light`，跟随 `base_theme_id`，该字段值为空或非法时回退到 `velotype` 主题值），因此自定义主题文件可以非常小，但也能完整覆盖。
+视觉主题与界面语言分开管理。主题文件可覆盖全局颜色、字体、尺寸、菜单、弹窗、表格控件、图片占位、代码高亮与布局 token。缺失字段会继承基准主题（通过 `base_theme_id` 指定 `velotype` 或 `velotype-light`）。
 
-语言包也采用相同的局部配置策略。缺失文案会回退到英文，导入后的语言包会在写入应用配置目录前进行规范化。
+语言包同样采用局部配置策略，缺失文案回退英文。
 
-可以从以下示例文件开始：
+示例文件：
 
 - [自定义主题 JSONC](custom-theme.example.jsonc)
 - [自定义语言 JSONC](custom-language.example.jsonc)
 
-在应用内使用 `主题 -> 添加主题配置` 或 `语言 -> 添加语言配置` 导入 `.json` / `.jsonc` 文件。JSONC 注释用于方便编写和分享示例；应用规范化保存后的配置文件会是严格 JSON。
-
-> 十分感谢您帮助翻译 Velotype 或丰富 Velotype 主题生态！项目处于快速更迭阶段，主题字段的变更可能较为频繁。
+在应用内通过 **主题 → 添加主题配置** 或 **语言 → 添加语言配置** 导入。导入时接受 JSONC 注释；保存后会规范化为严格 JSON。
 
 ## 架构
 
-| Layer | Responsibility |
+| 模块 | 职责 |
 | --- | --- |
-| `editor` | 窗口级编辑器状态：视图模式、保存/关闭流程、撤销、选择、source mapping、树结构变更、导出和文件拖拽。 |
-| `components::block` | 可编辑块运行时、GPUI 输入处理、块渲染、块事件、图片/表格/代码块运行时状态。 |
-| `components::markdown` | Markdown 数据模型，以及 inline、link、image、footnote、table、HTML、code highlight 的解析与序列化辅助逻辑。 |
-| `config` | Velotype 行为、主题配置接口。 |
+| `editor` | 窗口级状态：视图模式、保存/关闭、撤销、选择、source mapping、树变更、导出、工作区、AI、文件拖拽。 |
+| `components::block` | 可编辑块运行时、GPUI 输入、块渲染、块事件、图片/表格/代码块运行时状态。 |
+| `components::markdown` | Markdown 数据模型，以及 inline、link、image、footnote、table、HTML、code highlight 的解析与序列化。 |
+| `config` | 应用行为与主题配置。 |
 | `export` | HTML 与 PDF 导出管线。 |
-| `theme` | 视觉主题 token、内置主题默认值、自定义主题导入和全局主题管理。 |
-| `i18n` | 内置 UI 文案、自定义语言包、系统 locale 匹配和运行时语言切换。 |
-| `net` | 远程图片加载所需的 HTTP client 集成。 |
+| `theme` | 视觉 token、内置默认值、自定义主题导入、全局主题管理。 |
+| `i18n` | 内置 UI 文案、语言包、locale 匹配、运行时语言切换。 |
+| `net` | 远程图片加载所需的 HTTP client。 |
 
-编辑器使用原生 block tree 作为运行时模型。导入时，稳定支持的 Markdown 会转换为结构化块；保存时，block tree 会重新序列化为规范化 Markdown。对于当前运行时不稳定支持的语法，Velotype 会保留原始源码，并保持其可见、可编辑。
+编辑器以原生 block tree 为运行时模型。导入时将稳定支持的 Markdown 转为结构化块；保存时再序列化为规范化 Markdown。对当前运行时不稳定支持的语法，会保留原始源码并保持可见、可编辑。
 
 ## 贡献
 
-这个仓库仍在快速迭代。报告解析或渲染问题时，请按照 issue 模板填写情况以高效传递问题。
+仓库仍在快速迭代。报告解析或渲染问题时，请使用 issue 模板以便复现。
 
-提交代码变更时，建议优先在 dev 分支进行开发并提供小补丁，并基于现有 parser/runtime 模型扩展，而不是整体替换现有实现。
+提交代码时建议在 `dev` 分支以小补丁形式扩展现有 parser/runtime 模型，而非整体替换。
 
 ## 许可证
 
-Velotype 使用 [Apache License 2.0](../LICENSE)。
+Markman 使用 [Apache License 2.0](../LICENSE)。
 
 ## Star History
 
