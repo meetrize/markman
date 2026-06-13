@@ -24,7 +24,7 @@
 
 Markman 是一款基于 Rust 与 [GPUI](https://gpui.rs/) 的块级 Markdown 编辑器与备忘录应用。支持所见即所得渲染编辑和 Markdown 源码编辑，无需 WebView，也无需预览窗同步循环。
 
-> **说明：** 应用显示名称为 **Markman**。可执行文件与 CLI 命令为 `markman`。旧版 release 可能仍为 `velotype`。
+> **说明：** 应用显示名称为 **Markman**。可执行文件与 CLI 命令为 `markman`。旧版 release 可能仍为 `velotype`。用户配置保存在 Markman 配置目录（macOS 上例如 `~/Library/Application Support/Markman`），首次启动时会自动从旧版 Velotype 目录迁移。
 
 ## 特性
 

@@ -7,7 +7,7 @@ use gpui::{
     WindowDecorations, WindowOptions, div, point, px, rgba, svg,
 };
 
-use crate::app_identity::VELOTYPE_APP_ID;
+use crate::app_identity::MARKMAN_APP_ID;
 use crate::theme::{Theme, ThemeDimensions};
 
 const TITLEBAR_MIN_HEIGHT: f32 = 32.0;
@@ -70,7 +70,7 @@ pub(crate) fn velotype_window_options_for_target_os(
     bounds: Bounds<Pixels>,
 ) -> WindowOptions {
     WindowOptions {
-        app_id: Some(VELOTYPE_APP_ID.to_string()),
+        app_id: Some(MARKMAN_APP_ID.to_string()),
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(titlebar_options_for_target_os(target_os, title)),
         window_background: WindowBackgroundAppearance::Opaque,

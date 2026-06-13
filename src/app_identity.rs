@@ -1,7 +1,17 @@
 //! Shared application identity used by platform windowing and packaging.
 
 /// Reverse-DNS application id used by GPUI, desktop launchers, and bundles.
-pub(crate) const VELOTYPE_APP_ID: &str = "com.manyougz.Velotype";
+pub(crate) const MARKMAN_APP_ID: &str = "com.manyougz.Markman";
+
+/// Legacy bundle id from releases before the Markman config migration.
+#[allow(dead_code)]
+pub(crate) const LEGACY_APP_ID: &str = "com.manyougz.Velotype";
+
+/// `ProjectDirs` qualifier for Markman config, cache, and data directories.
+pub(crate) const MARKMAN_PROJECT_QUALIFIER: &str = "Markman";
+
+/// Legacy `ProjectDirs` qualifier used before the Markman rebrand.
+pub(crate) const LEGACY_PROJECT_QUALIFIER: &str = "Velotype";
 
 /// User-visible application name shown in window titles and menus.
 pub(crate) const APP_DISPLAY_NAME: &str = "Markman";

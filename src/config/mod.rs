@@ -6,6 +6,8 @@ use anyhow::{Context as _, bail};
 use directories::ProjectDirs;
 use serde_json::{Map, Value};
 
+use crate::app_identity::{LEGACY_PROJECT_QUALIFIER, MARKMAN_PROJECT_QUALIFIER};
+
 pub(crate) mod ai_toolbar;
 pub(crate) mod catalog;
 pub(crate) mod preferences;
@@ -21,24 +23,27 @@ pub(crate) use preferences::{
 
 pub(crate) const RECENT_FILES_LIMIT: usize = 20;
 
-/// Cross-platform configuration directories owned by Velotype.
+/// Cross-platform configuration directories owned by Markman.
 #[derive(Debug, Clone)]
-pub(crate) struct VelotypeConfigDirs {
+pub(crate) struct MarkmanConfigDirs {
     root: PathBuf,
 }
 
-impl VelotypeConfigDirs {
+const LEGACY_CONFIG_MIGRATION_MARKER: &str = ".migrated-from-velotype";
+
+impl MarkmanConfigDirs {
     /// Resolves the platform-specific app config directory.
     ///
     /// GPUI does not currently expose an app config path, so user-imported
     /// language and theme packs are stored under the OS location returned by
-    /// `directories::ProjectDirs`.
+    /// `directories::ProjectDirs`. On first launch, copies data from the legacy
+    /// Velotype config directory when present.
     pub(crate) fn from_system() -> anyhow::Result<Self> {
-        let dirs = ProjectDirs::from("com", "manyougz", "Velotype")
-            .context("failed to resolve the Velotype config directory")?;
-        Ok(Self {
-            root: dirs.config_dir().to_path_buf(),
-        })
+        let dirs = ProjectDirs::from("com", "manyougz", MARKMAN_PROJECT_QUALIFIER)
+            .context("failed to resolve the Markman config directory")?;
+        let root = dirs.config_dir().to_path_buf();
+        migrate_legacy_config_if_needed(&root)?;
+        Ok(Self { root })
     }
 
     /// Creates a directory set from a caller-provided root for tests.
@@ -68,24 +73,94 @@ impl VelotypeConfigDirs {
     }
 }
 
+fn legacy_config_dir() -> Option<PathBuf> {
+    ProjectDirs::from("com", "manyougz", LEGACY_PROJECT_QUALIFIER)
+        .map(|dirs| dirs.config_dir().to_path_buf())
+}
+
+fn migrate_legacy_config_if_needed(new_root: &Path) -> anyhow::Result<()> {
+    migrate_legacy_config_if_needed_from(new_root, legacy_config_dir().as_deref())
+}
+
+fn migrate_legacy_config_if_needed_from(
+    new_root: &Path,
+    legacy_root: Option<&Path>,
+) -> anyhow::Result<()> {
+    if new_root.join(LEGACY_CONFIG_MIGRATION_MARKER).exists() {
+        return Ok(());
+    }
+
+    if new_root.join("config.toml").exists() {
+        write_legacy_config_migration_marker(new_root)?;
+        return Ok(());
+    }
+
+    if let Some(legacy_root) = legacy_root.filter(|path| path.is_dir()) {
+        copy_config_tree(legacy_root, new_root).with_context(|| {
+            format!(
+                "failed to migrate config from '{}'",
+                legacy_root.display()
+            )
+        })?;
+    }
+
+    write_legacy_config_migration_marker(new_root)
+}
+
+fn write_legacy_config_migration_marker(root: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = root.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create '{}'", parent.display()))?;
+    }
+    std::fs::create_dir_all(root)
+        .with_context(|| format!("failed to create '{}'", root.display()))?;
+    std::fs::write(root.join(LEGACY_CONFIG_MIGRATION_MARKER), b"migrated\n")
+        .with_context(|| format!("failed to write migration marker in '{}'", root.display()))
+}
+
+fn copy_config_tree(from: &Path, to: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(to)
+        .with_context(|| format!("failed to create '{}'", to.display()))?;
+    for entry in std::fs::read_dir(from)
+        .with_context(|| format!("failed to read '{}'", from.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let dest = to.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copy_config_tree(&path, &dest)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&path, &dest).with_context(|| {
+                format!(
+                    "failed to copy '{}' to '{}'",
+                    path.display(),
+                    dest.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn read_recent_files() -> anyhow::Result<Vec<PathBuf>> {
-    read_recent_files_with_dirs(&VelotypeConfigDirs::from_system()?)
+    read_recent_files_with_dirs(&MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn record_recent_file(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    record_recent_file_with_dirs(path, &VelotypeConfigDirs::from_system()?)
+    record_recent_file_with_dirs(path, &MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn remove_recent_file(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    remove_recent_file_with_dirs(path, &VelotypeConfigDirs::from_system()?)
+    remove_recent_file_with_dirs(path, &MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn read_last_workspace_folder() -> anyhow::Result<Option<PathBuf>> {
-    read_last_workspace_folder_with_dirs(&VelotypeConfigDirs::from_system()?)
+    read_last_workspace_folder_with_dirs(&MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn record_last_workspace_folder(path: &Path) -> anyhow::Result<()> {
-    record_last_workspace_folder_with_dirs(path, &VelotypeConfigDirs::from_system()?)
+    record_last_workspace_folder_with_dirs(path, &MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn last_existing_workspace_folder() -> Option<PathBuf> {
@@ -96,7 +171,7 @@ pub(crate) fn last_existing_workspace_folder() -> Option<PathBuf> {
 }
 
 pub(crate) fn read_recent_files_with_dirs(
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<Vec<PathBuf>> {
     let path = dirs.history_file();
     let text = match std::fs::read_to_string(&path) {
@@ -112,7 +187,7 @@ pub(crate) fn read_recent_files_with_dirs(
 
 pub(crate) fn record_recent_file_with_dirs(
     path: &Path,
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<Vec<PathBuf>> {
     if path.to_string_lossy().trim().is_empty() {
         bail!("recent file path cannot be empty");
@@ -132,7 +207,7 @@ pub(crate) fn record_recent_file_with_dirs(
 
 pub(crate) fn remove_recent_file_with_dirs(
     path: &Path,
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<Vec<PathBuf>> {
     let mut paths = read_recent_files_with_dirs(dirs)?;
     paths.retain(|existing| !same_recent_path(existing, path));
@@ -142,7 +217,7 @@ pub(crate) fn remove_recent_file_with_dirs(
 
 fn write_recent_files_with_dirs(
     paths: &[PathBuf],
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<()> {
     let history_file = dirs.history_file();
     let normalized = normalize_recent_files(paths.iter().cloned());
@@ -172,7 +247,7 @@ fn write_recent_files_with_dirs(
 }
 
 pub(crate) fn read_last_workspace_folder_with_dirs(
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<Option<PathBuf>> {
     let path = dirs.last_workspace_file();
     let text = match std::fs::read_to_string(&path) {
@@ -192,7 +267,7 @@ pub(crate) fn read_last_workspace_folder_with_dirs(
 
 pub(crate) fn record_last_workspace_folder_with_dirs(
     path: &Path,
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<()> {
     if !path.is_dir() {
         bail!("workspace folder must be a directory");
@@ -464,7 +539,7 @@ fn is_empty_json_value(value: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        RECENT_FILES_LIMIT, VelotypeConfigDirs, parse_jsonc_value, prune_empty_json_values,
+        RECENT_FILES_LIMIT, MarkmanConfigDirs, parse_jsonc_value, prune_empty_json_values,
         read_last_workspace_folder_with_dirs, read_recent_files_with_dirs,
         record_last_workspace_folder_with_dirs, record_recent_file_with_dirs,
         remove_recent_file_with_dirs, sanitize_config_file_stem, strip_jsonc_comments,
@@ -518,7 +593,7 @@ mod tests {
     #[test]
     fn missing_recent_history_file_returns_empty_list() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
 
         assert!(read_recent_files_with_dirs(&dirs).unwrap().is_empty());
         assert!(!dirs.history_file().exists());
@@ -529,7 +604,7 @@ mod tests {
     #[test]
     fn empty_recent_history_write_does_not_create_file() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
 
         super::write_recent_files_with_dirs(&[], &dirs).unwrap();
 
@@ -541,7 +616,7 @@ mod tests {
     #[test]
     fn blank_recent_file_path_is_rejected() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
 
         assert!(record_recent_file_with_dirs(Path::new("   "), &dirs).is_err());
         assert!(!dirs.history_file().exists());
@@ -552,7 +627,7 @@ mod tests {
     #[test]
     fn recent_history_filters_empty_lines_and_deduplicates() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             dirs.history_file(),
@@ -572,7 +647,7 @@ mod tests {
     #[test]
     fn recent_history_filters_legacy_velotype_temp_fixture_paths() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let fixture_path = std::env::temp_dir().join(format!(
             "velotype-drop-save-replace-{}-123.md",
             std::process::id()
@@ -594,7 +669,7 @@ mod tests {
     #[test]
     fn recording_velotype_temp_fixture_path_is_noop() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let fixture_path = std::env::temp_dir().join(format!(
             "velotype-drop-dirty-discard-{}-123.md",
             std::process::id()
@@ -613,7 +688,7 @@ mod tests {
     #[test]
     fn ordinary_temp_markdown_file_can_still_be_recorded() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let path = std::env::temp_dir().join(format!("manual-note-{}.md", std::process::id()));
 
         let paths = record_recent_file_with_dirs(&path, &dirs).unwrap();
@@ -627,7 +702,7 @@ mod tests {
     #[test]
     fn recording_recent_file_moves_it_to_front_and_truncates() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
 
         for index in 0..(RECENT_FILES_LIMIT + 2) {
             record_recent_file_with_dirs(&PathBuf::from(format!("file-{index}.md")), &dirs)
@@ -652,7 +727,7 @@ mod tests {
     #[test]
     fn removing_recent_file_persists_history_without_it() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         record_recent_file_with_dirs(&PathBuf::from("one.md"), &dirs).unwrap();
         record_recent_file_with_dirs(&PathBuf::from("two.md"), &dirs).unwrap();
 
@@ -670,7 +745,7 @@ mod tests {
     #[test]
     fn removing_last_recent_file_deletes_history_file() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let path = PathBuf::from("only.md");
         record_recent_file_with_dirs(&path, &dirs).unwrap();
         assert!(dirs.history_file().exists());
@@ -687,7 +762,7 @@ mod tests {
     #[test]
     fn records_and_reads_last_workspace_folder() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let workspace = root.join("workspace");
         std::fs::create_dir_all(&workspace).expect("create workspace dir");
 
@@ -705,7 +780,7 @@ mod tests {
     #[test]
     fn read_last_workspace_folder_ignores_stale_missing_paths() {
         let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         std::fs::create_dir_all(&root).expect("create config dir");
         std::fs::write(
             dirs.last_workspace_file(),
@@ -716,6 +791,31 @@ mod tests {
         let stored = read_last_workspace_folder_with_dirs(&dirs).expect("read workspace");
         assert_eq!(stored.filter(|path| path.is_dir()), None);
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrates_legacy_config_directory_when_markman_config_is_missing() {
+        use super::migrate_legacy_config_if_needed_from;
+
+        let root =
+            std::env::temp_dir().join(format!("markman-config-migrate-{}", uuid::Uuid::new_v4()));
+        let legacy = root.join("legacy");
+        let markman = root.join("markman");
+        std::fs::create_dir_all(&legacy).expect("create legacy config dir");
+        std::fs::write(
+            legacy.join("config.toml"),
+            "startup_open = \"new_file\"\n",
+        )
+        .expect("write legacy config");
+        std::fs::write(legacy.join(".history"), b"/tmp/note.md\n").expect("write legacy history");
+
+        migrate_legacy_config_if_needed_from(&markman, Some(&legacy))
+            .expect("legacy config should migrate");
+
+        assert!(markman.join("config.toml").is_file());
+        assert!(markman.join(".history").is_file());
+        assert!(markman.join(".migrated-from-velotype").is_file());
         let _ = std::fs::remove_dir_all(root);
     }
 }

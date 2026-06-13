@@ -15,7 +15,7 @@
     </choices-outline>
     <choice id="default"/>
     <choice id="Markman" title="Install Markman" description="Install Markman to /Applications">
-        <pkg-ref id="com.manyougz.Velotype"/>
+        <pkg-ref id="com.manyougz.Markman"/>
     </choice>
-    <pkg-ref id="com.manyougz.Velotype" version="__VELOTYPE_VERSION__" onConclusion="none">#Markman-component.pkg</pkg-ref>
+    <pkg-ref id="com.manyougz.Markman" version="__MARKMAN_VERSION__" onConclusion="none">#Markman-component.pkg</pkg-ref>
 </installer-gui-script>

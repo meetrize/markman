@@ -19,7 +19,7 @@ RESOURCES_DIR="$PROJECT_ROOT/resources/macos"
 APP_NAME="Markman"
 APP_BUNDLE="${APP_NAME}.app"
 BINARY_NAME="markman"
-BUNDLE_ID="com.manyougz.Velotype"
+BUNDLE_ID="com.manyougz.Markman"
 
 PKG_DIR="$DIST_DIR/pkg"
 PKG_NAME="${APP_NAME}-${VERSION}.pkg"
@@ -83,7 +83,7 @@ pkgbuild --identifier "$BUNDLE_ID" \
 
 echo "==> Creating distribution package..."
 cp "$RESOURCES_DIR/pkg/Distribution.xml" "$PKG_DIR/"
-sed -i '' "s/__VELOTYPE_VERSION__/${VERSION}/g" "$PKG_DIR/Distribution.xml"
+sed -i '' "s/__MARKMAN_VERSION__/${VERSION}/g" "$PKG_DIR/Distribution.xml"
 
 productbuild --distribution "$PKG_DIR/Distribution.xml" \
     --package-path "$PKG_DIR" \

@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{
-    VelotypeConfigDirs, catalog, object_without_empty_values, prune_empty_json_values,
+    MarkmanConfigDirs, catalog, object_without_empty_values, prune_empty_json_values,
     read_json_or_jsonc, sanitize_config_file_stem,
 };
 use crate::config::catalog::ConfigCatalog;
@@ -2210,7 +2210,7 @@ impl I18nManager {
     /// Installs a specific UI language into GPUI's global state.
     pub fn init_with_language_id(cx: &mut App, language_id: &str) {
         let mut manager = Self::new_with_language_id(BUILTIN_LANGUAGE_EN_US_ID);
-        if let Ok(dirs) = VelotypeConfigDirs::from_system()
+        if let Ok(dirs) = MarkmanConfigDirs::from_system()
             && let Err(err) = manager.load_custom_languages_from_dirs(&dirs)
         {
             eprintln!("failed to load custom languages: {err}");
@@ -2280,14 +2280,14 @@ impl I18nManager {
 
     /// Imports a user language pack, persists a normalized copy, and activates it.
     pub fn import_language_config(&mut self, path: impl AsRef<Path>) -> anyhow::Result<String> {
-        let dirs = VelotypeConfigDirs::from_system()?;
+        let dirs = MarkmanConfigDirs::from_system()?;
         self.import_language_config_with_dirs(path, &dirs)
     }
 
     fn import_language_config_with_dirs(
         &mut self,
         path: impl AsRef<Path>,
-        dirs: &VelotypeConfigDirs,
+        dirs: &MarkmanConfigDirs,
     ) -> anyhow::Result<String> {
         let raw = read_json_or_jsonc(path.as_ref())?;
         let (pack, normalized) = custom_language_pack_from_value(raw)?;
@@ -2299,7 +2299,7 @@ impl I18nManager {
         Ok(imported_id)
     }
 
-    fn load_custom_languages_from_dirs(&mut self, dirs: &VelotypeConfigDirs) -> anyhow::Result<()> {
+    fn load_custom_languages_from_dirs(&mut self, dirs: &MarkmanConfigDirs) -> anyhow::Result<()> {
         let mut loaded =
             catalog::scan_json_config_dir(&dirs.languages_dir(), "language", |_path, value| {
                 custom_language_pack_from_value(value).map(|(pack, _)| pack)
@@ -2386,7 +2386,7 @@ fn required_string(object: &Map<String, Value>, key: &str) -> anyhow::Result<Str
 #[cfg(test)]
 mod tests {
     use super::{I18nLanguagePack, I18nManager, I18nStrings, language_id_for_locale_preferences};
-    use crate::config::VelotypeConfigDirs;
+    use crate::config::MarkmanConfigDirs;
     use crate::theme::ThemeManager;
 
     #[test]
@@ -2503,7 +2503,7 @@ mod tests {
         )
         .expect("language config should be written");
 
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let mut manager = I18nManager::default();
         let imported_id = manager
             .import_language_config_with_dirs(&source, &dirs)
@@ -2544,7 +2544,7 @@ mod tests {
         )
         .expect("language config should be written");
 
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let mut manager = I18nManager::default();
         let err = manager
             .import_language_config_with_dirs(&source, &dirs)

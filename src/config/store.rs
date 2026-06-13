@@ -13,7 +13,7 @@ use super::ai_toolbar::{
     ai_selection_toolbar_buttons_from_toml, default_ai_selection_toolbar_buttons,
     normalize_ai_selection_toolbar_buttons,
 };
-use super::{VelotypeConfigDirs, read_recent_files};
+use super::{MarkmanConfigDirs, read_recent_files};
 use crate::components::normalize_shortcut_config;
 use crate::i18n::language_id_for_locale_preferences;
 use crate::theme::normalize_builtin_theme_id;
@@ -184,11 +184,11 @@ impl From<&AppPreferences> for PreferencesFile {
 }
 
 pub(crate) fn read_app_preferences() -> anyhow::Result<AppPreferences> {
-    read_app_preferences_with_dirs(&VelotypeConfigDirs::from_system()?)
+    read_app_preferences_with_dirs(&MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn read_app_preferences_with_dirs(
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
     let path = dirs.app_config_file();
     let text = match std::fs::read_to_string(&path) {
@@ -208,7 +208,7 @@ pub(crate) fn read_app_preferences_with_dirs(
 }
 
 pub(crate) fn load_or_create_app_preferences() -> anyhow::Result<AppPreferences> {
-    let dirs = VelotypeConfigDirs::from_system()?;
+    let dirs = MarkmanConfigDirs::from_system()?;
     load_or_create_app_preferences_with_dirs_and_locales(&dirs, sys_locale::get_locales())
 }
 
@@ -337,7 +337,7 @@ where
 }
 
 pub(crate) fn load_or_create_app_preferences_with_dirs_and_locales<I, S>(
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
     locales: I,
 ) -> anyhow::Result<AppPreferences>
 where
@@ -366,12 +366,12 @@ where
 }
 
 pub(crate) fn save_app_preferences(preferences: &AppPreferences) -> anyhow::Result<()> {
-    save_app_preferences_with_dirs(preferences, &VelotypeConfigDirs::from_system()?)
+    save_app_preferences_with_dirs(preferences, &MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn save_app_preferences_with_dirs(
     preferences: &AppPreferences,
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<()> {
     let path = dirs.app_config_file();
     if let Some(parent) = path.parent() {
@@ -397,7 +397,7 @@ pub(crate) fn save_preferences_from_window(
     inline_code_run_in_system_terminal: bool,
     ai: AiPreferences,
 ) -> anyhow::Result<AppPreferences> {
-    let dirs = VelotypeConfigDirs::from_system()?;
+    let dirs = MarkmanConfigDirs::from_system()?;
     save_preferences_from_window_with_dirs(
         startup_open,
         default_theme_id,
@@ -416,7 +416,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
     ai: AiPreferences,
-    dirs: &VelotypeConfigDirs,
+    dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
     let mut preferences =
         load_or_create_app_preferences_with_dirs_and_locales(dirs, sys_locale::get_locales())?;
@@ -448,7 +448,7 @@ mod tests {
         load_or_create_app_preferences_with_dirs_and_locales, read_app_preferences_with_dirs,
         save_app_preferences_with_dirs, save_preferences_from_window_with_dirs,
     };
-    use crate::config::VelotypeConfigDirs;
+    use crate::config::MarkmanConfigDirs;
     use std::collections::BTreeMap;
 
     #[test]
@@ -457,7 +457,7 @@ mod tests {
             "velotype-preferences-missing-{}",
             uuid::Uuid::new_v4()
         ));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let preferences =
             read_app_preferences_with_dirs(&dirs).expect("missing preferences should load");
         assert_eq!(preferences, AppPreferences::default());
@@ -471,7 +471,7 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).expect("temp root should exist");
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         std::fs::write(
             dirs.app_config_file(),
             r#"
@@ -499,7 +499,7 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).expect("temp root should exist");
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         std::fs::write(dirs.app_config_file(), "not = [valid")
             .expect("preferences should be written");
 
@@ -515,7 +515,7 @@ mod tests {
             "velotype-preferences-save-{}",
             uuid::Uuid::new_v4()
         ));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let preferences = AppPreferences {
             startup_open: StartupOpenPreference::LastOpenedFile,
             default_language_id: "zh-CN".into(),
@@ -546,7 +546,7 @@ mod tests {
             "velotype-preferences-create-{}",
             uuid::Uuid::new_v4()
         ));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let preferences = load_or_create_app_preferences_with_dirs_and_locales(&dirs, ["zh-HK"])
             .expect("preferences should be created");
         assert_eq!(preferences.default_language_id, "zh-CN");
@@ -565,7 +565,7 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).expect("temp root should exist");
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         std::fs::write(
             dirs.app_config_file(),
             r#"
@@ -598,7 +598,7 @@ mod tests {
             "velotype-preferences-window-{}",
             uuid::Uuid::new_v4()
         ));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let preferences = AppPreferences {
             startup_open: StartupOpenPreference::NewFile,
             default_language_id: "zh-CN".into(),
@@ -639,7 +639,7 @@ mod tests {
             "velotype-preferences-inline-terminal-{}",
             uuid::Uuid::new_v4()
         ));
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let preferences = AppPreferences {
             inline_code_run_in_system_terminal: true,
             ..AppPreferences::default()

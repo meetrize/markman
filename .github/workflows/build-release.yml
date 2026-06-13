@@ -109,9 +109,9 @@ jobs:
           mkdir -p dist/package/share/icons/hicolor/512x512/apps
           cp target/release/markman dist/package/markman
           cp README.md LICENSE-APACHE dist/package/
-          cp resources/linux/com.manyougz.Velotype.desktop dist/package/share/applications/
-          cp resources/linux/icons/hicolor/256x256/apps/com.manyougz.Velotype.png dist/package/share/icons/hicolor/256x256/apps/
-          cp resources/linux/icons/hicolor/512x512/apps/com.manyougz.Velotype.png dist/package/share/icons/hicolor/512x512/apps/
+          cp resources/linux/com.manyougz.Markman.desktop dist/package/share/applications/
+          cp resources/linux/icons/hicolor/256x256/apps/com.manyougz.Markman.png dist/package/share/icons/hicolor/256x256/apps/
+          cp resources/linux/icons/hicolor/512x512/apps/com.manyougz.Markman.png dist/package/share/icons/hicolor/512x512/apps/
           archive="markman-${RELEASE_TAG}-${{ matrix.archive_suffix }}"
           tar -C dist/package -czf "dist/$archive" .
 
@@ -138,7 +138,7 @@ jobs:
         run: |
           VERSION="${RELEASE_TAG#v}"
           APP_NAME="Markman"
-          BUNDLE_ID="com.manyougz.Velotype"
+          BUNDLE_ID="com.manyougz.Markman"
           COMPONENT_PKG="${APP_NAME}-component.pkg"
 
           mkdir -p dist/pkg/root/Applications
@@ -164,7 +164,7 @@ jobs:
             dist/pkg/${COMPONENT_PKG}
 
           cp resources/macos/pkg/Distribution.xml dist/pkg/
-          sed -i '' "s/__VELOTYPE_VERSION__/${VERSION}/g" dist/pkg/Distribution.xml
+          sed -i '' "s/__MARKMAN_VERSION__/${VERSION}/g" dist/pkg/Distribution.xml
 
           productbuild --distribution dist/pkg/Distribution.xml \
             --package-path dist/pkg \

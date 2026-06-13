@@ -12,7 +12,7 @@
   <key>CFBundleIconFile</key>
   <string>markman</string>
   <key>CFBundleIdentifier</key>
-  <string>com.manyougz.Velotype</string>
+  <string>com.manyougz.Markman</string>
   <key>CFBundleName</key>
   <string>Markman</string>
   <key>CFBundlePackageType</key>

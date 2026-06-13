@@ -55,10 +55,10 @@ package_linux() {
 
     cp "target/release/$VELOTYPE_BINARY_NAME" "$package_dir/"
     cp README.md LICENSE-APACHE "$package_dir/"
-    cp resources/linux/com.manyougz.Velotype.desktop "$package_dir/share/applications/"
-    cp resources/linux/icons/hicolor/256x256/apps/com.manyougz.Velotype.png \
+    cp resources/linux/com.manyougz.Markman.desktop "$package_dir/share/applications/"
+    cp resources/linux/icons/hicolor/256x256/apps/com.manyougz.Markman.png \
         "$package_dir/share/icons/hicolor/256x256/apps/"
-    cp resources/linux/icons/hicolor/512x512/apps/com.manyougz.Velotype.png \
+    cp resources/linux/icons/hicolor/512x512/apps/com.manyougz.Markman.png \
         "$package_dir/share/icons/hicolor/512x512/apps/"
 
     tar -C "$package_dir" -czf "dist/$archive" .

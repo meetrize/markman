@@ -9,6 +9,8 @@ use anyhow::{Context as _, anyhow};
 use directories::ProjectDirs;
 use gpui::{Hsla, Rgba};
 
+use crate::app_identity::MARKMAN_PROJECT_QUALIFIER;
+
 const DISPLAY_MATH_SCALE: f32 = 1.25;
 const INLINE_MATH_SCALE: f32 = 1.12;
 
@@ -136,9 +138,9 @@ fn strip_display_indent(line: &str) -> Option<&str> {
 }
 
 fn latex_cache_dir() -> anyhow::Result<PathBuf> {
-    let root = ProjectDirs::from("com", "manyougz", "Velotype")
+    let root = ProjectDirs::from("com", "manyougz", MARKMAN_PROJECT_QUALIFIER)
         .map(|dirs| dirs.cache_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir().join("Velotype"));
+        .unwrap_or_else(|| std::env::temp_dir().join(MARKMAN_PROJECT_QUALIFIER));
     let dir = root.join("latex-svg");
     fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create LaTeX SVG cache '{}'", dir.display()))?;

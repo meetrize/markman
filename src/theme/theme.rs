@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{
-    VelotypeConfigDirs, catalog, merge_non_empty_json_values, object_without_empty_values,
+    MarkmanConfigDirs, catalog, merge_non_empty_json_values, object_without_empty_values,
     prune_empty_json_values, read_json_or_jsonc, sanitize_config_file_stem,
 };
 
@@ -1555,7 +1555,7 @@ impl ThemeManager {
     /// Installs a specific theme into GPUI's global state.
     pub fn init_with_theme_id(cx: &mut App, theme_id: &str) {
         let mut manager = Self::default();
-        if let Ok(dirs) = VelotypeConfigDirs::from_system()
+        if let Ok(dirs) = MarkmanConfigDirs::from_system()
             && let Err(err) = manager.load_custom_themes_from_dirs(&dirs)
         {
             eprintln!("failed to load custom themes: {err}");
@@ -1642,14 +1642,14 @@ impl ThemeManager {
 
     /// Imports a user theme pack, persists a normalized copy, and activates it.
     pub fn import_theme_config(&mut self, path: impl AsRef<Path>) -> anyhow::Result<String> {
-        let dirs = VelotypeConfigDirs::from_system()?;
+        let dirs = MarkmanConfigDirs::from_system()?;
         self.import_theme_config_with_dirs(path, &dirs)
     }
 
     fn import_theme_config_with_dirs(
         &mut self,
         path: impl AsRef<Path>,
-        dirs: &VelotypeConfigDirs,
+        dirs: &MarkmanConfigDirs,
     ) -> anyhow::Result<String> {
         let raw = read_json_or_jsonc(path.as_ref())?;
         let default_base_theme_id = self.theme_import_base_theme_id();
@@ -1667,7 +1667,7 @@ impl ThemeManager {
         Ok(imported_id)
     }
 
-    fn load_custom_themes_from_dirs(&mut self, dirs: &VelotypeConfigDirs) -> anyhow::Result<()> {
+    fn load_custom_themes_from_dirs(&mut self, dirs: &MarkmanConfigDirs) -> anyhow::Result<()> {
         let mut loaded = catalog::scan_json_config_dir(&dirs.themes_dir(), "theme", |_path, value| {
             custom_theme_from_value(value).map(|(entry, _)| entry)
         })?;
@@ -1852,7 +1852,7 @@ fn required_string(object: &Map<String, Value>, key: &str) -> anyhow::Result<Str
 #[cfg(test)]
 mod tests {
     use super::{Theme, ThemeManager};
-    use crate::config::VelotypeConfigDirs;
+    use crate::config::MarkmanConfigDirs;
     use gpui::rgba;
 
     #[test]
@@ -2181,7 +2181,7 @@ mod tests {
         )
         .expect("theme config should be written");
 
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let mut manager = ThemeManager::default();
         let imported_id = manager
             .import_theme_config_with_dirs(&source, &dirs)
@@ -2307,7 +2307,7 @@ mod tests {
         )
         .expect("theme config should be written");
 
-        let dirs = VelotypeConfigDirs::from_root(&root);
+        let dirs = MarkmanConfigDirs::from_root(&root);
         let mut manager = ThemeManager::default();
         assert!(manager.set_theme_by_id("markman-light"));
         let imported_id = manager

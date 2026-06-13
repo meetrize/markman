@@ -24,7 +24,7 @@
 
 Markman is a block-based Markdown editor and memo app powered by Rust and [GPUI](https://gpui.rs/). Edit in rendered WYSIWYG mode or switch to Markdown source — no WebView, no preview-pane sync loop.
 
-> **Note:** The display name is **Markman**. The executable and CLI command are `markman`. Older releases used `velotype`.
+> **Note:** The display name is **Markman**. The executable and CLI command are `markman`. Older releases used `velotype`. User settings are stored under the Markman config directory (for example `~/Library/Application Support/Markman` on macOS) and are migrated automatically from the legacy Velotype location on first launch.
 
 ## Features
 
