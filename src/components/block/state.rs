@@ -724,7 +724,10 @@ pub enum BlockEvent {
     RequestOpenLink {
         prompt_target: String,
         open_target: String,
+        is_workspace_file: bool,
     },
+    /// Open the wiki-link file picker for `[[path]]` at the current caret.
+    RequestOpenWikiLinkPicker { path: String },
     /// Jump from a rendered footnote reference to the corresponding
     /// in-place footnote definition block.
     RequestJumpToFootnoteDefinition { id: String },

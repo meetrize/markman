@@ -20,6 +20,7 @@ impl Editor {
             SingleLineInputTarget::DocumentSearch => self.search.state.open,
             SingleLineInputTarget::WorkspaceName => self.workspace.name_dialog.is_some(),
             SingleLineInputTarget::QuickFileOpen => self.quick_file_open.open,
+            SingleLineInputTarget::WikiLinkPicker => self.wiki_link_picker.open,
         }
     }
 
@@ -34,6 +35,9 @@ impl Editor {
                 .as_ref()
                 .is_some_and(|dialog| !dialog.input.selected_range.is_empty()),
             SingleLineInputTarget::QuickFileOpen => false,
+            SingleLineInputTarget::WikiLinkPicker => {
+                !self.wiki_link_picker.input.selected_range.is_empty()
+            }
         }
     }
 
@@ -76,6 +80,9 @@ impl Editor {
                 self.workspace_name_prepare_context_menu(event.position);
             }
             SingleLineInputTarget::QuickFileOpen => {}
+            SingleLineInputTarget::WikiLinkPicker => {
+                self.wiki_link_picker_prepare_context_menu(event.position);
+            }
         }
 
         self.single_line_input_context_menu = Some(SingleLineInputContextMenuState {
@@ -106,6 +113,9 @@ impl Editor {
                 self.workspace_name_copy_to_clipboard(cx);
             }
             SingleLineInputTarget::QuickFileOpen => {}
+            SingleLineInputTarget::WikiLinkPicker => {
+                self.wiki_link_picker_copy_to_clipboard(cx);
+            }
         }
     }
 
@@ -121,6 +131,9 @@ impl Editor {
                 self.workspace_name_cut_to_clipboard(cx);
             }
             SingleLineInputTarget::QuickFileOpen => {}
+            SingleLineInputTarget::WikiLinkPicker => {
+                self.wiki_link_picker_cut_to_clipboard(cx);
+            }
         }
     }
 
@@ -136,6 +149,9 @@ impl Editor {
                 self.workspace_name_paste_from_clipboard(cx);
             }
             SingleLineInputTarget::QuickFileOpen => {}
+            SingleLineInputTarget::WikiLinkPicker => {
+                self.wiki_link_picker_paste_from_clipboard(cx);
+            }
         }
     }
 

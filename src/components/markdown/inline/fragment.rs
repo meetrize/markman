@@ -62,6 +62,8 @@ pub enum InlineLink {
     Reference { label: String, destination: String },
     /// Autolink target from `<scheme:target>` or email-like syntax.
     Autolink { target: String },
+    /// Obsidian-style wiki link: `[[relative/path]]` (workspace-root relative).
+    WikiLink { path: String },
 }
 
 /// Link target pair used by hit-testing and open-link prompts.
@@ -69,6 +71,8 @@ pub enum InlineLink {
 pub struct InlineLinkHit {
     pub prompt_target: String,
     pub open_target: String,
+    /// When true, [`open_target`] is resolved against the workspace root and opened as a local file.
+    pub is_workspace_file: bool,
 }
 
 /// A cursor inside the inline text tree.

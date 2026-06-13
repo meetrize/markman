@@ -550,8 +550,17 @@ impl Editor {
             BlockEvent::RequestOpenLink {
                 prompt_target,
                 open_target,
+                is_workspace_file,
             } => {
-                self.request_open_link_prompt(prompt_target.clone(), open_target.clone(), cx);
+                self.handle_request_open_link(
+                    prompt_target.clone(),
+                    open_target.clone(),
+                    *is_workspace_file,
+                    cx,
+                );
+            }
+            BlockEvent::RequestOpenWikiLinkPicker { path } => {
+                self.request_open_wiki_link_picker(binding.cell.entity_id(), path.clone(), cx);
             }
             BlockEvent::RequestJumpToFootnoteDefinition { id, .. } => {
                 let _ = self.jump_to_footnote_definition(id, cx);
@@ -1280,8 +1289,17 @@ impl Editor {
             BlockEvent::RequestOpenLink {
                 prompt_target,
                 open_target,
+                is_workspace_file,
             } => {
-                self.request_open_link_prompt(prompt_target.clone(), open_target.clone(), cx);
+                self.handle_request_open_link(
+                    prompt_target.clone(),
+                    open_target.clone(),
+                    *is_workspace_file,
+                    cx,
+                );
+            }
+            BlockEvent::RequestOpenWikiLinkPicker { path } => {
+                self.request_open_wiki_link_picker(block.entity_id(), path.clone(), cx);
             }
             BlockEvent::RequestJumpToFootnoteDefinition { id, .. } => {
                 let _ = self.jump_to_footnote_definition(id, cx);

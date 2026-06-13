@@ -137,6 +137,23 @@ impl Element for SingleLineInputElement {
                         editor.quick_file_open_cursor_offset(),
                     )
                 }
+                SingleLineInputTarget::WikiLinkPicker => {
+                    let is_placeholder = editor.wiki_link_picker_query_is_empty();
+                    let text_color = if is_placeholder {
+                        theme.colors.dialog_muted
+                    } else {
+                        theme.colors.text_default
+                    };
+                    (
+                        editor.wiki_link_picker_display_text(&self.placeholder),
+                        is_placeholder,
+                        text_color,
+                        editor.wiki_link_picker_input_active(window),
+                        editor.wiki_link_picker_marked_range(),
+                        editor.wiki_link_picker_selected_range(),
+                        editor.wiki_link_picker_cursor_offset(),
+                    )
+                }
             };
 
         let prepaint = prepaint_single_line_field(
@@ -171,6 +188,9 @@ impl Element for SingleLineInputElement {
                 editor.set_workspace_name_layout(prepaint.line.clone(), bounds);
             }
             SingleLineInputTarget::QuickFileOpen => {}
+            SingleLineInputTarget::WikiLinkPicker => {
+                editor.set_wiki_link_picker_layout(prepaint.line.clone(), bounds);
+            }
         });
 
         prepaint
@@ -231,6 +251,9 @@ impl Element for SingleLineInputElement {
                         editor.on_workspace_name_mouse_down(event, window, cx);
                     }
                     SingleLineInputTarget::QuickFileOpen => {}
+                    SingleLineInputTarget::WikiLinkPicker => {
+                        editor.on_wiki_link_picker_mouse_down(event, window, cx);
+                    }
                 });
             }
         });
@@ -250,6 +273,9 @@ impl Element for SingleLineInputElement {
                         editor.on_workspace_name_mouse_up(event, _window, cx);
                     }
                     SingleLineInputTarget::QuickFileOpen => {}
+                    SingleLineInputTarget::WikiLinkPicker => {
+                        editor.on_wiki_link_picker_mouse_up(event, _window, cx);
+                    }
                 });
             }
         });
@@ -269,6 +295,9 @@ impl Element for SingleLineInputElement {
                         editor.on_workspace_name_mouse_move(event, window, cx);
                     }
                     SingleLineInputTarget::QuickFileOpen => {}
+                    SingleLineInputTarget::WikiLinkPicker => {
+                        editor.on_wiki_link_picker_mouse_move(event, window, cx);
+                    }
                 });
             }
         });

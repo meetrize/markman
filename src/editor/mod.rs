@@ -39,7 +39,9 @@ mod format_toolbar;
 mod history;
 mod overlays;
 mod persistence;
+mod file_search;
 mod quick_file_open;
+mod wiki_link_picker;
 mod render;
 mod runtime_context;
 mod document_search;
@@ -66,6 +68,7 @@ use self::controllers::{SearchController, WorkspaceController};
 pub(crate) struct PendingOpenLink {
     pub(crate) prompt_target: String,
     pub(crate) open_target: String,
+    pub(crate) is_workspace_file: bool,
 }
 
 /// Deferred jump target after opening a workspace search result.
@@ -101,6 +104,7 @@ pub struct Editor {
     auto_save_enabled: bool,
     auto_save_task: Option<Task<()>>,
     pending_open_link: Option<PendingOpenLink>,
+    pending_wiki_link_picker: Option<(EntityId, String)>,
     search: SearchController,
     pending_window_edited: bool,
     pending_window_title_refresh: bool,
@@ -161,6 +165,7 @@ pub struct Editor {
     inline_code_run_popover: Option<code_run::InlineCodeRunTarget>,
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
     quick_file_open: quick_file_open::QuickFileOpenState,
+    wiki_link_picker: wiki_link_picker::WikiLinkPickerState,
     ai: controllers::AiController,
 }
 
@@ -311,6 +316,7 @@ impl Editor {
             auto_save_enabled: false,
             auto_save_task: None,
             pending_open_link: None,
+            pending_wiki_link_picker: None,
             search: SearchController::new(cx),
             pending_window_edited: false,
             pending_window_title_refresh: false,
@@ -365,6 +371,7 @@ impl Editor {
             inline_code_run_popover: None,
             code_run_dialog: None,
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
+            wiki_link_picker: wiki_link_picker::WikiLinkPickerState::new(cx),
             ai: controllers::AiController::new(cx),
         };
         editor.rebuild_table_runtimes(cx);

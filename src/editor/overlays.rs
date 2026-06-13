@@ -13,6 +13,7 @@ pub(super) enum EditorOverlayKind {
     ContextMenu,
     AiToolbar,
     CodeLanguageMenu,
+    WikiLinkPicker,
     MermaidTemplateMenu,
     WorkspaceFileContextMenu,
     WorkspaceNameDialog,
@@ -36,6 +37,9 @@ impl Editor {
         }
         if self.code_language_menu_block(cx).is_some() {
             overlays.push(EditorOverlayKind::CodeLanguageMenu);
+        }
+        if self.wiki_link_picker.open {
+            overlays.push(EditorOverlayKind::WikiLinkPicker);
         }
         if self.mermaid_template_menu_position.is_some() {
             overlays.push(EditorOverlayKind::MermaidTemplateMenu);
@@ -83,6 +87,9 @@ impl Editor {
             EditorOverlayKind::AiToolbar => self.render_ai_floating_toolbar(theme, window, cx),
             EditorOverlayKind::CodeLanguageMenu => {
                 self.render_code_language_menu_overlay(theme, window, cx)
+            }
+            EditorOverlayKind::WikiLinkPicker => {
+                self.render_wiki_link_picker_overlay(theme, strings, window, cx)
             }
             EditorOverlayKind::MermaidTemplateMenu => {
                 self.render_mermaid_template_menu_overlay(theme, cx)

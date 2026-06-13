@@ -16,6 +16,7 @@ pub(super) enum SingleLineInputTarget {
     DocumentSearch,
     WorkspaceName,
     QuickFileOpen,
+    WikiLinkPicker,
 }
 
 impl SingleLineInputTarget {
@@ -23,7 +24,7 @@ impl SingleLineInputTarget {
         match self {
             Self::WorkspaceName => 0.9,
             Self::WorkspaceSearch | Self::DocumentSearch => 0.78,
-            Self::QuickFileOpen => 1.0,
+            Self::QuickFileOpen | Self::WikiLinkPicker => 1.0,
         }
     }
 
@@ -31,7 +32,7 @@ impl SingleLineInputTarget {
         match self {
             Self::WorkspaceName => "",
             Self::WorkspaceSearch | Self::DocumentSearch => "…",
-            Self::QuickFileOpen => "",
+            Self::QuickFileOpen | Self::WikiLinkPicker => "",
         }
     }
 }
@@ -107,6 +108,7 @@ impl Editor {
             SingleLineInputTarget::DocumentSearch => self.search.focus.clone(),
             SingleLineInputTarget::WorkspaceName => self.workspace.name_focus.clone(),
             SingleLineInputTarget::QuickFileOpen => self.quick_file_open.focus_handle.clone(),
+            SingleLineInputTarget::WikiLinkPicker => self.wiki_link_picker.focus_handle.clone(),
         }
     }
 }

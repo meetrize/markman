@@ -475,6 +475,16 @@ impl Editor {
             return;
         };
 
+        if link.is_workspace_file {
+            if let Some(root) = self.effective_workspace_root() {
+                let path = root.join(&link.open_target);
+                if path.is_file() {
+                    self.open_workspace_file(path, window, cx);
+                    return;
+                }
+            }
+        }
+
         let strings = cx.global::<I18nManager>().strings_arc();
         let buttons = [
             strings.open_link_open.as_str(),
@@ -1389,6 +1399,8 @@ impl Render for Editor {
         let strings = cx.global::<I18nManager>().strings_arc();
         self.sync_window_title(window, &strings);
         self.sync_code_run_visuals(cx);
+        self.sync_pending_wiki_link_picker(window, cx);
+        self.sync_wiki_link_picker(window, cx);
 
         let d = &theme.dimensions;
         let visible_blocks = self.document.visible_blocks().to_vec();

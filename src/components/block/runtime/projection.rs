@@ -456,6 +456,7 @@ impl ExpandedInlineProjection {
                     display_cursor += open_len;
                 }
 
+                let wiki_target_display_start = expand_link.then_some(display_cursor);
                 let mut local_clean_cursor = run_clean_start;
                 for current_index in run_start..run_end {
                     let current_fragment = &fragments[current_index];
@@ -483,6 +484,7 @@ impl ExpandedInlineProjection {
                     display_cursor += current_len;
                     local_clean_cursor = current_clean_range.end;
                 }
+                let wiki_target_display_end = expand_link.then_some(display_cursor);
                 if expand_link {
                     if let Some(middle_marker) = link.middle_marker() {
                         let middle_len = middle_marker.len();
@@ -560,6 +562,16 @@ impl ExpandedInlineProjection {
                         display_to_clean.push(run_clean_end);
                     }
                     display_cursor += close_len;
+
+                    let (target_display_start, target_display_end) =
+                        if matches!(link, InlineLink::WikiLink { .. }) {
+                            (
+                                wiki_target_display_start.unwrap_or(run_display_start),
+                                wiki_target_display_end.unwrap_or(run_display_start),
+                            )
+                        } else {
+                            (target_display_start, target_display_end)
+                        };
 
                     link_runs.push(ExpandedLinkRun {
                         link: link.clone(),

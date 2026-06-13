@@ -23,6 +23,7 @@ mod html;
 mod link_image;
 mod math;
 mod normalize;
+mod wiki_link;
 mod serialize;
 mod style;
 
@@ -1303,6 +1304,7 @@ mod tests {
             Some(&InlineLinkHit {
                 prompt_target: "https://abc.com".to_string(),
                 open_target: "https://abc.com".to_string(),
+                is_workspace_file: false,
             })
         );
         assert_eq!(tree.serialize_markdown(), markdown);
@@ -1387,6 +1389,7 @@ mod tests {
             Some(&InlineLinkHit {
                 prompt_target: "Ref   Links".to_string(),
                 open_target: "https://example.com".to_string(),
+                is_workspace_file: false,
             })
         );
         assert_eq!(tree.serialize_markdown(), markdown);
@@ -1525,6 +1528,7 @@ mod tests {
             Some(&InlineLinkHit {
                 prompt_target: "ref2".to_string(),
                 open_target: "ref2".to_string(),
+                is_workspace_file: false,
             })
         );
         assert_eq!(tree.serialize_markdown(), markdown);

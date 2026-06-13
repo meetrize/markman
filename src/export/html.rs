@@ -90,6 +90,7 @@ fn render_markdown_fragment(markdown: &str, theme: &Theme, base_dir: Option<&Pat
     let rewritten = rewrite_unsafe_html_blocks(&rewritten, base_dir);
     let rewritten = rewrite_display_math_blocks(&rewritten, theme);
     let rewritten = rewrite_inline_math(&rewritten, theme);
+    let rewritten = rewrite_wiki_links(&rewritten);
     let rewritten = rewrite_mermaid_blocks(&rewritten);
     let rewritten = rewrite_columns_blocks(&rewritten, theme, base_dir);
     let parser = gfm_parser(&rewritten).map(|event| rewrite_local_image_event(event, base_dir));
@@ -173,6 +174,81 @@ fn rewrite_inline_math(markdown: &str, theme: &Theme) -> String {
     }
 
     rewritten.join("\n")
+}
+
+fn rewrite_wiki_links(markdown: &str) -> String {
+    let mut rewritten = Vec::new();
+    let mut active_fence: Option<(char, usize)> = None;
+    for line in markdown.split('\n') {
+        if let Some((marker, run_len)) = active_fence {
+            rewritten.push(line.to_string());
+            if is_closing_fence_marker(line, marker, run_len) {
+                active_fence = None;
+            }
+            continue;
+        }
+
+        if let Some(fence) = opening_fence_marker(line) {
+            active_fence = Some(fence);
+            rewritten.push(line.to_string());
+            continue;
+        }
+
+        rewritten.push(rewrite_wiki_links_line(line));
+    }
+
+    rewritten.join("\n")
+}
+
+fn rewrite_wiki_links_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut index = 0usize;
+    while index < line.len() {
+        if line[index..].starts_with('`') {
+            let run_len = line[index..]
+                .bytes()
+                .take_while(|byte| *byte == b'`')
+                .count();
+            if let Some(close) = find_backtick_run(line, index + run_len, run_len) {
+                output.push_str(&line[index..close + run_len]);
+                index = close + run_len;
+                continue;
+            }
+        }
+
+        if let Some((end, path)) = locate_wiki_link_source(line, index) {
+            output.push('[');
+            output.push_str(&path);
+            output.push_str("](");
+            output.push_str(&path);
+            output.push(')');
+            index = end;
+            continue;
+        }
+
+        let Some(ch) = line[index..].chars().next() else {
+            break;
+        };
+        output.push(ch);
+        index += ch.len_utf8();
+    }
+    output
+}
+
+fn locate_wiki_link_source(line: &str, index: usize) -> Option<(usize, String)> {
+    if !line[index..].starts_with("[[") {
+        return None;
+    }
+
+    let mut cursor = index + 2;
+    while cursor < line.len() {
+        if line[cursor..].starts_with("]]") {
+            let path = line[index + 2..cursor].trim().to_string();
+            return (!path.is_empty()).then_some((cursor + 2, path));
+        }
+        cursor += line[cursor..].chars().next()?.len_utf8();
+    }
+    None
 }
 
 fn rewrite_inline_math_line(line: &str, theme: &Theme) -> String {
@@ -1206,6 +1282,16 @@ mod tests {
         ));
         assert!(!html.contains("background: var("));
         assert!(!html.contains("border-left-color:"));
+    }
+
+    #[test]
+    fn exports_wiki_links_as_standard_markdown_links() {
+        let markdown = "See [[docs/README.zh-CN.md]] for details.";
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert!(html.contains(
+            "<a href=\"docs/README.zh-CN.md\">docs/README.zh-CN.md</a>"
+        ));
     }
 
     #[test]

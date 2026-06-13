@@ -16,6 +16,7 @@ use super::html::{merge_html_styles, parse_inline_html_container};
 use super::link_image::{parse_autolink, parse_inline_link, tokens_to_string};
 use super::math::parse_inline_math;
 use super::style::InlineStyle;
+use super::wiki_link::{locate_wiki_link, parse_wiki_link};
 
 pub(crate) struct CharToken {
     pub(crate) ch: char,
@@ -246,6 +247,25 @@ pub(crate) fn parse_until(
 
         // Inside a code span, all text (including markers) is literal.
         if !inside_code {
+            if tokens[index].ch == '['
+                && tokens.get(index + 1).is_some_and(|token| token.ch == '[')
+            {
+                if let Some(next_index) =
+                    parse_wiki_link(tokens, index, extra_style, extra_html_style, builder)
+                {
+                    index = next_index;
+                    continue;
+                }
+
+                if let Some((_path_start, end_index)) = locate_wiki_link(tokens, index) {
+                    for token in &tokens[index..=end_index] {
+                        builder.emit_token(token, extra_style, extra_html_style);
+                    }
+                    index = end_index + 1;
+                    continue;
+                }
+            }
+
             if tokens[index].ch == '['
                 && let Some(next_index) =
                     parse_footnote_reference(tokens, index, extra_style, extra_html_style, builder)

@@ -12,6 +12,19 @@ const SOURCE_LINE_NUMBER_MIN_DIGITS: usize = 2;
 const SOURCE_LINE_NUMBER_GAP: f32 = 12.0;
 const SOURCE_LINE_NUMBER_DIGIT_WIDTH_RATIO: f32 = 0.62;
 
+const LINK_ACTION_ICON_WIKI: &str = "icon/workspace/markdown.svg";
+const LINK_ACTION_ICON_EXTERNAL: &str = "icon/toolbar/link.svg";
+/// Preview mode: gap from icon background right edge to visible link text left edge.
+const LINK_ACTION_ICON_TEXT_GAP: f32 = 10.0;
+const LINK_ACTION_ICON_SIZE_RATIO: f32 = 0.68;
+/// Projection mode: gap from icon background right edge to opening delimiter left edge (`[[`, `[`, `<`).
+/// Applied in `link_action_icon_layout()` as `bg_right = anchor_x - trailing_gap`.
+const LINK_ACTION_ICON_MARKER_GAP: f32 = 12.0;
+const LINK_ACTION_ICON_BG_PAD: f32 = 1.5;
+const LINK_ACTION_ICON_BG_RADIUS: f32 = 3.0;
+const LINK_ACTION_ICON_VISUAL_INSET: f32 = 1.5;
+const LINK_ACTION_ICON_BG_OPACITY: f32 = 0.14;
+
 fn source_line_count(text: &str) -> usize {
     text.split('\n').count().max(1)
 }
@@ -572,6 +585,513 @@ fn point_inside_bounds(bounds: Bounds<Pixels>, position: Point<Pixels>) -> bool 
         && position.y < bounds.bottom()
 }
 
+fn link_action_icon_size(line_height: Pixels) -> Pixels {
+    px(f32::from(line_height) * LINK_ACTION_ICON_SIZE_RATIO)
+        .max(px(10.0))
+        .min(px(16.0))
+}
+
+fn link_action_icon_slot_width(line_height: Pixels, trailing_gap: Pixels) -> Pixels {
+    link_action_icon_chrome_width(line_height) + trailing_gap
+}
+
+fn link_action_icon_chrome_width(line_height: Pixels) -> Pixels {
+    link_action_icon_size(line_height) + px(LINK_ACTION_ICON_BG_PAD) * 2.0
+}
+
+fn link_opening_marker_start(text: &str, span_start: usize, is_wiki: bool) -> Option<usize> {
+    if is_wiki {
+        if span_start >= 2 && text.get(span_start - 2..span_start) == Some("[[") {
+            return Some(span_start - 2);
+        }
+        return None;
+    }
+    if span_start >= 2 && text.get(span_start - 2..span_start) == Some("[[") {
+        return None;
+    }
+    if span_start >= 1 {
+        match text.as_bytes()[span_start - 1] {
+            b'[' | b'<' => Some(span_start - 1),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+fn wiki_link_opening_marker_start(text: &str, span_start: usize) -> Option<usize> {
+    if span_start >= 2 && text.get(span_start - 2..span_start) == Some("[[") {
+        Some(span_start - 2)
+    } else {
+        None
+    }
+}
+
+/// Display offset used as the layout anchor (left edge of the gap target).
+///
+/// - Wiki projection (`[[path]]`): anchor at `[[` so `MARKER_GAP` separates icon and brackets.
+/// - Wiki preview (`path`): anchor at path text so `TEXT_GAP` separates icon and path.
+/// - External projection (`[text](url)`, `<url>`): anchor at `[` / `<`.
+/// - External preview (visible URL or label): anchor at link text.
+fn link_icon_anchor_offset(input: &Block, span_range: &Range<usize>, link: &InlineLinkHit) -> usize {
+    let text = input.display_text();
+    if link.is_workspace_file {
+        if let Some(marker) = wiki_link_opening_marker_start(text, span_range.start) {
+            return marker;
+        }
+        return span_range.start;
+    }
+
+    if let Some(marker) = link_opening_marker_start(text, span_range.start, false) {
+        return marker;
+    }
+    if let Some(anchor) = input.projected_link_icon_anchor_offset(span_range, false) {
+        return anchor;
+    }
+    span_range.start
+}
+
+/// Trailing gap paired with [`link_icon_anchor_offset`].
+/// When the anchor sits before span text (opening delimiters), use [`LINK_ACTION_ICON_MARKER_GAP`].
+fn link_icon_trailing_gap(_link: &InlineLinkHit, anchor_offset: usize, span_start: usize) -> Pixels {
+    if anchor_offset < span_start {
+        px(LINK_ACTION_ICON_MARKER_GAP)
+    } else {
+        px(LINK_ACTION_ICON_TEXT_GAP)
+    }
+}
+
+fn link_icon_layout_bounds(text_bounds: Bounds<Pixels>, link_gutter: Pixels) -> Bounds<Pixels> {
+    if link_gutter <= px(0.0) {
+        return text_bounds;
+    }
+
+    Bounds::new(
+        point(text_bounds.left() - link_gutter, text_bounds.top()),
+        size((text_bounds.size.width + link_gutter).max(px(1.0)), text_bounds.size.height),
+    )
+}
+
+fn link_content_gutter_width(
+    input: &Block,
+    line_height: Pixels,
+    source_line_number_gutter_width: Pixels,
+) -> Pixels {
+    source_line_number_gutter_width + block_link_icon_gutter(input, line_height)
+}
+
+fn offset_is_leading_on_hard_line(text: &str, offset: usize) -> bool {
+    if offset > text.len() {
+        return false;
+    }
+    let line_start = text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+    text[line_start..offset].chars().all(|ch| ch.is_whitespace())
+}
+
+fn block_link_icon_gutter(input: &Block, line_height: Pixels) -> Pixels {
+    if input.is_source_raw_mode() {
+        return px(0.0);
+    }
+
+    let text = input.display_text();
+    let mut slot = px(0.0);
+
+    if first_hard_line_starts_with_link(input) {
+        slot = slot.max(link_action_icon_slot_width(
+            line_height,
+            block_link_icon_trailing_gap(text),
+        ));
+    }
+
+    for span in input.inline_spans() {
+        let Some(link) = span.link.as_ref() else {
+            continue;
+        };
+        if span.range.is_empty() {
+            continue;
+        }
+        let anchor = link_icon_anchor_offset(input, &span.range, link);
+        if !offset_is_leading_on_hard_line(text, anchor) {
+            continue;
+        }
+        let gap = link_icon_trailing_gap(link, anchor, span.range.start);
+        slot = slot.max(link_action_icon_slot_width(line_height, gap));
+    }
+
+    if slot <= px(0.0) && first_hard_line_starts_with_link(input) {
+        slot = link_action_icon_slot_width(line_height, block_link_icon_trailing_gap(text));
+    }
+
+    slot
+}
+
+fn block_link_icon_trailing_gap(text: &str) -> Pixels {
+    if line_starts_with_wiki_link_marker(text) || line_starts_with_projected_external_link_marker(text)
+    {
+        return px(LINK_ACTION_ICON_MARKER_GAP);
+    }
+    px(LINK_ACTION_ICON_TEXT_GAP)
+}
+
+fn line_starts_with_wiki_link_marker(text: &str) -> bool {
+    text.starts_with("[[")
+}
+
+fn line_starts_with_projected_external_link_marker(text: &str) -> bool {
+    (text.starts_with('[') && !text.starts_with("[[")) || text.starts_with('<')
+}
+
+fn first_hard_line_starts_with_link(input: &Block) -> bool {
+    input.first_hard_line_starts_with_link()
+}
+
+fn link_action_icon_background_bounds(
+    icon_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+) -> Bounds<Pixels> {
+    let pad = px(LINK_ACTION_ICON_BG_PAD);
+    let mut bg = Bounds::from_corners(
+        point(icon_bounds.left() - pad, icon_bounds.top() - pad),
+        point(icon_bounds.right() + pad, icon_bounds.bottom() + pad),
+    );
+    let max_height = line_height - px(2.0);
+    if bg.size.height > max_height {
+        let trim = (bg.size.height - max_height) / 2.0;
+        bg.origin.y += trim;
+        bg.size.height = max_height;
+    }
+    bg
+}
+
+fn link_action_icon_svg_bounds(icon_bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+    let inset = px(LINK_ACTION_ICON_VISUAL_INSET);
+    Bounds::from_corners(
+        point(icon_bounds.left() + inset, icon_bounds.top() + inset),
+        point(icon_bounds.right() - inset, icon_bounds.bottom() - inset),
+    )
+}
+
+/// Layout for a link-type icon immediately before link text or opening delimiters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LinkActionIconLayout {
+    paint_bounds: Bounds<Pixels>,
+    /// When the icon cannot fit in the leading gutter, link text hits start after this width.
+    clamped_text_inset: Pixels,
+}
+
+fn link_action_icon_layout(
+    anchor_x: Pixels,
+    vertical_segment: Bounds<Pixels>,
+    layout_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    trailing_gap: Pixels,
+    pin_leading: bool,
+) -> LinkActionIconLayout {
+    let icon_size = link_action_icon_size(line_height);
+    let bg_pad = px(LINK_ACTION_ICON_BG_PAD);
+
+    // Spacing is ONLY controlled here: chrome right = anchor_x - trailing_gap.
+    let bg_right = anchor_x - trailing_gap;
+    let paint_right = bg_right - bg_pad;
+    let paint_left = paint_right - icon_size;
+
+    // Line-start links: align icon to the row/content left edge inside the reserved gutter.
+    let final_paint_left = if pin_leading {
+        layout_bounds.left()
+    } else {
+        paint_left.max(layout_bounds.left())
+    };
+
+    let chrome_right = final_paint_left + icon_size + bg_pad;
+    let clamped_text_inset = if chrome_right + trailing_gap > anchor_x + px(0.5) {
+        (chrome_right + trailing_gap).max(anchor_x) - anchor_x
+    } else {
+        px(0.0)
+    };
+
+    let icon_top = vertical_segment.top()
+        + px((f32::from(line_height) - f32::from(icon_size)) / 2.0);
+    LinkActionIconLayout {
+        paint_bounds: Bounds::new(point(final_paint_left, icon_top), size(icon_size, icon_size)),
+        clamped_text_inset,
+    }
+}
+
+fn link_action_icon_layout_for_span(
+    input: &Block,
+    lines: &[WrappedLine],
+    layout_bounds: Bounds<Pixels>,
+    text_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    span_range: Range<usize>,
+    link: &InlineLinkHit,
+    align: TextAlign,
+) -> Option<LinkActionIconLayout> {
+    let segments = range_segment_bounds(
+        lines,
+        text_bounds,
+        line_height,
+        text,
+        span_range.clone(),
+        align,
+    );
+    let vertical_segment = segments.first()?;
+    let anchor_offset = link_icon_anchor_offset(input, &span_range, link);
+    if anchor_offset >= text.len() {
+        return None;
+    }
+    let anchor_end = if anchor_offset < span_range.start {
+        span_range.start.min(text.len())
+    } else {
+        (anchor_offset + 1).min(text.len())
+    };
+    if anchor_end <= anchor_offset {
+        return None;
+    }
+    let anchor_segments = range_segment_bounds(
+        lines,
+        text_bounds,
+        line_height,
+        text,
+        anchor_offset..anchor_end,
+        align,
+    );
+    let anchor_x = anchor_segments.first()?.left();
+    let trailing_gap = link_icon_trailing_gap(link, anchor_offset, span_range.start);
+    let pin_leading = offset_is_leading_on_hard_line(text, anchor_offset);
+    Some(link_action_icon_layout(
+        anchor_x,
+        *vertical_segment,
+        layout_bounds,
+        line_height,
+        trailing_gap,
+        pin_leading,
+    ))
+}
+
+/// Geometry for painting a link-type icon immediately before link text.
+#[derive(Clone, Debug)]
+pub(crate) struct LinkActionIconPaint {
+    pub svg_bounds: Bounds<Pixels>,
+    pub background_bounds: Bounds<Pixels>,
+    pub icon_path: SharedString,
+    pub color: Hsla,
+}
+
+fn link_text_segment_hit_bounds(
+    segment: Bounds<Pixels>,
+    segment_index: usize,
+    icon_layout: Option<LinkActionIconLayout>,
+    anchor_x: Pixels,
+) -> Bounds<Pixels> {
+    if segment_index == 0
+        && let Some(layout) = icon_layout
+        && layout.clamped_text_inset > px(0.0)
+    {
+        let reserved_end = anchor_x + layout.clamped_text_inset;
+        return Bounds::from_corners(
+            point(reserved_end.max(segment.left()), segment.top()),
+            point(segment.right(), segment.bottom()),
+        );
+    }
+    segment
+}
+
+fn collect_link_action_icons(
+    input: &Block,
+    lines: &[WrappedLine],
+    layout_bounds: Bounds<Pixels>,
+    text_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    link_color: Hsla,
+) -> Vec<LinkActionIconPaint> {
+    if input.is_source_raw_mode() || input.display_text().is_empty() {
+        return Vec::new();
+    }
+
+    let text = input.display_text();
+    let align = input.text_align();
+    let mut icons = Vec::new();
+    for span in input.inline_spans() {
+        let Some(link) = span.link.as_ref() else {
+            continue;
+        };
+        if span.range.is_empty() {
+            continue;
+        }
+        let Some(layout) = link_action_icon_layout_for_span(
+            input,
+            lines,
+            layout_bounds,
+            text_bounds,
+            line_height,
+            text,
+            span.range.clone(),
+            link,
+            align,
+        ) else {
+            continue;
+        };
+        let paint_bounds = layout.paint_bounds;
+        let icon_path = if link.is_workspace_file {
+            LINK_ACTION_ICON_WIKI
+        } else {
+            LINK_ACTION_ICON_EXTERNAL
+        };
+        icons.push(LinkActionIconPaint {
+            svg_bounds: link_action_icon_svg_bounds(paint_bounds),
+            background_bounds: link_action_icon_background_bounds(paint_bounds, line_height),
+            icon_path: icon_path.into(),
+            color: link_color,
+        });
+    }
+    icons
+}
+
+pub(crate) fn link_action_icon_at_position(
+    input: &Block,
+    lines: &[WrappedLine],
+    text_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    position: Point<Pixels>,
+) -> Option<InlineLinkHit> {
+    if input.is_source_raw_mode()
+        || input.display_text().is_empty()
+        || lines.is_empty()
+        || position.y < text_bounds.top()
+        || position.y >= text_bounds.bottom()
+    {
+        return None;
+    }
+
+    let text = input.display_text();
+    let align = input.text_align();
+    let link_gutter = block_link_icon_gutter(input, line_height);
+    let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+
+    for span in input.inline_spans() {
+        let Some(link) = span.link.as_ref() else {
+            continue;
+        };
+        if span.range.is_empty() {
+            continue;
+        }
+        let Some(icon_layout) = link_action_icon_layout_for_span(
+            input,
+            lines,
+            layout_bounds,
+            text_bounds,
+            line_height,
+            text,
+            span.range.clone(),
+            link,
+            align,
+        ) else {
+            continue;
+        };
+        if point_inside_bounds(
+            link_action_icon_background_bounds(icon_layout.paint_bounds, line_height),
+            position,
+        ) {
+            return Some(link.clone());
+        }
+    }
+
+    None
+}
+
+pub(crate) fn link_text_at_position<'a>(
+    input: &'a Block,
+    lines: &[WrappedLine],
+    text_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    position: Point<Pixels>,
+) -> Option<&'a InlineLinkHit> {
+    if link_action_icon_at_position(input, lines, text_bounds, line_height, position).is_some() {
+        return None;
+    }
+
+    if input.is_source_raw_mode()
+        || input.display_text().is_empty()
+        || lines.is_empty()
+        || position.y < text_bounds.top()
+        || position.y >= text_bounds.bottom()
+    {
+        return None;
+    }
+
+    let text = input.display_text();
+    let align = input.text_align();
+    let link_gutter = block_link_icon_gutter(input, line_height);
+    let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+
+    for span in input.inline_spans() {
+        let Some(link) = span.link.as_ref() else {
+            continue;
+        };
+        if span.range.is_empty() {
+            continue;
+        }
+
+        let icon_layout = link_action_icon_layout_for_span(
+            input,
+            lines,
+            layout_bounds,
+            text_bounds,
+            line_height,
+            text,
+            span.range.clone(),
+            link,
+            align,
+        );
+        let anchor_offset = link_icon_anchor_offset(input, &span.range, link);
+        let anchor_end = if anchor_offset < span.range.start {
+            span.range.start.min(text.len())
+        } else {
+            (anchor_offset + 1).min(text.len())
+        };
+        let anchor_x = range_segment_bounds(
+            lines,
+            text_bounds,
+            line_height,
+            text,
+            anchor_offset..anchor_end.max(anchor_offset + 1),
+            align,
+        )
+        .first()
+        .map(|segment| segment.left())
+        .unwrap_or(text_bounds.left());
+
+        for (segment_index, segment) in range_segment_bounds(
+            lines,
+            text_bounds,
+            line_height,
+            text,
+            span.range.clone(),
+            align,
+        )
+        .into_iter()
+        .enumerate()
+        {
+            let hit_bounds = link_text_segment_hit_bounds(
+                segment,
+                segment_index,
+                icon_layout,
+                anchor_x,
+            );
+            if hit_bounds.left() >= hit_bounds.right() {
+                continue;
+            }
+            if point_inside_bounds(hit_bounds, position) {
+                return Some(link);
+            }
+        }
+    }
+
+    None
+}
+
 pub(crate) fn link_at_position<'a>(
     input: &'a Block,
     lines: &[WrappedLine],
@@ -650,6 +1170,79 @@ pub(crate) fn footnote_at_position<'a>(
     None
 }
 
+type BlockTextLayoutState = Rc<RefCell<Option<(SharedString, Pixels, Vec<WrappedLine>)>>>;
+
+fn shape_block_display_lines(
+    input: &Block,
+    display_text: &SharedString,
+    is_placeholder: bool,
+    placeholder_text: Option<&SharedString>,
+    placeholder_color: Option<Hsla>,
+    font_size: Pixels,
+    text_wrap_width: Option<Pixels>,
+    window: &Window,
+    theme: &crate::theme::Theme,
+) -> Vec<WrappedLine> {
+    let show_inline_code_backgrounds = !input.is_source_raw_mode();
+    let style = window.text_style();
+    let (display_text, text_color): (SharedString, Hsla) = if is_placeholder {
+        (
+            placeholder_text
+                .cloned()
+                .unwrap_or_else(|| theme.placeholders.empty_editing.clone().into()),
+            placeholder_color.unwrap_or(theme.colors.text_placeholder),
+        )
+    } else {
+        (display_text.clone(), style.color)
+    };
+
+    let run = TextRun {
+        len: display_text.len(),
+        font: style.font(),
+        color: text_color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+
+    let search_highlight_bg = theme.colors.selection.opacity(0.35);
+    let search_highlight_active_bg = theme.colors.selection.opacity(0.7);
+
+    let runs: Vec<TextRun> = if !is_placeholder {
+        if input.kind().is_code_block() {
+            build_code_text_runs(
+                input,
+                &display_text,
+                &run,
+                px(theme.dimensions.underline_thickness),
+                &theme.colors,
+                search_highlight_bg,
+                search_highlight_active_bg,
+            )
+        } else {
+            build_text_runs(
+                input,
+                &display_text,
+                &run,
+                px(theme.dimensions.underline_thickness),
+                theme.colors.text_link,
+                theme.colors.code_bg,
+                search_highlight_bg,
+                search_highlight_active_bg,
+                show_inline_code_backgrounds,
+            )
+        }
+    } else {
+        vec![run]
+    };
+
+    window
+        .text_system()
+        .shape_text(display_text, font_size, &runs, text_wrap_width, None)
+        .map(|lines| lines.into_vec())
+        .unwrap_or_default()
+}
+
 /// Custom low-level [`Element`] that renders a block's inline-formatted
 /// text with selection highlights and a blinking cursor.
 ///
@@ -692,11 +1285,13 @@ pub struct PrepaintState {
     lines: Vec<WrappedLine>,
     source_line_numbers: Vec<ShapedLine>,
     source_line_number_gutter_width: Pixels,
+    link_icon_gutter_width: Pixels,
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
     search_highlights: Vec<PaintQuad>,
     search_active_highlights: Vec<PaintQuad>,
     code_backgrounds: Vec<PaintQuad>,
+    link_action_icons: Vec<LinkActionIconPaint>,
     line_height: Pixels,
     hitbox: Hitbox,
 }
@@ -710,7 +1305,7 @@ impl IntoElement for BlockTextElement {
 }
 
 impl Element for BlockTextElement {
-    type RequestLayoutState = Rc<RefCell<Option<Vec<WrappedLine>>>>;
+    type RequestLayoutState = BlockTextLayoutState;
     type PrepaintState = PrepaintState;
 
     fn id(&self) -> Option<ElementId> {
@@ -795,12 +1390,18 @@ impl Element for BlockTextElement {
             .then(|| source_line_number_gutter_width(source_line_count, font_size))
             .unwrap_or(px(0.0));
 
-        let shared_lines = Rc::new(RefCell::new(None));
-        let shared_lines_clone = shared_lines.clone();
+        let link_icon_gutter = if !is_placeholder {
+            block_link_icon_gutter(input, line_height)
+        } else {
+            px(0.0)
+        };
+
+        let shared_cache = Rc::new(RefCell::new(None));
+        let shared_cache_clone = shared_cache.clone();
 
         let mut layout_style = Style::default();
         layout_style.size.width = relative(1.).into();
-        layout_style.min_size.width = px(0.0).into();
+        layout_style.min_size.width = link_icon_gutter.max(px(0.0)).into();
         layout_style.max_size.width = relative(1.).into();
 
         let layout_id = window.request_measured_layout(
@@ -811,33 +1412,36 @@ impl Element for BlockTextElement {
                     AvailableSpace::MinContent => Some(px(1.0)),
                     AvailableSpace::MaxContent => Some(window.viewport_size().width.max(px(1.0))),
                 });
-                let text_wrap_width =
-                    wrap_width.map(|width| (width - source_line_number_gutter_width).max(px(1.0)));
+                let text_wrap_width = wrap_width.map(|width| {
+                    (width - source_line_number_gutter_width - link_icon_gutter).max(px(1.0))
+                });
 
-                match window.text_system().shape_text(
-                    display_text.clone(),
-                    font_size,
-                    &runs,
-                    text_wrap_width,
-                    None,
-                ) {
-                    Ok(lines) => {
-                        let mut total_size: Size<Pixels> = Size::default();
-                        for line in &lines {
-                            let ls = line.size(line_height);
-                            total_size.height += ls.height;
-                            total_size.width = total_size.width.max(ls.width);
-                        }
-                        total_size.width += source_line_number_gutter_width;
-                        *shared_lines_clone.borrow_mut() = Some(lines.into_vec());
-                        total_size
-                    }
-                    Err(_) => Size::default(),
+                let lines = window
+                    .text_system()
+                    .shape_text(
+                        display_text.clone(),
+                        font_size,
+                        &runs,
+                        text_wrap_width,
+                        None,
+                    )
+                    .map(|lines| lines.into_vec())
+                    .unwrap_or_default();
+
+                let mut total_size: Size<Pixels> = Size::default();
+                for line in &lines {
+                    let ls = line.size(line_height);
+                    total_size.height += ls.height;
+                    total_size.width = total_size.width.max(ls.width);
                 }
+                total_size.width += source_line_number_gutter_width + link_icon_gutter;
+                *shared_cache_clone.borrow_mut() =
+                    Some((display_text.clone(), link_icon_gutter, lines));
+                total_size
             },
         );
 
-        (layout_id, shared_lines)
+        (layout_id, shared_cache)
     }
 
     fn prepaint(
@@ -874,12 +1478,61 @@ impl Element for BlockTextElement {
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
 
-        let lines = request_layout.borrow_mut().take().unwrap_or_default();
+        let shared_display_text = if self.is_placeholder {
+            self.placeholder_text
+                .clone()
+                .unwrap_or_else(|| theme.placeholders.empty_editing.clone().into())
+        } else {
+            input.shared_display_text()
+        };
+        let link_icon_gutter = if self.is_placeholder || input.is_source_raw_mode() {
+            px(0.0)
+        } else {
+            block_link_icon_gutter(input, line_height)
+        };
+
+        let lines = match request_layout.borrow_mut().take() {
+            Some((cached_text, cached_gutter, lines))
+                if cached_text.as_ref() == shared_display_text.as_ref()
+                    && cached_gutter == link_icon_gutter =>
+            {
+                lines
+            }
+            _ => {
+                let source_line_number_gutter_width = show_line_number_gutter
+                    .then(|| {
+                        source_line_number_gutter_width(
+                            source_line_count(shared_display_text.as_ref()),
+                            font_size,
+                        )
+                    })
+                    .unwrap_or(px(0.0));
+                let text_wrap_width = (bounds.size.width
+                    - source_line_number_gutter_width
+                    - link_icon_gutter)
+                    .max(px(1.0));
+                shape_block_display_lines(
+                    input,
+                    &shared_display_text,
+                    self.is_placeholder,
+                    self.placeholder_text.as_ref(),
+                    self.placeholder_color,
+                    font_size,
+                    Some(text_wrap_width),
+                    window,
+                    &theme,
+                )
+            }
+        };
+
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let source_line_number_gutter_width = show_line_number_gutter
             .then(|| source_line_number_gutter_width(lines.len().max(1), font_size))
             .unwrap_or(px(0.0));
-        let text_bounds = source_text_bounds(bounds, source_line_number_gutter_width);
+        let content_gutter_width =
+            link_content_gutter_width(input, line_height, source_line_number_gutter_width);
+        let layout_bounds = source_text_bounds(bounds, source_line_number_gutter_width);
+        let text_bounds = source_text_bounds(bounds, content_gutter_width);
         let source_line_numbers = if show_line_number_gutter {
             let run_color = if show_code_block_gutter {
                 theme.colors.code_language_input_text.opacity(0.55)
@@ -1038,15 +1691,30 @@ impl Element for BlockTextElement {
             }
         }
 
+        let link_action_icons = if self.is_placeholder || input.is_source_raw_mode() {
+            Vec::new()
+        } else {
+            collect_link_action_icons(
+                input,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                theme.colors.text_link,
+            )
+        };
+
         PrepaintState {
             lines,
             source_line_numbers,
             source_line_number_gutter_width,
+            link_icon_gutter_width: link_icon_gutter,
             cursor: cursor_quad,
             selection: selection_quads,
             search_highlights: search_quads,
             search_active_highlights: search_active_quads,
             code_backgrounds: code_quads,
+            link_action_icons,
             line_height,
             hitbox,
         }
@@ -1064,18 +1732,30 @@ impl Element for BlockTextElement {
     ) {
         let (focus_handle, hovered_link) = {
             let input = self.input.read(cx);
-            let text_bounds = source_text_bounds(bounds, prepaint.source_line_number_gutter_width);
+            let text_bounds = source_text_bounds(
+                bounds,
+                prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+            );
+            let mouse_position = window.mouse_position();
             let hovered_link = !self.is_placeholder
                 && !input.is_source_raw_mode()
                 && prepaint.hitbox.is_hovered(window)
-                && link_at_position(
+                && (link_text_at_position(
                     input,
                     &prepaint.lines,
                     text_bounds,
                     prepaint.line_height,
-                    window.mouse_position(),
+                    mouse_position,
                 )
-                .is_some();
+                .is_some()
+                    || link_action_icon_at_position(
+                        input,
+                        &prepaint.lines,
+                        text_bounds,
+                        prepaint.line_height,
+                        mouse_position,
+                    )
+                    .is_some());
             (input.focus_handle.clone(), hovered_link)
         };
 
@@ -1084,7 +1764,10 @@ impl Element for BlockTextElement {
         }
 
         if focus_handle.is_focused(window) {
-            let text_bounds = source_text_bounds(bounds, prepaint.source_line_number_gutter_width);
+            let text_bounds = source_text_bounds(
+                bounds,
+                prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+            );
             window.handle_input(
                 &focus_handle,
                 ElementInputHandler::new(text_bounds, self.input.clone()),
@@ -1092,9 +1775,28 @@ impl Element for BlockTextElement {
             );
         }
 
-        let text_bounds = source_text_bounds(bounds, prepaint.source_line_number_gutter_width);
+        let text_bounds = source_text_bounds(
+            bounds,
+            prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+        );
         let input_entity = self.input.clone();
         let focus_handle_for_click = focus_handle.clone();
+        let input_entity_for_wiki = self.input.clone();
+        window.on_mouse_event({
+            let text_bounds_for_link = text_bounds;
+            move |event: &MouseUpEvent, phase, window, cx| {
+                if phase != DispatchPhase::Bubble
+                    || event.button != MouseButton::Left
+                    || event.click_count != 1
+                    || !text_bounds_for_link.contains(&event.position)
+                {
+                    return;
+                }
+                input_entity_for_wiki.update(cx, |block, cx| {
+                    block.try_handle_link_single_click(event.position, window, cx);
+                });
+            }
+        });
         window.on_mouse_event({
             let text_bounds_for_click = text_bounds;
             move |event: &MouseDownEvent, phase, window, cx| {
@@ -1165,6 +1867,22 @@ impl Element for BlockTextElement {
         let line_height = prepaint.line_height;
         let lines = std::mem::take(&mut prepaint.lines);
         let text_align = self.input.read(cx).text_align();
+
+        for icon in prepaint.link_action_icons.drain(..) {
+            let mut background_color = icon.color;
+            background_color.a *= LINK_ACTION_ICON_BG_OPACITY;
+            let mut background = fill(icon.background_bounds, background_color);
+            background.corner_radii = Corners::all(px(LINK_ACTION_ICON_BG_RADIUS));
+            window.paint_quad(background);
+            let _ = window.paint_svg(
+                icon.svg_bounds,
+                icon.icon_path,
+                TransformationMatrix::default(),
+                icon.color,
+                cx,
+            );
+        }
+
         let line_number_tops = source_line_number_tops(&lines, line_height);
         let line_number_gap = px(SOURCE_LINE_NUMBER_GAP);
         let line_numbers = std::mem::take(&mut prepaint.source_line_numbers);
@@ -1487,8 +2205,12 @@ impl Element for InlineTreePreviewTextElement {
 #[cfg(test)]
 mod tests {
     use super::{
-        link_at_position, source_line_number_gutter_width, source_line_number_tops,
-        source_text_bounds, wrapped_line_height,
+        block_link_icon_gutter, first_hard_line_starts_with_link, link_action_icon_at_position,
+        link_action_icon_background_bounds, link_action_icon_layout_for_span,
+        link_action_icon_slot_width, link_at_position, link_icon_layout_bounds,
+        link_text_at_position, range_segment_bounds, source_line_number_gutter_width,
+        source_line_number_tops, source_text_bounds, wrapped_line_height,
+        LINK_ACTION_ICON_BG_PAD, LINK_ACTION_ICON_MARKER_GAP, LINK_ACTION_ICON_TEXT_GAP,
     };
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, TableCellPosition};
     use gpui::{
@@ -1603,6 +2325,211 @@ mod tests {
 
         assert_eq!(hit, Some("https://example.com".to_string()));
         assert_eq!(miss_right, None);
+    }
+
+    #[gpui::test]
+    async fn link_action_icon_hit_is_separate_from_link_text(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("See [[docs/readme.md]] here."),
+                ),
+            )
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let lines = shaped_lines(&display_text, px(320.0), cx);
+        let line_height = px(20.0);
+        let (icon_hit, text_hit, icon_excludes_text) = block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let span = block
+                .inline_spans()
+                .iter()
+                .find(|span| span.link.is_some())
+                .expect("wiki link span should exist");
+            let layout = &lines[0];
+            let start = layout
+                .position_for_index(span.range.start, line_height)
+                .expect("start position");
+            let end = layout
+                .position_for_index(span.range.end, line_height)
+                .expect("end position");
+            let icon_position = point(
+                start.x
+                    - link_action_icon_slot_width(line_height, px(LINK_ACTION_ICON_TEXT_GAP))
+                    + px(4.0),
+                px(10.0),
+            );
+            let text_position = point((start.x + end.x) / 2.0, px(10.0));
+            (
+                link_action_icon_at_position(block, &lines, bounds, line_height, icon_position)
+                    .map(|link| link.open_target.clone()),
+                link_text_at_position(block, &lines, bounds, line_height, text_position)
+                    .map(|link| link.open_target.clone()),
+                link_text_at_position(block, &lines, bounds, line_height, icon_position).is_none(),
+            )
+        });
+
+        assert_eq!(icon_hit, Some("docs/readme.md".to_string()));
+        assert_eq!(text_hit, Some("docs/readme.md".to_string()));
+        assert!(icon_excludes_text);
+    }
+
+    #[gpui::test]
+    async fn first_hard_line_link_requests_leading_icon_gutter(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let leading = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("[[docs/readme.md]]"),
+                ),
+            )
+        });
+        let inline = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("See [[docs/readme.md]]"),
+                ),
+            )
+        });
+        leading.read_with(cx, |block, _cx| {
+            assert!(first_hard_line_starts_with_link(block));
+        });
+        inline.read_with(cx, |block, _cx| {
+            assert!(!first_hard_line_starts_with_link(block));
+        });
+    }
+
+    #[gpui::test]
+    async fn link_action_icon_stays_inside_text_bounds_at_line_start(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("[[docs/readme.md]]"),
+                ),
+            )
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let lines = shaped_lines(&display_text, px(320.0), cx);
+        let line_height = px(20.0);
+        block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let link_gutter = block_link_icon_gutter(block, line_height);
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let gutter = link_action_icon_slot_width(line_height, px(LINK_ACTION_ICON_TEXT_GAP));
+            let icon_position = point(text_bounds.left() - gutter / 2.0, px(10.0));
+            let icon_hit = link_action_icon_at_position(
+                block,
+                &lines,
+                text_bounds,
+                line_height,
+                icon_position,
+            );
+            assert!(icon_hit.is_some());
+            assert!(
+                link_text_at_position(block, &lines, text_bounds, line_height, icon_position)
+                    .is_none()
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn wiki_projected_icon_gaps_from_opening_brackets_not_path_text(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("[[docs/readme.md]]"),
+                ),
+            )
+        });
+
+        block.update(cx, |block, _cx| {
+            block.selected_range = 2..2;
+            block.sync_inline_projection_for_focus(true);
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        assert!(
+            display_text.starts_with("[["),
+            "wiki link should expand to projected syntax"
+        );
+
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        let wrap_width = px(320.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+
+        block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let span = block
+                .inline_spans()
+                .iter()
+                .find(|span| span.link.is_some())
+                .expect("wiki span should exist");
+            let link = span.link.as_ref().expect("wiki link hit");
+            let layout = link_action_icon_layout_for_span(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                &display_text,
+                span.range.clone(),
+                link,
+                block.text_align(),
+            )
+            .expect("wiki icon layout should exist");
+            let icon_bg = link_action_icon_background_bounds(layout.paint_bounds, line_height);
+            assert!(
+                link_gutter > px(0.0),
+                "line-start wiki should reserve leading icon gutter"
+            );
+            assert!(
+                layout.paint_bounds.left() <= bounds.left() + px(0.5),
+                "line-start icon paint should align with block left edge"
+            );
+            assert!(
+                icon_bg.left() >= bounds.left() - px(LINK_ACTION_ICON_BG_PAD) - px(0.5),
+                "icon must stay inside block bounds at left edge"
+            );
+            assert!(text_bounds.left() >= bounds.left() + link_gutter - px(0.5));
+            let marker_left = range_segment_bounds(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                0..2,
+                block.text_align(),
+            )
+            .first()
+            .expect("opening [[ segment")
+            .left();
+
+            assert!(
+                icon_bg.right() + px(LINK_ACTION_ICON_MARKER_GAP) <= marker_left + px(0.5),
+                "icon background right ({:?}) + MARKER_GAP should not overlap [[ left ({:?})",
+                icon_bg.right(),
+                marker_left,
+            );
+        });
     }
 
     #[gpui::test]

@@ -2177,6 +2177,13 @@ impl EntityInputHandler for Editor {
             return Some(text[range].to_string());
         }
 
+        if self.wiki_link_picker_input_active(window) {
+            let text = self.wiki_link_picker.input.query.clone();
+            let range = document_search_range_from_utf16(&text, &range_utf16);
+            actual_range.replace(document_search_range_to_utf16(&text, &range));
+            return Some(text[range].to_string());
+        }
+
         if self.workspace_name_input_active(window) {
             let text = self.workspace.name_dialog.as_ref()?.input.query.clone();
             let range = workspace_search_range_from_utf16(&text, &range_utf16);
@@ -2223,6 +2230,14 @@ impl EntityInputHandler for Editor {
             });
         }
 
+        if self.wiki_link_picker_input_active(window) {
+            let text = &self.wiki_link_picker.input.query;
+            return Some(UTF16Selection {
+                range: document_search_range_to_utf16(text, &self.wiki_link_picker.input.selected_range),
+                reversed: self.wiki_link_picker.input.selection_reversed,
+            });
+        }
+
         if self.workspace_name_input_active(window) {
             let dialog = self.workspace.name_dialog.as_ref()?;
             return Some(UTF16Selection {
@@ -2260,6 +2275,15 @@ impl EntityInputHandler for Editor {
 
         if self.quick_file_open_input_active(window) {
             return None;
+        }
+
+        if self.wiki_link_picker_input_active(window) {
+            return self
+                .wiki_link_picker
+                .input
+                .marked_range
+                .as_ref()
+                .map(|range| document_search_range_to_utf16(&self.wiki_link_picker.input.query, range));
         }
 
         if self.workspace_name_input_active(window) {
@@ -2303,6 +2327,11 @@ impl EntityInputHandler for Editor {
             return;
         }
 
+        if self.wiki_link_picker_input_active(window) {
+            self.wiki_link_picker.input.marked_range = None;
+            return;
+        }
+
         if self.workspace_name_input_active(window) {
             if let Some(dialog) = self.workspace.name_dialog.as_mut() {
                 dialog.input.marked_range = None;
@@ -2338,6 +2367,10 @@ impl EntityInputHandler for Editor {
         }
 
         if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
+            return;
+        }
+
+        if self.replace_wiki_link_picker_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
 
@@ -2403,6 +2436,21 @@ impl EntityInputHandler for Editor {
         }
 
         if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
+            return;
+        }
+
+        if self.wiki_link_picker_input_active(window) {
+            let text = self.wiki_link_picker.input.query.clone();
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(&text, range_utf16))
+                .or_else(|| self.wiki_link_picker.input.marked_range.clone())
+                .unwrap_or_else(|| self.wiki_link_picker.input.selected_range.clone());
+            let selected = new_selected_range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(new_text, range_utf16))
+                .map(|relative| relative.start + range.start..relative.end + range.start);
+            self.replace_wiki_link_picker_text(range, new_text, true, selected, cx);
             return;
         }
 
@@ -2480,6 +2528,16 @@ impl EntityInputHandler for Editor {
             return Some(bounds);
         }
 
+        if self.wiki_link_picker_input_active(window) {
+            let line = self.wiki_link_picker.input.last_layout.as_ref()?;
+            let text = &self.wiki_link_picker.input.query;
+            let range = document_search_range_from_utf16(text, &range_utf16);
+            return Some(Bounds::from_corners(
+                point(bounds.left() + line.x_for_index(range.start), bounds.top()),
+                point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
+            ));
+        }
+
         if self.workspace_name_input_active(window) {
             let dialog = self.workspace.name_dialog.as_ref()?;
             let line = dialog.input.last_layout.as_ref()?;
@@ -2528,6 +2586,18 @@ impl EntityInputHandler for Editor {
 
         if self.quick_file_open_input_active(window) {
             return Some(self.quick_file_open.input.text_len());
+        }
+
+        if self.wiki_link_picker_input_active(window) {
+            let bounds = self.wiki_link_picker.input.last_bounds?;
+            let line = self.wiki_link_picker.input.last_layout.as_ref()?;
+            let text = &self.wiki_link_picker.input.query;
+            let local = bounds.localize(&point)?;
+            let utf8_index = line.index_for_x(local.x - bounds.left())?;
+            return Some(document_search_offset_to_utf16(
+                text,
+                utf8_index.min(text.len()),
+            ));
         }
 
         if self.workspace_name_input_active(window) {

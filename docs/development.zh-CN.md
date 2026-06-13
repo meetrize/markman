@@ -217,3 +217,4 @@ cargo bench                        # 同 ./scripts/bench.sh
 ## 相关文档
 
 - [行内代码执行 — AI 实施提示词](inline-code-run-implementation.zh-CN.md)：分步提示词，供 AI Agent 按序实现行内代码执行功能
+- [Wiki 链接 `[[路径/文件名]]` — 方案设计](wiki-link-implementation.zh-CN.md)：Obsidian 风格本地文件链接的语法、架构映射与分阶段实施计划

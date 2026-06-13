@@ -1430,6 +1430,7 @@ async fn reference_style_link_hit_exposes_raw_prompt_and_resolved_open_target(
         Some(InlineLinkHit {
             prompt_target: "ref-links".to_string(),
             open_target: "https://example.com".to_string(),
+            is_workspace_file: false,
         })
     );
 }
@@ -1452,6 +1453,7 @@ async fn inline_link_with_title_expands_title_but_opens_destination(cx: &mut Tes
         Some(InlineLinkHit {
             prompt_target: "https://abc.com".to_string(),
             open_target: "https://abc.com".to_string(),
+            is_workspace_file: false,
         })
     );
 
@@ -1499,6 +1501,47 @@ async fn autolink_expands_with_angle_brackets_when_touched(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+async fn wiki_link_expands_with_double_brackets_when_touched(cx: &mut TestAppContext) {
+    let markdown = "[[docs/README.zh-CN.md]]";
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown(markdown),
+            ),
+        )
+    });
+
+    assert_eq!(
+        block.read_with(cx, |block, _cx| block.display_text().to_string()),
+        "docs/README.zh-CN.md"
+    );
+    assert_eq!(
+        block.read_with(cx, |block, _cx| block.current_cache().link_hit_at(0).cloned()),
+        Some(InlineLinkHit {
+            prompt_target: "docs/README.zh-CN.md".to_string(),
+            open_target: "docs/README.zh-CN.md".to_string(),
+            is_workspace_file: true,
+        })
+    );
+
+    block.update(cx, |block, _cx| {
+        block.selected_range = 0..0;
+        block.sync_inline_projection_for_focus(true);
+    });
+
+    assert_eq!(
+        block.read_with(cx, |block, _cx| block.display_text().to_string()),
+        markdown
+    );
+    assert_eq!(
+        block.read_with(cx, |block, _cx| block.record.title.serialize_markdown()),
+        markdown
+    );
+}
+
+#[gpui::test]
 async fn projected_reference_target_stays_link_hit_testable(cx: &mut TestAppContext) {
     let block = cx.new(|cx| {
         let mut block = Block::with_record(
@@ -1536,6 +1579,7 @@ async fn projected_reference_target_stays_link_hit_testable(cx: &mut TestAppCont
         Some(InlineLinkHit {
             prompt_target: "ref-link".to_string(),
             open_target: "https://example.com".to_string(),
+            is_workspace_file: false,
         })
     );
 }

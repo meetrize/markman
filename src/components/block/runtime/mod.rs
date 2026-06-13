@@ -30,7 +30,7 @@ use super::{
     parse_standalone_image, resolve_image_source,
 };
 use crate::components::markdown::inline::{
-    InlineFragment, InlineInsertionAttributes, InlineRenderCache, InlineSpan,
+    InlineFragment, InlineInsertionAttributes, InlineLink, InlineRenderCache, InlineSpan,
     InlineTextTree, StyleFlag,
 };
 use crate::components::{
@@ -48,6 +48,12 @@ pub(crate) enum InlineFormat {
     Underline,
     /// Toggle inline code formatting.
     Code,
+}
+
+/// Active projected wiki-link path while the caret is inside `[[...]]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WikiLinkEditContext {
+    pub path: String,
 }
 
 /// Editing semantics for the current block.
@@ -1035,6 +1041,99 @@ impl Block {
         self.projection
             .as_ref()
             .and_then(|projection| projection.link_run_fully_covering_range(range))
+    }
+
+    /// Display offset for placing a link icon before projected opening delimiters.
+    pub(crate) fn projected_link_icon_anchor_offset(
+        &self,
+        span_range: &Range<usize>,
+        is_workspace_file: bool,
+    ) -> Option<usize> {
+        let projection = self.projection.as_ref()?;
+        let text = self.display_text();
+        projection.link_runs.iter().find_map(|run| {
+            let wiki = matches!(&run.link, InlineLink::WikiLink { .. });
+            if wiki != is_workspace_file {
+                return None;
+            }
+            if span_range.start >= run.display_range.end || span_range.end <= run.display_range.start
+            {
+                return None;
+            }
+            if run.display_range.start >= span_range.start {
+                return None;
+            }
+            let run_text = text.get(run.display_range.clone())?;
+            let open = run.link.open_marker();
+            run_text.starts_with(open).then_some(run.display_range.start)
+        })
+    }
+
+    pub(crate) fn first_hard_line_starts_with_link(&self) -> bool {
+        let text = self.display_text();
+        if text.is_empty() {
+            return false;
+        }
+        if let Some(projection) = self.projection.as_ref() {
+            if projection
+                .link_runs
+                .iter()
+                .any(|run| run.display_range.start == 0)
+            {
+                return true;
+            }
+        }
+        if text.starts_with("[[") || text.starts_with('[') || text.starts_with('<') {
+            return self.inline_spans().iter().any(|span| span.link.is_some());
+        }
+        self.inline_spans().iter().any(|span| {
+            span.link.is_some() && span.range.start <= 0 && 0 < span.range.end
+        })
+    }
+
+    /// Returns wiki-link edit context when the caret sits inside a projected `[[path]]`.
+    pub(crate) fn wiki_link_edit_context(&self) -> Option<WikiLinkEditContext> {
+        if self.uses_raw_text_editing() {
+            return None;
+        }
+        let link_run = self.projected_link_run_fully_covering_range(&self.selected_range)?;
+        let InlineLink::WikiLink { path } = &link_run.link else {
+            return None;
+        };
+        Some(WikiLinkEditContext {
+            path: path.clone(),
+        })
+    }
+
+    /// Replaces the path text of the wiki link currently being edited.
+    pub(crate) fn apply_wiki_link_path(&mut self, relative_path: &str, cx: &mut Context<Self>) {
+        let Some(link_run) = self
+            .projected_link_run_fully_covering_range(&self.selected_range)
+            .cloned()
+        else {
+            return;
+        };
+        let InlineLink::WikiLink { .. } = &link_run.link else {
+            return;
+        };
+
+        let open_len = link_run.link.open_marker().len();
+        let close_len = link_run.link.close_marker().len();
+        let display_len = link_run.display_range.len();
+        if display_len <= open_len + close_len {
+            return;
+        }
+
+        let path_display = link_run.display_range.start + open_len
+            ..link_run.display_range.end - close_len;
+        let cursor = path_display.start + relative_path.len();
+        self.replace_text_in_visible_range(
+            path_display,
+            relative_path,
+            Some(cursor..cursor),
+            false,
+            cx,
+        );
     }
 
     fn current_collapsed_caret_affinity(&self) -> CollapsedCaretAffinity {

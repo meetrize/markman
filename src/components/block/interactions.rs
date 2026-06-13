@@ -1082,6 +1082,67 @@ impl Block {
         }
     }
 
+    /// Returns `true` when a single click on a link icon or wiki link text was handled.
+    pub(crate) fn try_handle_link_single_click(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.is_source_raw_mode() {
+            return false;
+        }
+
+        let text_bounds = match self.last_bounds.or(self.interaction_bounds) {
+            Some(bounds) => bounds,
+            None => return false,
+        };
+        let lines = match self.last_layout.as_ref() {
+            Some(lines) => lines,
+            None => return false,
+        };
+
+        if let Some(link) = super::element::link_action_icon_at_position(
+            self,
+            lines,
+            text_bounds,
+            self.last_line_height,
+            position,
+        ) {
+            cx.stop_propagation();
+            cx.emit(BlockEvent::RequestOpenLink {
+                prompt_target: link.prompt_target,
+                open_target: link.open_target,
+                is_workspace_file: link.is_workspace_file,
+            });
+            return true;
+        }
+
+        let path = match super::element::link_text_at_position(
+            self,
+            lines,
+            text_bounds,
+            self.last_line_height,
+            position,
+        ) {
+            Some(link) if link.is_workspace_file => link.open_target.clone(),
+            _ => return false,
+        };
+
+        let offset = self.index_for_mouse_position(position);
+        self.move_to(offset, cx);
+        self.sync_inline_projection_for_focus(true);
+
+        if !self.focus_handle.is_focused(window) {
+            self.focus_handle.focus(window);
+            cx.emit(BlockEvent::RequestFocus);
+        }
+
+        cx.emit(BlockEvent::RequestOpenWikiLinkPicker { path });
+        cx.stop_propagation();
+        true
+    }
+
     /// Returns `true` when a double- or triple-click word/line selection (or
     /// footnote/link activation) was handled.
     pub(crate) fn try_select_word_or_line_at_click_count(
@@ -1141,6 +1202,7 @@ impl Block {
                 cx.emit(BlockEvent::RequestOpenLink {
                     prompt_target: link.prompt_target,
                     open_target: link.open_target,
+                    is_workspace_file: link.is_workspace_file,
                 });
                 return true;
             }

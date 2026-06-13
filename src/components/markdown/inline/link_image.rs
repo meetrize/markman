@@ -33,6 +33,7 @@ impl InlineLink {
         match self {
             Self::Inline { destination, .. } | Self::Reference { destination, .. } => destination,
             Self::Autolink { target } => target,
+            Self::WikiLink { path } => path,
         }
     }
 
@@ -41,6 +42,7 @@ impl InlineLink {
             Self::Inline { destination, .. } => destination,
             Self::Reference { label, .. } => label,
             Self::Autolink { target } => target,
+            Self::WikiLink { path } => path,
         }
     }
 
@@ -48,16 +50,21 @@ impl InlineLink {
         InlineLinkHit {
             prompt_target: self.raw_target().to_string(),
             open_target: self.open_target().to_string(),
+            is_workspace_file: matches!(self, Self::WikiLink { .. }),
         }
     }
 
     pub(crate) fn is_source_preserving(&self) -> bool {
-        matches!(self, Self::Reference { .. } | Self::Autolink { .. })
+        matches!(
+            self,
+            Self::Reference { .. } | Self::Autolink { .. } | Self::WikiLink { .. }
+        )
     }
 
     pub(crate) fn open_marker(&self) -> &'static str {
         match self {
             Self::Autolink { .. } => "<",
+            Self::WikiLink { .. } => "[[",
             Self::Inline { .. } | Self::Reference { .. } => "[",
         }
     }
@@ -66,7 +73,7 @@ impl InlineLink {
         match self {
             Self::Inline { .. } => Some("]("),
             Self::Reference { .. } => Some("]["),
-            Self::Autolink { .. } => None,
+            Self::Autolink { .. } | Self::WikiLink { .. } => None,
         }
     }
 
@@ -76,7 +83,7 @@ impl InlineLink {
                 Some(format_inline_link_target(destination, title.as_deref()))
             }
             Self::Reference { label, .. } => Some(label.clone()),
-            Self::Autolink { .. } => None,
+            Self::Autolink { .. } | Self::WikiLink { .. } => None,
         }
     }
 
@@ -85,6 +92,7 @@ impl InlineLink {
             Self::Inline { .. } => ")",
             Self::Reference { .. } => "]",
             Self::Autolink { .. } => ">",
+            Self::WikiLink { .. } => "]]",
         }
     }
 }
