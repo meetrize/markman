@@ -84,73 +84,12 @@ pub(crate) enum HtmlCssFontSizeKeyword {
     Larger,
 }
 
-/// CSS `display` keyword for layout.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HtmlCssDisplay {
-    Flex,
-    Block,
-}
-
-/// CSS `flex-direction` keyword.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HtmlCssFlexDirection {
-    Row,
-    Column,
-}
-
-/// CSS `align-items` keyword.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HtmlCssAlignItems {
-    FlexStart,
-    Center,
-    FlexEnd,
-    Stretch,
-}
-
-/// CSS `justify-content` keyword.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HtmlCssJustifyContent {
-    FlexStart,
-    Center,
-    FlexEnd,
-    SpaceBetween,
-    SpaceAround,
-}
-
-/// CSS size value (px or percent).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum HtmlCssSize {
-    Px(f32),
-    Percent(f32),
-}
-
-/// CSS shorthand padding/margin (top, right, bottom, left).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct HtmlCssBoxSpacing {
-    pub(crate) top: Option<f32>,
-    pub(crate) right: Option<f32>,
-    pub(crate) bottom: Option<f32>,
-    pub(crate) left: Option<f32>,
-}
-
 /// Whitelisted visual CSS parsed from a safe HTML `style` attribute.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct HtmlInlineStyle {
     pub(crate) color: Option<HtmlCssColor>,
     pub(crate) background_color: Option<HtmlCssColor>,
     pub(crate) font_size: Option<HtmlCssFontSize>,
-    pub(crate) display: Option<HtmlCssDisplay>,
-    pub(crate) flex_direction: Option<HtmlCssFlexDirection>,
-    pub(crate) width: Option<HtmlCssSize>,
-    pub(crate) height: Option<HtmlCssSize>,
-    pub(crate) flex_grow: Option<f32>,
-    pub(crate) flex_shrink: Option<f32>,
-    pub(crate) gap: Option<f32>,
-    pub(crate) padding: Option<HtmlCssBoxSpacing>,
-    pub(crate) margin: Option<HtmlCssBoxSpacing>,
-    pub(crate) align_items: Option<HtmlCssAlignItems>,
-    pub(crate) justify_content: Option<HtmlCssJustifyContent>,
-    pub(crate) overflow: Option<HtmlCssDisplay>,
 }
 
 impl Eq for HtmlInlineStyle {}
@@ -294,35 +233,7 @@ impl HtmlCssFontSize {
 
 impl HtmlInlineStyle {
     pub(crate) fn is_empty(&self) -> bool {
-        self.color.is_none()
-            && self.background_color.is_none()
-            && self.font_size.is_none()
-            && self.display.is_none()
-            && self.flex_direction.is_none()
-            && self.width.is_none()
-            && self.height.is_none()
-            && self.flex_grow.is_none()
-            && self.flex_shrink.is_none()
-            && self.gap.is_none()
-            && self.padding.is_none()
-            && self.margin.is_none()
-            && self.align_items.is_none()
-            && self.justify_content.is_none()
-            && self.overflow.is_none()
-    }
-
-    pub(crate) fn has_layout(&self) -> bool {
-        self.display.is_some()
-            || self.flex_direction.is_some()
-            || self.width.is_some()
-            || self.height.is_some()
-            || self.flex_grow.is_some()
-            || self.flex_shrink.is_some()
-            || self.gap.is_some()
-            || self.padding.is_some()
-            || self.margin.is_some()
-            || self.align_items.is_some()
-            || self.justify_content.is_some()
+        self.color.is_none() && self.background_color.is_none() && self.font_size.is_none()
     }
 
     pub(crate) fn to_css(self) -> Option<String> {
@@ -341,17 +252,6 @@ impl HtmlInlineStyle {
             declarations.push(format!("font-size: {}", font_size.to_css()));
         }
         Some(format!("{};", declarations.join("; ")))
-    }
-}
-
-impl HtmlCssBoxSpacing {
-    pub(crate) fn uniform(v: f32) -> Self {
-        Self {
-            top: Some(v),
-            right: Some(v),
-            bottom: Some(v),
-            left: Some(v),
-        }
     }
 }
 
@@ -957,162 +857,10 @@ pub(crate) fn parse_inline_style(style: &str) -> HtmlInlineStyle {
                     parsed.font_size = Some(size);
                 }
             }
-            "display" => {
-                parsed.display = match value {
-                    "flex" => Some(HtmlCssDisplay::Flex),
-                    "block" | "none" => Some(HtmlCssDisplay::Block),
-                    _ => None,
-                };
-            }
-            "flex-direction" => {
-                parsed.flex_direction = match value {
-                    "row" => Some(HtmlCssFlexDirection::Row),
-                    "column" | "col" => Some(HtmlCssFlexDirection::Column),
-                    _ => None,
-                };
-            }
-            "width" => {
-                parsed.width = parse_css_size(value);
-            }
-            "height" => {
-                parsed.height = parse_css_size(value);
-            }
-            "flex-grow" => {
-                parsed.flex_grow = parse_css_number(value);
-            }
-            "flex-shrink" => {
-                parsed.flex_shrink = parse_css_number(value);
-            }
-            "gap" => {
-                parsed.gap = parse_css_px(value);
-            }
-            "padding" => {
-                parsed.padding = Some(parse_css_box_shorthand(value));
-            }
-            "padding-top" => {
-                ensure_padding(&mut parsed).top = parse_css_px(value);
-            }
-            "padding-right" => {
-                ensure_padding(&mut parsed).right = parse_css_px(value);
-            }
-            "padding-bottom" => {
-                ensure_padding(&mut parsed).bottom = parse_css_px(value);
-            }
-            "padding-left" => {
-                ensure_padding(&mut parsed).left = parse_css_px(value);
-            }
-            "margin" => {
-                parsed.margin = Some(parse_css_box_shorthand(value));
-            }
-            "margin-top" => {
-                ensure_margin(&mut parsed).top = parse_css_px(value);
-            }
-            "margin-right" => {
-                ensure_margin(&mut parsed).right = parse_css_px(value);
-            }
-            "margin-bottom" => {
-                ensure_margin(&mut parsed).bottom = parse_css_px(value);
-            }
-            "margin-left" => {
-                ensure_margin(&mut parsed).left = parse_css_px(value);
-            }
-            "align-items" => {
-                parsed.align_items = match value {
-                    "flex-start" | "start" => Some(HtmlCssAlignItems::FlexStart),
-                    "center" => Some(HtmlCssAlignItems::Center),
-                    "flex-end" | "end" => Some(HtmlCssAlignItems::FlexEnd),
-                    "stretch" => Some(HtmlCssAlignItems::Stretch),
-                    _ => None,
-                };
-            }
-            "justify-content" => {
-                parsed.justify_content = match value {
-                    "flex-start" | "start" => Some(HtmlCssJustifyContent::FlexStart),
-                    "center" => Some(HtmlCssJustifyContent::Center),
-                    "flex-end" | "end" => Some(HtmlCssJustifyContent::FlexEnd),
-                    "space-between" => Some(HtmlCssJustifyContent::SpaceBetween),
-                    "space-around" => Some(HtmlCssJustifyContent::SpaceAround),
-                    _ => None,
-                };
-            }
             _ => {}
         }
     }
     parsed
-}
-
-fn ensure_padding(style: &mut HtmlInlineStyle) -> &mut HtmlCssBoxSpacing {
-    if style.padding.is_none() {
-        style.padding = Some(HtmlCssBoxSpacing::default());
-    }
-    style.padding.as_mut().unwrap()
-}
-
-fn ensure_margin(style: &mut HtmlInlineStyle) -> &mut HtmlCssBoxSpacing {
-    if style.margin.is_none() {
-        style.margin = Some(HtmlCssBoxSpacing::default());
-    }
-    style.margin.as_mut().unwrap()
-}
-
-fn parse_css_size(value: &str) -> Option<HtmlCssSize> {
-    let value = value.trim();
-    if let Some(percent) = value.strip_suffix('%') {
-        parse_css_number(percent).map(HtmlCssSize::Percent)
-    } else {
-        parse_css_px(value).map(HtmlCssSize::Px)
-    }
-}
-
-fn parse_css_px(value: &str) -> Option<f32> {
-    let value = value.trim();
-    if let Some(px) = value.strip_suffix("px") {
-        return parse_css_number(px);
-    }
-    parse_css_number(value)
-}
-
-fn parse_css_box_shorthand(value: &str) -> HtmlCssBoxSpacing {
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    match parts.len() {
-        1 => {
-            let v = parse_css_px(parts[0]);
-            HtmlCssBoxSpacing {
-                top: v,
-                right: v,
-                bottom: v,
-                left: v,
-            }
-        }
-        2 => {
-            let vertical = parse_css_px(parts[0]);
-            let horizontal = parse_css_px(parts[1]);
-            HtmlCssBoxSpacing {
-                top: vertical,
-                right: horizontal,
-                bottom: vertical,
-                left: horizontal,
-            }
-        }
-        3 => {
-            let top = parse_css_px(parts[0]);
-            let horizontal = parse_css_px(parts[1]);
-            let bottom = parse_css_px(parts[2]);
-            HtmlCssBoxSpacing {
-                top,
-                right: horizontal,
-                bottom,
-                left: horizontal,
-            }
-        }
-        4 => HtmlCssBoxSpacing {
-            top: parse_css_px(parts[0]),
-            right: parse_css_px(parts[1]),
-            bottom: parse_css_px(parts[2]),
-            left: parse_css_px(parts[3]),
-        },
-        _ => HtmlCssBoxSpacing::default(),
-    }
 }
 
 fn parse_css_color(value: &str) -> Option<HtmlCssColor> {
@@ -1596,150 +1344,5 @@ mod tests {
             html.contains("&lt;script style=&quot;color:blue&quot;&gt;alert(1)&lt;/script&gt;")
         );
         assert!(!html.contains("<script"));
-    }
-
-    #[test]
-    fn parses_flex_display_and_direction() {
-        let style = parse_inline_style("display:flex; flex-direction:row");
-        assert_eq!(style.display, Some(HtmlCssDisplay::Flex));
-        assert_eq!(style.flex_direction, Some(HtmlCssFlexDirection::Row));
-    }
-
-    #[test]
-    fn parses_column_direction() {
-        let style = parse_inline_style("display:flex; flex-direction:column");
-        assert_eq!(style.flex_direction, Some(HtmlCssFlexDirection::Column));
-    }
-
-    #[test]
-    fn parses_width_and_height_px() {
-        let style = parse_inline_style("width:200px; height:100px");
-        assert_eq!(style.width, Some(HtmlCssSize::Px(200.0)));
-        assert_eq!(style.height, Some(HtmlCssSize::Px(100.0)));
-    }
-
-    #[test]
-    fn parses_width_percent() {
-        let style = parse_inline_style("width:50%");
-        assert_eq!(style.width, Some(HtmlCssSize::Percent(50.0)));
-    }
-
-    #[test]
-    fn parses_flex_grow() {
-        let style = parse_inline_style("flex-grow:1");
-        assert_eq!(style.flex_grow, Some(1.0));
-    }
-
-    #[test]
-    fn parses_gap() {
-        let style = parse_inline_style("gap:16px");
-        assert_eq!(style.gap, Some(16.0));
-    }
-
-    #[test]
-    fn parses_padding_shorthand() {
-        let style = parse_inline_style("padding:10px");
-        let padding = style.padding.unwrap();
-        assert_eq!(padding.top, Some(10.0));
-        assert_eq!(padding.right, Some(10.0));
-        assert_eq!(padding.bottom, Some(10.0));
-        assert_eq!(padding.left, Some(10.0));
-    }
-
-    #[test]
-    fn parses_padding_two_values() {
-        let style = parse_inline_style("padding:10px 20px");
-        let padding = style.padding.unwrap();
-        assert_eq!(padding.top, Some(10.0));
-        assert_eq!(padding.right, Some(20.0));
-        assert_eq!(padding.bottom, Some(10.0));
-        assert_eq!(padding.left, Some(20.0));
-    }
-
-    #[test]
-    fn parses_padding_four_values() {
-        let style = parse_inline_style("padding:1px 2px 3px 4px");
-        let padding = style.padding.unwrap();
-        assert_eq!(padding.top, Some(1.0));
-        assert_eq!(padding.right, Some(2.0));
-        assert_eq!(padding.bottom, Some(3.0));
-        assert_eq!(padding.left, Some(4.0));
-    }
-
-    #[test]
-    fn parses_margin_shorthand() {
-        let style = parse_inline_style("margin:8px");
-        let margin = style.margin.unwrap();
-        assert_eq!(margin.top, Some(8.0));
-        assert_eq!(margin.right, Some(8.0));
-        assert_eq!(margin.bottom, Some(8.0));
-        assert_eq!(margin.left, Some(8.0));
-    }
-
-    #[test]
-    fn parses_align_items() {
-        let style = parse_inline_style("align-items:center");
-        assert_eq!(style.align_items, Some(HtmlCssAlignItems::Center));
-    }
-
-    #[test]
-    fn parses_justify_content() {
-        let style = parse_inline_style("justify-content:space-between");
-        assert_eq!(
-            style.justify_content,
-            Some(HtmlCssJustifyContent::SpaceBetween)
-        );
-    }
-
-    #[test]
-    fn parses_two_column_layout() {
-        let style = parse_inline_style(
-            "display:flex; gap:16px; padding:8px; align-items:center; justify-content:space-between",
-        );
-        assert_eq!(style.display, Some(HtmlCssDisplay::Flex));
-        assert_eq!(style.gap, Some(16.0));
-        assert!(style.padding.is_some());
-        assert_eq!(style.align_items, Some(HtmlCssAlignItems::Center));
-        assert_eq!(
-            style.justify_content,
-            Some(HtmlCssJustifyContent::SpaceBetween)
-        );
-    }
-
-    #[test]
-    fn has_layout_true_for_flex() {
-        let style = parse_inline_style("display:flex");
-        assert!(style.has_layout());
-    }
-
-    #[test]
-    fn has_layout_true_for_width() {
-        let style = parse_inline_style("width:50%");
-        assert!(style.has_layout());
-    }
-
-    #[test]
-    fn has_layout_false_for_color_only() {
-        let style = parse_inline_style("color:red");
-        assert!(!style.has_layout());
-    }
-
-    #[test]
-    fn div_with_flex_classifies_as_semantic() {
-        let doc = parse_html_document(
-            r#"<div style="display:flex; gap:8px"><div style="width:50%">A</div><div style="width:50%">B</div></div>"#,
-        );
-        assert!(doc.is_semantic());
-        assert_eq!(doc.nodes[0].tag_name, "div");
-    }
-
-    #[test]
-    fn parses_padding_individual_overrides_shorthand() {
-        let style = parse_inline_style("padding:10px; padding-top:5px");
-        let padding = style.padding.unwrap();
-        assert_eq!(padding.top, Some(5.0));
-        assert_eq!(padding.right, Some(10.0));
-        assert_eq!(padding.bottom, Some(10.0));
-        assert_eq!(padding.left, Some(10.0));
     }
 }

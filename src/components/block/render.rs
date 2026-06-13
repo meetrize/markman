@@ -9,10 +9,8 @@ use gpui::*;
 use super::element::BlockTextElement;
 use super::{Block, BlockEvent, BlockKind, ImageResolvedSource, ImageRuntime};
 use crate::components::{
-    Editor, HtmlCssAlignItems, HtmlCssBoxSpacing, HtmlCssColor, HtmlCssDisplay,
-    HtmlCssFlexDirection, HtmlCssJustifyContent, HtmlCssSize, HtmlDocument, HtmlInlineStyle,
-    HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight, TableAxisKind,
-    TableCellInlineImageSegment, TableCellPosition, TableColumnLayout, attr_value,
+    Editor, HtmlCssColor, HtmlDocument, HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight,
+    TableAxisKind, TableCellInlineImageSegment, TableCellPosition, TableColumnLayout, attr_value,
     display_math_font_size, inline_math_font_size, parse_display_math_source,
     parse_html_image_block, parse_mermaid_fence_source, parse_table_cell_inline_images,
     render_display_math_svg, render_inline_math_svg, render_mermaid_svg_for_display,
@@ -665,11 +663,10 @@ struct HtmlComputedStyle {
     root_font_size: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct HtmlNodeVisualStyle {
     computed: HtmlComputedStyle,
     background: Option<Hsla>,
-    inline: HtmlInlineStyle,
 }
 
 impl HtmlComputedStyle {
@@ -737,140 +734,7 @@ fn html_node_visual_style(
     HtmlNodeVisualStyle {
         computed,
         background,
-        inline: inline_style,
     }
-}
-
-fn apply_html_layout(mut element: Div, inline: &HtmlInlineStyle) -> Div {
-    let is_flex = inline.display == Some(HtmlCssDisplay::Flex);
-    if is_flex {
-        element = element.flex();
-        match inline.flex_direction {
-            Some(HtmlCssFlexDirection::Column) | None => {}
-            Some(HtmlCssFlexDirection::Row) => {
-                element = element.flex_row();
-            }
-        }
-    }
-
-    if let Some(width) = inline.width {
-        match width {
-            HtmlCssSize::Px(v) => {
-                element = element.w(px(v));
-            }
-            HtmlCssSize::Percent(v) => {
-                element = element.w(relative(v / 100.0));
-            }
-        }
-    }
-    if let Some(height) = inline.height {
-        match height {
-            HtmlCssSize::Px(v) => {
-                element = element.h(px(v));
-            }
-            HtmlCssSize::Percent(v) => {
-                element = element.h(relative(v / 100.0));
-            }
-        }
-    }
-
-    if let Some(flex_grow) = inline.flex_grow {
-        element = element.flex_grow().flex_basis(px(0.0));
-        let _ = flex_grow;
-    }
-    if let Some(flex_shrink) = inline.flex_shrink {
-        let _ = flex_shrink;
-    }
-
-    if let Some(gap) = inline.gap {
-        element = element.gap(px(gap));
-    }
-
-    if let Some(padding) = inline.padding {
-        element = apply_box_spacing_padding(element, &padding);
-    }
-    if let Some(margin) = inline.margin {
-        element = apply_box_spacing_margin(element, &margin);
-    }
-
-    if let Some(align_items) = inline.align_items {
-        match align_items {
-            HtmlCssAlignItems::FlexStart => {
-                element = element.items_start();
-            }
-            HtmlCssAlignItems::Center => {
-                element = element.items_center();
-            }
-            HtmlCssAlignItems::FlexEnd => {
-                element = element.items_end();
-            }
-            HtmlCssAlignItems::Stretch => {}
-        }
-    }
-
-    if let Some(justify_content) = inline.justify_content {
-        match justify_content {
-            HtmlCssJustifyContent::FlexStart => {
-                element = element.justify_start();
-            }
-            HtmlCssJustifyContent::Center => {
-                element = element.justify_center();
-            }
-            HtmlCssJustifyContent::FlexEnd => {
-                element = element.justify_end();
-            }
-            HtmlCssJustifyContent::SpaceBetween => {
-                element = element.justify_between();
-            }
-            HtmlCssJustifyContent::SpaceAround => {
-                element = element.justify_around();
-            }
-        }
-    }
-
-    if is_flex {
-        element = element.min_w(px(0.0));
-    }
-
-    element
-}
-
-fn apply_box_spacing_padding(
-    mut element: Div,
-    spacing: &HtmlCssBoxSpacing,
-) -> Div {
-    if let Some(top) = spacing.top {
-        element = element.pt(px(top));
-    }
-    if let Some(right) = spacing.right {
-        element = element.pr(px(right));
-    }
-    if let Some(bottom) = spacing.bottom {
-        element = element.pb(px(bottom));
-    }
-    if let Some(left) = spacing.left {
-        element = element.pl(px(left));
-    }
-    element
-}
-
-fn apply_box_spacing_margin(
-    mut element: Div,
-    spacing: &HtmlCssBoxSpacing,
-) -> Div {
-    if let Some(top) = spacing.top {
-        element = element.mt(px(top));
-    }
-    if let Some(right) = spacing.right {
-        element = element.mr(px(right));
-    }
-    if let Some(bottom) = spacing.bottom {
-        element = element.mb(px(bottom));
-    }
-    if let Some(left) = spacing.left {
-        element = element.ml(px(left));
-    }
-    element
 }
 
 impl Block {
@@ -1734,7 +1598,6 @@ impl Block {
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
                 }
-                element = apply_html_layout(element, &node_style.inline);
                 element.into_any_element()
             }
         }
