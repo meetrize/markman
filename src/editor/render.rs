@@ -15,7 +15,7 @@ use crate::theme::{Theme, ThemeDimensions, ThemeManager};
 use crate::app_identity::app_version_line;
 use crate::window_chrome::{custom_titlebar_height, render_custom_titlebar};
 
-pub(crate) const ABOUT_GITHUB_URL: &str = "https://github.com/manyougz/velotype";
+pub(crate) const ABOUT_GITHUB_URL: &str = "https://github.com/meetrize/markman";
 
 pub(crate) fn open_about_github_url(cx: &mut App) {
     cx.open_url(ABOUT_GITHUB_URL);

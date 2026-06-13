@@ -2,7 +2,7 @@
 name = "velotype"
 version = "0.5.7"
 edition = "2024"
-repository = "https://github.com/manyougz/velotype"
+repository = "https://github.com/meetrize/markman"
 license = "Apache-2.0"
 
 [lints.clippy]

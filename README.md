@@ -17,7 +17,7 @@
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-2ea44f)](#quick-start)
 [![Portable](https://img.shields.io/badge/app-portable%20single%20binary-8b5cf6)](#features)
 [![Export](https://img.shields.io/badge/export-HTML%20%7C%20PDF-0ea5e9)](#features)
-[![Release](https://img.shields.io/badge/releases-GitHub-181717?logo=github)](https://github.com/meetrize/markmemo/releases)
+[![Release](https://img.shields.io/badge/releases-GitHub-181717?logo=github)](https://github.com/meetrize/markman/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
@@ -76,7 +76,7 @@ Markman is a block-based Markdown editor and memo app powered by Rust and [GPUI]
 
 ### 1. Download a release
 
-Download the build for your platform from [GitHub Releases](https://github.com/meetrize/markmemo/releases).
+Download the build for your platform from [GitHub Releases](https://github.com/meetrize/markman/releases).
 
 #### Windows and Linux
 
@@ -110,8 +110,8 @@ Prerequisites:
 - Platform build dependencies required by GPUI
 
 ```bash
-git clone https://github.com/meetrize/markmemo.git
-cd markmemo
+git clone https://github.com/meetrize/markman.git
+cd markman
 cargo build --release
 ```
 
@@ -158,7 +158,7 @@ The editor uses a native block tree as its runtime model. Supported Markdown is 
 
 ## Contributing
 
-This repository moves quickly. When reporting parsing or rendering issues, please use the [issue template](https://github.com/meetrize/markmemo/issues/new/choose) so problems can be reproduced.
+This repository moves quickly. When reporting parsing or rendering issues, please use the [issue template](https://github.com/meetrize/markman/issues/new/choose) so problems can be reproduced.
 
 For code changes, prefer small patches on the `dev` branch and extend the existing parser/runtime model rather than replacing it wholesale.
 
@@ -168,4 +168,4 @@ Markman is licensed under the [Apache License 2.0](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=meetrize/markmemo&type=date&legend=top-left)](https://api.star-history.com/chart?repos=meetrize/markmemo&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=meetrize/markman&type=date&legend=top-left)](https://api.star-history.com/chart?repos=meetrize/markman&type=date&legend=top-left)

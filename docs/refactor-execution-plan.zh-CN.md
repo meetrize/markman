@@ -34,7 +34,7 @@
 # Velotype 重构任务
 
 ## 项目背景
-Velotype（仓库目录 markmemo）是 Rust 2024 + GPUI 0.2 的块级 Markdown 编辑器。
+Markman（仓库目录 markman）是 Rust 2024 + GPUI 0.2 的块级 Markdown 编辑器。
 
 核心模块：
 - `src/editor/` — 窗口级 Editor 控制器（DocumentTree、undo、搜索、工作区、AI）
@@ -905,7 +905,7 @@ columns 语法重复于：
 
 ```bash
 source "$HOME/.cargo/env"
-cd /path/to/markmemo
+cd /path/to/markman
 
 # 编译检查
 cargo check

@@ -11,10 +11,10 @@ use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use semver::Version;
 
 pub(crate) const GITHUB_CARGO_TOML_URL: &str =
-    "https://raw.githubusercontent.com/manyougz/velotype/refs/heads/main/Cargo.toml";
+    "https://raw.githubusercontent.com/meetrize/markman/refs/heads/main/Cargo.toml";
 pub(crate) const GITEE_CARGO_TOML_URL: &str =
-    "https://raw.giteeusercontent.com/manyougz/velotype/raw/main/Cargo.toml";
-pub(crate) const RELEASES_URL: &str = "https://github.com/manyougz/velotype/releases";
+    "https://raw.giteeusercontent.com/meetrize/markman/raw/main/Cargo.toml";
+pub(crate) const RELEASES_URL: &str = "https://github.com/meetrize/markman/releases";
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -22,7 +22,7 @@ const UPDATE_ACCEPT: &str = "text/plain,application/toml,*/*;q=0.8";
 const UPDATE_USER_AGENT: &str = concat!(
     "Velotype/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/manyougz/velotype)"
+    " (+https://github.com/meetrize/markman)"
 );
 
 /// Remote endpoint used to retrieve the published Velotype manifest.
