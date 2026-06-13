@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       release_title:
-        description: "Optional release title. Defaults to Velotype <release_tag>."
+        description: "Optional release title. Defaults to Markman <release_tag>."
         required: false
         type: string
       release_notes:
@@ -231,7 +231,7 @@ jobs:
             echo "Tag $RELEASE_TAG already exists and points to the current commit."
           else
             if [[ -z "$RELEASE_TITLE" ]]; then
-              RELEASE_TITLE="Velotype $RELEASE_TAG"
+              RELEASE_TITLE="Markman $RELEASE_TAG"
             fi
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
