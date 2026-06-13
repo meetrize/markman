@@ -998,7 +998,7 @@ pre code {{ padding: 0; background-color: transparent; }}
 }}
 .vlt-columns {{
   display: flex;
-  gap: 24px;
+  gap: 16px;
   align-items: flex-start;
   margin: 1rem 0;
 }}
@@ -1009,6 +1009,11 @@ pre code {{ padding: 0; background-color: transparent; }}
   height: auto;
   overflow-wrap: break-word;
   word-break: break-word;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background-color: var(--vlt-callout-note-bg);
+  border: 1px solid color-mix(in srgb, var(--vlt-border) 28%, transparent);
+  box-sizing: border-box;
 }}
 .vlt-column > :last-child {{
   margin-bottom: 0;
@@ -1046,7 +1051,7 @@ pre code {{ padding: 0; background-color: transparent; }}
 .vlt-column h4,
 .vlt-column h5,
 .vlt-column h6 {{
-  margin: 0.75em 0 0.35em;
+  margin: 0 0 0.65em;
   line-height: 1.2;
 }}
 @media (max-width: 768px) {{
@@ -1056,6 +1061,10 @@ pre code {{ padding: 0; background-color: transparent; }}
   .vlt-column {{
     width: 100% !important;
     flex-basis: auto !important;
+    margin-bottom: 12px;
+  }}
+  .vlt-column:last-child {{
+    margin-bottom: 0;
   }}
 }}
 .vlt-inline-math {{

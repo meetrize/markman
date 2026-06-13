@@ -1171,10 +1171,14 @@ fn html_node_visual_style(
 
 fn html_document_block_gap(dimensions: &ThemeDimensions, for_column: bool) -> f32 {
     if for_column {
-        dimensions.block_gap * 0.15
+        dimensions.callout_body_gap.max(8.0)
     } else {
         dimensions.block_gap * 0.4
     }
+}
+
+fn html_column_heading_margin_bottom(dimensions: &ThemeDimensions) -> f32 {
+    (dimensions.callout_header_margin_bottom * 1.75).max(10.0)
 }
 
 fn html_body_line_height(typography: &crate::theme::ThemeTypography, for_column: bool) -> f32 {
@@ -2299,6 +2303,7 @@ impl Block {
         let viewport = window.viewport_size();
         let viewport_width = f32::from(viewport.width.max(px(1.0)));
         let viewport_height = f32::from(viewport.height.max(px(1.0)));
+        let c = &theme.colors;
         let d = &theme.dimensions;
         let available_height = mermaid_available_height(viewport_height, d);
         let mut container = div()
@@ -2306,7 +2311,7 @@ impl Block {
             .min_w(px(0.0))
             .flex_shrink_0()
             .flex()
-            .gap(px(24.0))
+            .gap(px(d.callout_body_gap.max(16.0)))
             .items_start();
         if stacked {
             container = container.flex_col().items_start();
@@ -2325,8 +2330,15 @@ impl Block {
                 );
                 let column_key = format!("{}-{column_index}", self.record.id);
                 let mut element = div()
+                    .id(ElementId::Name(format!("column-{column_key}").into()))
                     .min_w(px(0.0))
                     .w_full()
+                    .rounded(px(d.callout_radius))
+                    .bg(c.callout_note_bg)
+                    .border(px(1.0))
+                    .border_color(c.table_border.opacity(0.28))
+                    .px(px(d.callout_padding_x))
+                    .py(px(d.callout_padding_y))
                     .child(self.render_column_markdown_content(
                         &column.markdown,
                         available_width,
@@ -2339,7 +2351,7 @@ impl Block {
                 element.style().align_self = Some(AlignSelf::FlexStart);
                 element.style().flex_grow = Some(0.);
                 if stacked {
-                    element = element.w_full();
+                    element = element.w_full().mb(px(d.callout_body_gap.max(12.0)));
                 } else {
                     element = element
                         .flex_basis(relative(width_fraction))
@@ -2479,6 +2491,9 @@ impl Block {
                     });
                 if let Some(bg) = node_style.background {
                     element = element.bg(bg);
+                }
+                if for_column {
+                    element = element.mb(px(html_column_heading_margin_bottom(d)));
                 }
                 element.into_any_element()
             }
