@@ -80,11 +80,6 @@ sys-locale = "0.3"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 global-hotkey = "0.7"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication"] }
-embed_plist = "1.2"
 tree-sitter = { version = "0.26.9", optional = true }
 tree-sitter-highlight = { version = "0.26.9", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
@@ -105,6 +100,11 @@ tree-sitter-python = { version = "0.25", optional = true }
 tree-sitter-ruby = { version = "0.23", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-toml = { package = "adot-tree-sitter-toml", version = "0.1", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication"] }
+embed_plist = "1.2"
 
 [dev-dependencies]
 gpui = { version = "0.2", features = ["test-support"] }
