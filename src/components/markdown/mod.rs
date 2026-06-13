@@ -23,4 +23,4 @@ pub use fence::{
     parse_opening_fence,
 };
 pub(crate) use fence::strip_fence_indent;
-pub use parser::gfm_parser;
+pub use parser::{gfm_parser, gfm_parser_options};

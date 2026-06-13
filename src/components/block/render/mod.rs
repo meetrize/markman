@@ -23,8 +23,7 @@ pub(crate) use html_block::HtmlNodeVisualStyle;
 #[cfg(test)]
 mod tests {
     use super::columns::{
-        ColumnMarkdownSegment, markdown_html_options, parse_columns_markdown,
-        split_column_markdown_segments,
+        ColumnMarkdownSegment, parse_columns_markdown, split_column_markdown_segments,
     };
     use super::html_block::{
         html_children_are_plain_text, html_collect_visible_text, html_node_visual_style,
@@ -32,6 +31,7 @@ mod tests {
     };
     use super::code::{html_code_language, html_pre_code_language};
     use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
+    use crate::components::gfm_parser_options;
     use crate::components::highlight_code_block;
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, parse_html_document};
     use crate::i18n::I18nManager;
@@ -51,7 +51,7 @@ mod tests {
     fn html_collect_visible_text_merges_paragraph_inline_nodes() {
         let parser = CmarkParser::new_ext(
             "这是一段很长的分栏说明文字，用来验证自动换行。",
-            markdown_html_options(),
+            gfm_parser_options(),
         );
         let mut html = String::new();
         cmark_html::push_html(&mut html, parser);
@@ -72,7 +72,7 @@ mod tests {
     fn cmark_code_fence_html_exposes_language_class() {
         let parser = CmarkParser::new_ext(
             "```rust\nfn main() {}\n```",
-            markdown_html_options(),
+            gfm_parser_options(),
         );
         let mut html = String::new();
         cmark_html::push_html(&mut html, parser);
@@ -92,7 +92,7 @@ mod tests {
     fn cmark_table_html_parses_into_aligned_row_structure() {
         let parser = CmarkParser::new_ext(
             "| Metric | Value | Change |\n| --- | ---: | ---: |\n| Page Views | 12,000 | +18% |",
-            markdown_html_options(),
+            gfm_parser_options(),
         );
         let mut html = String::new();
         cmark_html::push_html(&mut html, parser);
@@ -119,7 +119,7 @@ mod tests {
     fn cmark_table_html_inserts_whitespace_between_rows() {
         let parser = CmarkParser::new_ext(
             "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
-            markdown_html_options(),
+            gfm_parser_options(),
         );
         let mut html = String::new();
         cmark_html::push_html(&mut html, parser);
@@ -151,7 +151,7 @@ mod tests {
     fn cmark_ordered_list_html_inserts_whitespace_between_items() {
         let parser = CmarkParser::new_ext(
             "1. First\n2. Second\n3. Third",
-            markdown_html_options(),
+            gfm_parser_options(),
         );
         let mut html = String::new();
         cmark_html::push_html(&mut html, parser);

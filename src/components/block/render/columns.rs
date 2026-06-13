@@ -9,7 +9,8 @@ use crate::components::{
     TableData, collect_table_candidate_region, is_table_candidate_line, is_mermaid_closing_fence,
     parse_html_document, parse_mermaid_fence_start, parse_table_region, serialize_table_markdown_lines,
 };
-use pulldown_cmark::{Options as CmarkOptions, Parser as CmarkParser, html as cmark_html};
+use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
+use crate::components::gfm_parser_options;
 use crate::theme::Theme;
 
 #[derive(Debug)]
@@ -148,18 +149,8 @@ pub(crate) fn update_columns_host_table_markdown(
     Some(serialize_columns_markdown(&columns))
 }
 
-pub(crate) fn markdown_html_options() -> CmarkOptions {
-    let mut options = CmarkOptions::empty();
-    options.insert(CmarkOptions::ENABLE_TABLES);
-    options.insert(CmarkOptions::ENABLE_FOOTNOTES);
-    options.insert(CmarkOptions::ENABLE_TASKLISTS);
-    options.insert(CmarkOptions::ENABLE_STRIKETHROUGH);
-    options.insert(CmarkOptions::ENABLE_GFM);
-    options
-}
-
 pub(crate) fn render_markdown_to_html(markdown: &str) -> String {
-    let parser = CmarkParser::new_ext(markdown, markdown_html_options());
+    let parser = CmarkParser::new_ext(markdown, gfm_parser_options());
     let mut html = String::new();
     cmark_html::push_html(&mut html, parser);
     html
