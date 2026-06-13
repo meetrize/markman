@@ -1,5 +1,6 @@
 //! Editable block runtime and block-local state transitions.
 
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -182,6 +183,14 @@ pub struct Block {
     pub(crate) html_details_open: bool,
     /// When true, a focused columns block shows source text for editing instead of preview.
     pub(crate) columns_source_edit: bool,
+    /// Interactive native tables embedded inside a columns preview block.
+    pub(crate) column_embedded_tables: HashMap<String, Entity<Block>>,
+    /// When true, this table block renders only its table chrome for column embedding.
+    pub(crate) embedded_column_table: bool,
+    pub(crate) embedded_table_layout_width: Option<f32>,
+    pub(crate) column_table_host: Option<Entity<Block>>,
+    pub(crate) column_table_host_column_index: usize,
+    pub(crate) column_table_segment_index: usize,
     image_base_dir: Option<PathBuf>,
     image_reference_definitions: Arc<ImageReferenceDefinitions>,
     link_reference_definitions: Arc<LinkReferenceDefinitions>,
@@ -286,6 +295,12 @@ impl Block {
             image_expand_requested: false,
             html_details_open: false,
             columns_source_edit: false,
+            column_embedded_tables: HashMap::new(),
+            embedded_column_table: false,
+            embedded_table_layout_width: None,
+            column_table_host: None,
+            column_table_host_column_index: 0,
+            column_table_segment_index: 0,
             image_base_dir: None,
             image_reference_definitions: Arc::default(),
             link_reference_definitions: Arc::default(),

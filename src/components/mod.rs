@@ -11,6 +11,10 @@ pub use crate::editor::Editor;
 pub(crate) use crate::editor::InfoDialogKind;
 pub use actions::*;
 pub use block::*;
+pub(crate) use block::{
+    ColumnMarkdownSegment, parse_columns_markdown, split_column_markdown_segments,
+    update_columns_host_table_markdown,
+};
 #[allow(unused_imports)]
 pub(crate) use latex::*;
 #[allow(unused_imports)]

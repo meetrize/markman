@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gpui::*;
 
 use super::{Block, InlineFootnoteHit, InlineLinkHit, code_highlight_color};
-use crate::components::HtmlCssColor;
+use crate::components::{HtmlCssColor, InlineTextTree};
 use crate::theme::{ThemeColors, ThemeManager};
 
 const SOURCE_LINE_NUMBER_MIN_DIGITS: usize = 2;
@@ -1210,6 +1210,277 @@ impl Element for BlockTextElement {
             input.interaction_bounds = Some(text_bounds);
             input.last_line_height = line_height;
         });
+    }
+}
+
+fn build_inline_tree_preview_runs(
+    tree: &InlineTextTree,
+    display_text: &str,
+    base_run: &TextRun,
+    underline_thickness: Pixels,
+    link_color: Hsla,
+    code_bg: Hsla,
+) -> Vec<TextRun> {
+    let cache = tree.render_cache();
+    let spans = cache.spans();
+    let mut boundaries = vec![0, display_text.len()];
+    for span in spans {
+        boundaries.push(span.range.start);
+        boundaries.push(span.range.end);
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    let mut runs = Vec::new();
+    let mut span_idx = 0usize;
+    for boundary_pair in boundaries.windows(2) {
+        let start = boundary_pair[0];
+        let end = boundary_pair[1];
+        if start >= end {
+            continue;
+        }
+
+        while span_idx < spans.len() && spans[span_idx].range.end <= start {
+            span_idx += 1;
+        }
+        let active_span = spans
+            .get(span_idx)
+            .filter(|span| span.range.start <= start && start < span.range.end);
+
+        let inline_style = active_span.map(|span| span.style).unwrap_or_default();
+        let html_style = active_span.and_then(|span| span.html_style);
+        let is_link = active_span
+            .map(|span| span.link.is_some())
+            .unwrap_or(false);
+        let is_footnote = active_span
+            .map(|span| span.footnote.is_some())
+            .unwrap_or(false);
+
+        let mut font = base_run.font.clone();
+        if inline_style.bold && font.weight < FontWeight::BOLD {
+            font.weight = FontWeight::BOLD;
+        }
+        if inline_style.italic {
+            font.style = FontStyle::Italic;
+        }
+
+        let mut run_color = if is_link || is_footnote {
+            link_color
+        } else {
+            base_run.color
+        };
+        if let Some(style) = html_style
+            && let Some(color) = style.color
+        {
+            run_color = html_css_color_to_hsla(color, run_color);
+        }
+        let underline = (inline_style.underline || is_link || is_footnote).then_some(UnderlineStyle {
+            color: Some(run_color),
+            thickness: underline_thickness,
+            wavy: false,
+        });
+        let strikethrough = inline_style.strikethrough.then_some(StrikethroughStyle {
+            color: Some(run_color),
+            thickness: underline_thickness,
+        });
+
+        let mut background_color = if inline_style.code {
+            Some(code_bg)
+        } else {
+            base_run.background_color
+        };
+        if let Some(style) = html_style
+            && let Some(color) = style.background_color
+        {
+            background_color = Some(html_css_color_to_hsla(color, run_color));
+        }
+
+        runs.push(TextRun {
+            len: end - start,
+            font,
+            color: run_color,
+            background_color,
+            underline,
+            strikethrough,
+        });
+    }
+
+    if runs.is_empty() {
+        vec![base_run.clone()]
+    } else {
+        runs
+    }
+}
+
+/// Read-only shaped text preview for inline trees inside narrow containers
+/// such as column table cells.
+pub(crate) struct InlineTreePreviewTextElement {
+    tree: InlineTextTree,
+    text_align: TextAlign,
+    font_weight: FontWeight,
+    text_color: Hsla,
+    font_size: f32,
+    line_height_rems: f32,
+}
+
+impl InlineTreePreviewTextElement {
+    pub fn new(
+        tree: InlineTextTree,
+        text_align: TextAlign,
+        font_weight: FontWeight,
+        text_color: Hsla,
+        font_size: f32,
+        line_height_rems: f32,
+    ) -> Self {
+        Self {
+            tree,
+            text_align,
+            font_weight,
+            text_color,
+            font_size,
+            line_height_rems,
+        }
+    }
+}
+
+
+impl IntoElement for InlineTreePreviewTextElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for InlineTreePreviewTextElement {
+    type RequestLayoutState = Rc<RefCell<Option<Vec<WrappedLine>>>>;
+    type PrepaintState = (Vec<WrappedLine>, Pixels);
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let theme = cx.global::<ThemeManager>().current_arc();
+        let cache = self.tree.render_cache();
+        let display_text = SharedString::from(cache.visible_text().to_string());
+        let style = window.text_style();
+        let mut font = style.font();
+        if self.font_weight > font.weight {
+            font.weight = self.font_weight;
+        }
+        let font_size = px(self.font_size);
+        let line_height = px(self.font_size * self.line_height_rems);
+        let base_run = TextRun {
+            len: display_text.len(),
+            font,
+            color: self.text_color,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let runs = build_inline_tree_preview_runs(
+            &self.tree,
+            display_text.as_ref(),
+            &base_run,
+            px(theme.dimensions.underline_thickness),
+            theme.colors.text_link,
+            theme.colors.code_bg,
+        );
+
+        let shared_lines = Rc::new(RefCell::new(None));
+        let shared_lines_clone = shared_lines.clone();
+        let display_text_for_layout = display_text.clone();
+
+        let mut layout_style = Style::default();
+        layout_style.size.width = relative(1.).into();
+        layout_style.min_size.width = px(0.0).into();
+        layout_style.max_size.width = relative(1.).into();
+
+        let layout_id = window.request_measured_layout(
+            layout_style,
+            move |known_dimensions, available_space, window, _cx| {
+                let wrap_width = known_dimensions.width.or(match available_space.width {
+                    AvailableSpace::Definite(x) => Some(x),
+                    AvailableSpace::MinContent => Some(px(1.0)),
+                    AvailableSpace::MaxContent => Some(window.viewport_size().width.max(px(1.0))),
+                });
+                let text_wrap_width = wrap_width.map(|width| width.max(px(1.0)));
+
+                match window.text_system().shape_text(
+                    display_text_for_layout.clone(),
+                    font_size,
+                    &runs,
+                    text_wrap_width,
+                    None,
+                ) {
+                    Ok(lines) => {
+                        let mut total_size: Size<Pixels> = Size::default();
+                        for line in &lines {
+                            let line_size = line.size(line_height);
+                            total_size.height += line_size.height;
+                            total_size.width = total_size.width.max(line_size.width);
+                        }
+                        *shared_lines_clone.borrow_mut() = Some(lines.into_vec());
+                        total_size
+                    }
+                    Err(_) => Size::default(),
+                }
+            },
+        );
+
+        (layout_id, shared_lines)
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        request_layout: &mut Self::RequestLayoutState,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+        let line_height = px(self.font_size * self.line_height_rems);
+        let lines = request_layout.borrow_mut().take().unwrap_or_default();
+        (lines, line_height)
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let (lines, line_height) = prepaint;
+        let mut y_offset = Pixels::default();
+        for line in lines {
+            let origin_x = aligned_line_left(line, bounds, self.text_align);
+            line.paint(
+                point(origin_x, bounds.origin.y + y_offset),
+                *line_height,
+                TextAlign::Left,
+                None,
+                window,
+                cx,
+            )
+            .ok();
+            y_offset += wrapped_line_height(line, *line_height);
+        }
     }
 }
 

@@ -8,19 +8,21 @@ use gpui::*;
 use pulldown_cmark::{Options as CmarkOptions, Parser as CmarkParser, html as cmark_html};
 use std::ops::Range;
 
-use super::element::BlockTextElement;
+use super::element::{BlockTextElement, InlineTreePreviewTextElement};
 use super::{
     Block, BlockEvent, BlockKind, CodeHighlightSpan, ImageResolvedSource, ImageRuntime,
     code_highlight_color, highlight_code_block,
 };
 use crate::components::{
     Editor, HtmlCssColor, HtmlDocument, HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight,
-    TableAxisKind, TableCellInlineImageSegment, TableCellPosition, TableColumnLayout, attr_value,
-    display_math_font_size, inline_math_font_size, parse_display_math_source,
-    parse_html_document, parse_html_image_block, parse_mermaid_fence_source,
-    parse_mermaid_fence_start, is_mermaid_closing_fence,
-    parse_table_cell_inline_images, render_display_math_svg, render_inline_math_svg,
-    render_mermaid_svg_for_display, resolve_image_source, style_for_node,
+    TableAxisKind, TableCellInlineImageSegment, TableCellPosition, TableColumnAlignment,
+    TableColumnLayout, TableData, attr_value, collect_table_candidate_region,
+    display_math_font_size, inline_math_font_size, is_table_candidate_line,
+    parse_display_math_source, parse_html_document, parse_html_image_block,
+    parse_mermaid_fence_source, parse_mermaid_fence_start, is_mermaid_closing_fence,
+    parse_table_cell_inline_images, parse_table_region, render_display_math_svg,
+    render_inline_math_svg, render_mermaid_svg_for_display, resolve_image_source,
+    serialize_table_markdown_lines, style_for_node,
 };
 use crate::code_runner::{
     CodeRunStatus, CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES, code_run_output_line_count,
@@ -74,17 +76,18 @@ fn bulleted_list_marker(depth: usize) -> &'static str {
 }
 
 #[derive(Debug)]
-struct RenderColumn {
-    width_fraction: Option<f32>,
-    markdown: String,
+pub(crate) struct RenderColumn {
+    pub width_fraction: Option<f32>,
+    pub markdown: String,
 }
 
-enum ColumnMarkdownSegment {
+pub(crate) enum ColumnMarkdownSegment {
     Markdown(String),
     Mermaid(String),
+    Table(TableData),
 }
 
-fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdownSegment> {
+pub(crate) fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdownSegment> {
     let lines = markdown.split('\n').collect::<Vec<_>>();
     let mut segments = Vec::new();
     let mut index = 0usize;
@@ -99,6 +102,25 @@ fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdownSegment> 
                 active_fence = None;
             }
             index += 1;
+            continue;
+        }
+
+        if is_table_candidate_line(line) {
+            let trimmed = trim_blank_edges(&current_lines).join("\n");
+            if !trimmed.is_empty() {
+                segments.push(ColumnMarkdownSegment::Markdown(trimmed));
+            }
+            current_lines.clear();
+
+            let line_strings = lines.iter().map(|line| (*line).to_string()).collect::<Vec<_>>();
+            let end = collect_table_candidate_region(&line_strings, index);
+            let region = line_strings[index..end].to_vec();
+            if let Some(table) = parse_table_region(&region) {
+                segments.push(ColumnMarkdownSegment::Table(table));
+            } else {
+                current_lines.extend(region);
+            }
+            index = end;
             continue;
         }
 
@@ -136,6 +158,57 @@ fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdownSegment> 
         segments.push(ColumnMarkdownSegment::Markdown(trimmed));
     }
     segments
+}
+
+pub(crate) fn serialize_column_markdown_segments(segments: &[ColumnMarkdownSegment]) -> String {
+    let mut parts = Vec::with_capacity(segments.len());
+    for segment in segments {
+        parts.push(match segment {
+            ColumnMarkdownSegment::Markdown(markdown) => markdown.clone(),
+            ColumnMarkdownSegment::Mermaid(raw_fence) => raw_fence.clone(),
+            ColumnMarkdownSegment::Table(table) => serialize_table_markdown_lines(table).join("\n"),
+        });
+    }
+    parts.join("\n\n")
+}
+
+pub(crate) fn serialize_columns_markdown(columns: &[RenderColumn]) -> String {
+    let mut out = String::from("::: columns\n");
+    for column in columns {
+        out.push_str("--- column");
+        if let Some(width_fraction) = column.width_fraction {
+            let percent = (width_fraction * 100.0).round();
+            out.push_str(&format!(" width={percent:.0}%"));
+        }
+        out.push('\n');
+        if !column.markdown.is_empty() {
+            out.push_str(&column.markdown);
+            if !column.markdown.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+    }
+    out.push_str(":::\n");
+    out
+}
+
+pub(crate) fn update_columns_host_table_markdown(
+    host_markdown: &str,
+    column_index: usize,
+    segment_index: usize,
+    table: &TableData,
+) -> Option<String> {
+    let mut columns = parse_columns_markdown(host_markdown)?;
+    if column_index >= columns.len() {
+        return None;
+    }
+    let mut segments = split_column_markdown_segments(&columns[column_index].markdown);
+    if segment_index >= segments.len() {
+        return None;
+    }
+    segments[segment_index] = ColumnMarkdownSegment::Table(table.clone());
+    columns[column_index].markdown = serialize_column_markdown_segments(&segments);
+    Some(serialize_columns_markdown(&columns))
 }
 
 fn column_mermaid_available_width(
@@ -187,7 +260,7 @@ fn columns_block_has_only_trailing_blank_lines(lines: &[&str], end: usize) -> bo
     lines[end..].iter().all(|line| line.trim().is_empty())
 }
 
-fn parse_columns_markdown(markdown: &str) -> Option<Vec<RenderColumn>> {
+pub(crate) fn parse_columns_markdown(markdown: &str) -> Option<Vec<RenderColumn>> {
     let lines = markdown.split('\n').collect::<Vec<_>>();
     if lines.is_empty() || !is_columns_block_start(lines[0]) {
         return None;
@@ -1915,6 +1988,248 @@ impl Block {
         constrain_html_block_for_column(element, for_column, !for_column).into_any_element()
     }
 
+    fn table_preview_cell_justify(
+        mut element: Div,
+        alignment: TableColumnAlignment,
+    ) -> Div {
+        element = element.flex();
+        match alignment {
+            TableColumnAlignment::Left => element.justify_start(),
+            TableColumnAlignment::Center => element.justify_center(),
+            TableColumnAlignment::Right => element.justify_end(),
+        }
+    }
+
+    fn table_column_text_align(alignment: TableColumnAlignment) -> TextAlign {
+        match alignment {
+            TableColumnAlignment::Left => TextAlign::Left,
+            TableColumnAlignment::Center => TextAlign::Center,
+            TableColumnAlignment::Right => TextAlign::Right,
+        }
+    }
+
+    fn render_table_preview_cell_content(
+        &self,
+        cell: &crate::components::InlineTextTree,
+        alignment: TableColumnAlignment,
+        theme: &Theme,
+        font_weight: FontWeight,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let strings = cx.global::<I18nManager>().strings_arc();
+        if let Some(inline_images) =
+            self.render_inline_tree_table_cell_images(cell, theme, &strings, font_weight)
+        {
+            return Self::table_preview_cell_justify(
+                div().w_full().min_w(px(0.0)),
+                alignment,
+            )
+            .child(inline_images)
+            .into_any_element();
+        }
+
+        div()
+            .w_full()
+            .min_w(px(0.0))
+            .child(
+                InlineTreePreviewTextElement::new(
+                    cell.clone(),
+                    Self::table_column_text_align(alignment),
+                    font_weight,
+                    theme.colors.text_default,
+                    theme.typography.text_size,
+                    theme.typography.text_line_height,
+                ),
+            )
+            .into_any_element()
+    }
+
+    fn render_inline_tree_table_cell_images(
+        &self,
+        cell: &crate::components::InlineTextTree,
+        theme: &Theme,
+        strings: &I18nStrings,
+        font_weight: FontWeight,
+    ) -> Option<AnyElement> {
+        let segments = parse_table_cell_inline_images(&cell.serialize_markdown());
+        if !segments
+            .iter()
+            .any(|segment| matches!(segment, TableCellInlineImageSegment::Image { .. }))
+        {
+            return None;
+        }
+
+        let mut children = Vec::new();
+        for segment in segments {
+            match segment {
+                TableCellInlineImageSegment::Text(text) => {
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let tree = self.inline_tree_from_markdown_with_context(&text);
+                    children.extend(self.render_inline_tree_children(
+                        &tree,
+                        theme,
+                        theme.colors.text_default,
+                        theme.typography.text_size,
+                        font_weight,
+                    ));
+                }
+                TableCellInlineImageSegment::Image { markdown, syntax } => {
+                    if let Some(runtime) = self.image_runtime_for_syntax(syntax) {
+                        children.push(self.render_inline_image_content(&runtime, theme, strings));
+                    } else {
+                        let tree = crate::components::InlineTextTree::plain(markdown);
+                        children.extend(self.render_inline_tree_children(
+                            &tree,
+                            theme,
+                            theme.colors.text_default,
+                            theme.typography.text_size,
+                            font_weight,
+                        ));
+                    }
+                }
+            }
+        }
+
+        Some(
+            div()
+                .w_full()
+                .min_w(px(0.0))
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.0))
+                .text_size(px(theme.typography.text_size))
+                .line_height(rems(theme.typography.text_line_height))
+                .children(children)
+                .into_any_element(),
+        )
+    }
+
+    fn render_table_data_preview(
+        &self,
+        table: &TableData,
+        table_width: f32,
+        table_key: &str,
+        theme: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let column_count = table.column_count();
+        let column_layout = TableColumnLayout::for_table(table, table_width, window, theme);
+        let row_extent = 1 + table.rows.len();
+        let column_extent = column_count;
+
+        let header_row = div().w_full().flex().gap(px(0.0)).children(
+            table.header.iter().enumerate().map(|(column, cell)| {
+                let position = TableCellPosition { row: 0, column };
+                let alignment = table
+                    .alignments
+                    .get(column)
+                    .copied()
+                    .unwrap_or(TableColumnAlignment::Left);
+                style_native_table_cell_borders(
+                    div()
+                        .id(ElementId::Name(
+                            format!("table-preview-{table_key}-header-{column}").into(),
+                        ))
+                        .flex_none()
+                        .flex_basis(relative(column_layout.fraction(column)))
+                        .w(relative(column_layout.fraction(column)))
+                        .h_full()
+                        .min_w(px(0.0))
+                        .min_h(px(d.table_cell_min_height))
+                        .px(px(d.table_cell_padding_x))
+                        .py(px(d.table_cell_padding_y))
+                        .bg(c.table_header_bg)
+                        .text_size(px(t.text_size))
+                        .text_color(c.text_default)
+                        .line_height(rems(t.text_line_height))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(self.render_table_preview_cell_content(
+                            cell,
+                            alignment,
+                            theme,
+                            FontWeight::MEDIUM,
+                            cx,
+                        )),
+                    position,
+                    (column_extent, row_extent),
+                    c.table_border,
+                    false,
+                )
+            }),
+        );
+
+        let body_rows = table.rows.iter().enumerate().map(|(body_row_index, row)| {
+            let row_index = body_row_index + 1;
+            div().w_full().flex().gap(px(0.0)).children(row.iter().enumerate().map(
+                |(column, cell)| {
+                    let position = TableCellPosition {
+                        row: row_index,
+                        column,
+                    };
+                    let alignment = table
+                        .alignments
+                        .get(column)
+                        .copied()
+                        .unwrap_or(TableColumnAlignment::Left);
+                    style_native_table_cell_borders(
+                        div()
+                            .id(ElementId::Name(
+                                format!(
+                                    "table-preview-{table_key}-body-{body_row_index}-{column}"
+                                )
+                                .into(),
+                            ))
+                            .flex_none()
+                            .flex_basis(relative(column_layout.fraction(column)))
+                            .w(relative(column_layout.fraction(column)))
+                            .h_full()
+                            .min_w(px(0.0))
+                            .min_h(px(d.table_cell_min_height))
+                            .px(px(d.table_cell_padding_x))
+                            .py(px(d.table_cell_padding_y))
+                            .bg(c.table_cell_bg)
+                            .text_size(px(t.text_size))
+                            .text_color(c.text_default)
+                            .line_height(rems(t.text_line_height))
+                            .child(self.render_table_preview_cell_content(
+                                cell,
+                                alignment,
+                                theme,
+                                FontWeight::NORMAL,
+                                cx,
+                            )),
+                        position,
+                        (column_extent, row_extent),
+                        c.table_border,
+                        false,
+                    )
+                },
+            ))
+        });
+
+        div()
+            .id(ElementId::Name(format!("table-preview-{table_key}").into()))
+            .w_full()
+            .min_w(px(0.0))
+            .relative()
+            .flex()
+            .flex_col()
+            .border(px(1.0))
+            .border_color(c.table_border)
+            .overflow_hidden()
+            .gap(px(0.0))
+            .child(header_row)
+            .children(body_rows)
+            .into_any_element()
+    }
+
     fn render_column_markdown_content(
         &self,
         markdown: &str,
@@ -1922,6 +2237,7 @@ impl Block {
         available_height: f32,
         theme: &Theme,
         column_key: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let segments = split_column_markdown_segments(markdown);
@@ -1947,6 +2263,24 @@ impl Block {
                         theme,
                         ElementId::Name(format!("mermaid-col-{column_key}-{index}").into()),
                     ),
+                    ColumnMarkdownSegment::Table(table) => {
+                        let key = format!("{column_key}-{index}");
+                        if let Some(table_entity) = self.column_embedded_tables.get(&key).cloned() {
+                            table_entity.update(cx, |table_block, _cx| {
+                                table_block.embedded_table_layout_width = Some(available_width);
+                            });
+                            table_entity.into_any_element()
+                        } else {
+                            self.render_table_data_preview(
+                                &table,
+                                available_width,
+                                &format!("{column_key}-{index}"),
+                                theme,
+                                window,
+                                cx,
+                            )
+                        }
+                    }
                 }
             }))
             .into_any_element()
@@ -1957,7 +2291,7 @@ impl Block {
         columns: Vec<RenderColumn>,
         theme: &Theme,
         stacked: bool,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let column_count = columns.len().max(1);
@@ -1999,6 +2333,7 @@ impl Block {
                         available_height,
                         theme,
                         &column_key,
+                        window,
                         cx,
                     ));
                 element.style().align_self = Some(AlignSelf::FlexStart);
@@ -3019,6 +3354,356 @@ impl Block {
                 .on_action(cx.listener(Self::on_code_selection))
         }
     }
+
+    fn render_native_table_ui(
+        &mut self,
+        block_id: ElementId,
+        table_width: f32,
+        theme: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let Some(runtime) = self.table_runtime.clone() else {
+            return div().into_any_element();
+        };
+
+        let column_count = runtime.header.len();
+        let column_layout = self
+            .record
+            .table
+            .as_ref()
+            .map(|table| TableColumnLayout::for_table(table, table_width, window, theme))
+            .unwrap_or_else(|| TableColumnLayout::equal(column_count));
+        let column_fractions = (0..column_count)
+            .map(|column| column_layout.fraction(column))
+            .collect::<Vec<_>>();
+        let preview_marker = self.table_axis_preview;
+        let selected_marker = self.table_axis_selection;
+        let body_row_count = runtime.rows.len();
+        let append_extent = px(d.table_append_button_extent);
+        let append_inset = px(d.table_append_button_inset);
+        let activation_band = px(d.table_append_activation_band);
+        let column_append_top = activation_band;
+        let column_menu_icon_size = px((t.text_size * 0.85).max(12.0));
+        let column_menu_handle_width = px(20.0);
+        let column_control_visible = self.table_append_column_hovered;
+        let row_control_visible = self.table_append_row_hovered;
+        let right_gutter = if column_control_visible {
+            append_extent + append_inset
+        } else {
+            px(0.0)
+        };
+        let bottom_gutter = if row_control_visible {
+            append_extent + append_inset
+        } else {
+            px(0.0)
+        };
+        let weak_table_block = cx.entity().downgrade();
+
+        let header_cells = runtime.header;
+
+        let resize_handle_offset = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH * 0.5);
+        let resize_handle_width = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH);
+
+        let header_row = div().w_full().flex().gap(px(0.0)).children(
+            header_cells.into_iter().enumerate().map(|(column, cell)| {
+                let menu_block = weak_table_block.clone();
+                let resize_block = weak_table_block.clone();
+                let resize_fractions = column_fractions.clone();
+                let can_resize_column = column + 1 < column_count;
+                let mut column_shell = div()
+                    .relative()
+                    .flex_none()
+                    .flex_basis(relative(column_layout.fraction(column)))
+                    .w(relative(column_layout.fraction(column)))
+                    .h_full()
+                    .min_w(px(0.0))
+                    .child(cell)
+                    .child(
+                        div()
+                            .id(ElementId::Name(
+                                format!("table-column-menu-handle-{}-{}", self.record.id, column)
+                                    .into(),
+                            ))
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .right(if can_resize_column {
+                                resize_handle_width
+                            } else {
+                                px(0.0)
+                            })
+                            .w(column_menu_handle_width)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .opacity(0.55)
+                            .hover(|this| this.opacity(0.9))
+                            .occlude()
+                            .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
+                                let _ = menu_block.update(cx, |_block, cx| {
+                                    cx.stop_propagation();
+                                    cx.emit(BlockEvent::RequestOpenTableAxisMenu {
+                                        kind: TableAxisKind::Column,
+                                        index: column,
+                                        position: event.position,
+                                    });
+                                });
+                            })
+                            .child(
+                                svg()
+                                    .path(ICON_TABLE_COLUMN_MENU)
+                                    .size(column_menu_icon_size)
+                                    .text_color(c.text_default),
+                            ),
+                    );
+
+                if can_resize_column {
+                    column_shell = column_shell.child(
+                        div()
+                            .id(ElementId::Name(
+                                format!(
+                                    "table-column-resize-handle-{}-{}",
+                                    self.record.id, column
+                                )
+                                .into(),
+                            ))
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .right(-resize_handle_offset)
+                            .w(resize_handle_width)
+                            .cursor_col_resize()
+                            .hover(|this| this.bg(c.table_border.opacity(0.55)))
+                            .occlude()
+                            .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
+                                let _ = resize_block.update(cx, |_block, cx| {
+                                    cx.stop_propagation();
+                                    cx.emit(BlockEvent::RequestStartTableColumnResize {
+                                        boundary_index: column,
+                                        pointer_x: f32::from(event.position.x),
+                                        table_width,
+                                        fractions: resize_fractions.clone(),
+                                    });
+                                });
+                            }),
+                    );
+                }
+
+                column_shell
+            }),
+        );
+
+        let body_rows = runtime.rows.into_iter().enumerate().map(|(body_row_index, row)| {
+            let hover_block = weak_table_block.clone();
+            let select_block = weak_table_block.clone();
+            let menu_block = weak_table_block.clone();
+            let marker = crate::components::TableAxisMarker {
+                kind: TableAxisKind::Row,
+                index: body_row_index,
+            };
+            let band_bg = if selected_marker == Some(marker) {
+                c.table_axis_selected_bg
+            } else if preview_marker == Some(marker) {
+                c.table_axis_preview_bg
+            } else {
+                hsla(0.0, 0.0, 0.0, 0.0)
+            };
+            div()
+                .relative()
+                .w_full()
+                .flex()
+                .gap(px(0.0))
+                .child(
+                    div()
+                        .id(ElementId::Name(
+                            format!(
+                                "table-row-axis-band-{}-{}",
+                                self.record.id, body_row_index
+                            )
+                            .into(),
+                        ))
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(-activation_band)
+                        .w(activation_band)
+                        .rounded(px(6.0))
+                        .bg(band_bg)
+                        .cursor_pointer()
+                        .on_hover(move |hovered, _window, cx| {
+                            let _ = hover_block.update(cx, |_block, cx| {
+                                cx.emit(BlockEvent::RequestTableAxisPreview {
+                                    kind: TableAxisKind::Row,
+                                    index: hovered.then_some(body_row_index),
+                                });
+                            });
+                        })
+                        .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                            let _ = select_block.update(cx, |_block, cx| {
+                                cx.stop_propagation();
+                                cx.emit(BlockEvent::RequestSelectTableAxis {
+                                    kind: TableAxisKind::Row,
+                                    index: body_row_index,
+                                });
+                            });
+                        })
+                        .on_mouse_down(MouseButton::Right, move |event, _window, cx| {
+                            let _ = menu_block.update(cx, |_block, cx| {
+                                cx.stop_propagation();
+                                cx.emit(BlockEvent::RequestOpenTableAxisMenu {
+                                    kind: TableAxisKind::Row,
+                                    index: body_row_index,
+                                    position: event.position,
+                                });
+                            });
+                        })
+                        .occlude(),
+                )
+                .children(row.into_iter().enumerate().map(|(column, cell)| {
+                    div()
+                        .flex_none()
+                        .flex_basis(relative(column_layout.fraction(column)))
+                        .w(relative(column_layout.fraction(column)))
+                        .h_full()
+                        .min_w(px(0.0))
+                        .child(cell)
+                }))
+        });
+
+        let mut rows = Vec::with_capacity(1 + body_row_count);
+        rows.push(header_row.into_any_element());
+        rows.extend(body_rows.map(|row| row.into_any_element()));
+
+        let column_edge_band = div()
+            .id(ElementId::Name(
+                format!("table-append-column-edge-{}", self.record.id).into(),
+            ))
+            .absolute()
+            .top(column_append_top)
+            .bottom(bottom_gutter)
+            .right(right_gutter)
+            .w(activation_band)
+            .on_hover(cx.listener(Self::on_table_append_column_edge_hover));
+
+        let row_edge_band = div()
+            .id(ElementId::Name(
+                format!("table-append-row-edge-{}", self.record.id).into(),
+            ))
+            .absolute()
+            .left_0()
+            .right(right_gutter)
+            .bottom(bottom_gutter)
+            .h(activation_band)
+            .on_hover(cx.listener(Self::on_table_append_row_edge_hover));
+
+        let column_control = {
+            let base = div()
+                .id(ElementId::Name(
+                    format!("table-append-column-zone-{}", self.record.id).into(),
+                ))
+                .absolute()
+                .top(column_append_top)
+                .bottom(bottom_gutter)
+                .right_0()
+                .w(right_gutter)
+                .on_hover(cx.listener(Self::on_table_append_column_zone_hover));
+
+            if column_control_visible {
+                base.child(
+                    div()
+                        .id(ElementId::Name(
+                            format!("table-append-column-button-{}", self.record.id).into(),
+                        ))
+                        .absolute()
+                        .top(append_inset)
+                        .bottom_0()
+                        .right_0()
+                        .w(append_extent)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(999.0))
+                        .bg(c.table_append_button_bg)
+                        .hover(|this| this.bg(c.table_append_button_hover))
+                        .cursor_pointer()
+                        .text_size(px(t.text_size))
+                        .text_color(c.table_append_button_text)
+                        .occlude()
+                        .on_hover(cx.listener(Self::on_table_append_column_button_hover))
+                        .on_click(cx.listener(Self::on_append_table_column))
+                        .child("+"),
+                )
+            } else {
+                base
+            }
+        };
+
+        let row_control = {
+            let base = div()
+                .id(ElementId::Name(
+                    format!("table-append-row-zone-{}", self.record.id).into(),
+                ))
+                .absolute()
+                .left_0()
+                .right(right_gutter)
+                .bottom_0()
+                .h(bottom_gutter)
+                .on_hover(cx.listener(Self::on_table_append_row_zone_hover));
+
+            if row_control_visible {
+                base.child(
+                    div()
+                        .id(ElementId::Name(
+                            format!("table-append-row-button-{}", self.record.id).into(),
+                        ))
+                        .absolute()
+                        .left(append_inset)
+                        .right(append_inset)
+                        .bottom_0()
+                        .h(append_extent)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(999.0))
+                        .bg(c.table_append_button_bg)
+                        .hover(|this| this.bg(c.table_append_button_hover))
+                        .cursor_pointer()
+                        .text_size(px(t.text_size))
+                        .text_color(c.table_append_button_text)
+                        .occlude()
+                        .on_hover(cx.listener(Self::on_table_append_row_button_hover))
+                        .on_click(cx.listener(Self::on_append_table_row))
+                        .child("+"),
+                )
+            } else {
+                base
+            }
+        };
+
+        div()
+            .id(block_id)
+            .w_full()
+            .relative()
+            .flex()
+            .flex_col()
+            .border(px(1.0))
+            .border_color(c.table_border)
+            .overflow_hidden()
+            .pr(right_gutter)
+            .pb(bottom_gutter)
+            .gap(px(0.0))
+            .children(rows)
+            .child(column_edge_band)
+            .child(row_edge_band)
+            .child(column_control)
+            .child(row_control)
+            .into_any_element()
+    }
 }
 
 impl Focusable for Block {
@@ -3068,6 +3753,14 @@ impl Render for Block {
         let d = &theme.dimensions;
         let t = &theme.typography;
         let depth_padding = d.block_padding_x + d.nested_block_indent * self.render_depth as f32;
+
+        if self.embedded_column_table {
+            let table_width = self
+                .embedded_table_layout_width
+                .unwrap_or(120.0)
+                .max(120.0);
+            return self.render_native_table_ui(block_id, table_width, &theme, window, cx);
+        }
 
         if self.is_table_cell() {
             let position = self.table_cell_position().expect("table cell position");
@@ -3981,7 +4674,7 @@ impl Render for Block {
                     .into_any_element()
             }
             BlockKind::Table => {
-                let Some(runtime) = self.table_runtime.clone() else {
+                let Some(_runtime) = self.table_runtime.clone() else {
                     return focused_base
                         .text_size(px(t.text_size))
                         .text_color(c.text_default)
@@ -4002,367 +4695,7 @@ impl Render for Block {
 
                 let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
                 let table_width = effective_table_width(self, viewport_width, d);
-                let column_count = runtime.header.len();
-                let column_layout = self
-                    .record
-                    .table
-                    .as_ref()
-                    .map(|table| TableColumnLayout::for_table(table, table_width, window, &theme))
-                    .unwrap_or_else(|| TableColumnLayout::equal(column_count));
-                let column_fractions = (0..column_count)
-                    .map(|column| column_layout.fraction(column))
-                    .collect::<Vec<_>>();
-                let preview_marker = self.table_axis_preview;
-                let selected_marker = self.table_axis_selection;
-                let body_row_count = runtime.rows.len();
-                let append_extent = px(d.table_append_button_extent);
-                let append_inset = px(d.table_append_button_inset);
-                let activation_band = px(d.table_append_activation_band);
-                let column_append_top = activation_band;
-                let column_menu_icon_size = px((t.text_size * 0.85).max(12.0));
-                let column_menu_handle_width = px(20.0);
-                let column_control_visible = self.table_append_column_hovered;
-                let row_control_visible = self.table_append_row_hovered;
-                let right_gutter = if column_control_visible {
-                    append_extent + append_inset
-                } else {
-                    px(0.0)
-                };
-                let bottom_gutter = if row_control_visible {
-                    append_extent + append_inset
-                } else {
-                    px(0.0)
-                };
-                let weak_table_block = cx.entity().downgrade();
-
-                let header_cells = runtime.header;
-
-                let resize_handle_offset = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH * 0.5);
-                let resize_handle_width = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH);
-
-                let header_row = div().w_full().flex().gap(px(0.0)).children(
-                    header_cells.into_iter().enumerate().map(|(column, cell)| {
-                        let menu_block = weak_table_block.clone();
-                        let resize_block = weak_table_block.clone();
-                        let resize_fractions = column_fractions.clone();
-                        let can_resize_column = column + 1 < column_count;
-                        let mut column_shell = div()
-                            .relative()
-                            .flex_none()
-                            .flex_basis(relative(column_layout.fraction(column)))
-                            .w(relative(column_layout.fraction(column)))
-                            .h_full()
-                            .min_w(px(0.0))
-                            .child(cell)
-                            .child(
-                                div()
-                                    .id(ElementId::Name(
-                                        format!(
-                                            "table-column-menu-handle-{}-{}",
-                                            self.record.id, column
-                                        )
-                                        .into(),
-                                    ))
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .right(if can_resize_column {
-                                        resize_handle_width
-                                    } else {
-                                        px(0.0)
-                                    })
-                                    .w(column_menu_handle_width)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .cursor_pointer()
-                                    .opacity(0.55)
-                                    .hover(|this| this.opacity(0.9))
-                                    .occlude()
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        move |event, _window, cx| {
-                                            let _ = menu_block.update(cx, |_block, cx| {
-                                                cx.stop_propagation();
-                                                cx.emit(BlockEvent::RequestOpenTableAxisMenu {
-                                                    kind: TableAxisKind::Column,
-                                                    index: column,
-                                                    position: event.position,
-                                                });
-                                            });
-                                        },
-                                    )
-                                    .child(
-                                        svg()
-                                            .path(ICON_TABLE_COLUMN_MENU)
-                                            .size(column_menu_icon_size)
-                                            .text_color(c.text_default),
-                                    ),
-                            );
-
-                        if can_resize_column {
-                            column_shell = column_shell.child(
-                                div()
-                                    .id(ElementId::Name(
-                                        format!(
-                                            "table-column-resize-handle-{}-{}",
-                                            self.record.id, column
-                                        )
-                                        .into(),
-                                    ))
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .right(-resize_handle_offset)
-                                    .w(resize_handle_width)
-                                    .cursor_col_resize()
-                                    .hover(|this| this.bg(c.table_border.opacity(0.55)))
-                                    .occlude()
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        move |event, _window, cx| {
-                                            let _ = resize_block.update(cx, |_block, cx| {
-                                                cx.stop_propagation();
-                                                cx.emit(
-                                                    BlockEvent::RequestStartTableColumnResize {
-                                                        boundary_index: column,
-                                                        pointer_x: f32::from(event.position.x),
-                                                        table_width,
-                                                        fractions: resize_fractions.clone(),
-                                                    },
-                                                );
-                                            });
-                                        },
-                                    ),
-                            );
-                        }
-
-                        column_shell
-                    }),
-                );
-
-                let body_rows =
-                    runtime
-                        .rows
-                        .into_iter()
-                        .enumerate()
-                        .map(|(body_row_index, row)| {
-                            let hover_block = weak_table_block.clone();
-                            let select_block = weak_table_block.clone();
-                            let menu_block = weak_table_block.clone();
-                            let marker = crate::components::TableAxisMarker {
-                                kind: TableAxisKind::Row,
-                                index: body_row_index,
-                            };
-                            let band_bg = if selected_marker == Some(marker) {
-                                c.table_axis_selected_bg
-                            } else if preview_marker == Some(marker) {
-                                c.table_axis_preview_bg
-                            } else {
-                                hsla(0.0, 0.0, 0.0, 0.0)
-                            };
-                            div()
-                                .relative()
-                                .w_full()
-                                .flex()
-                                .gap(px(0.0))
-                                .child(
-                                    div()
-                                        .id(ElementId::Name(
-                                            format!(
-                                                "table-row-axis-band-{}-{}",
-                                                self.record.id, body_row_index
-                                            )
-                                            .into(),
-                                        ))
-                                        .absolute()
-                                        .top_0()
-                                        .bottom_0()
-                                        .left(-activation_band)
-                                        .w(activation_band)
-                                        .rounded(px(6.0))
-                                        .bg(band_bg)
-                                        .cursor_pointer()
-                                        .on_hover(move |hovered, _window, cx| {
-                                            let _ = hover_block.update(cx, |_block, cx| {
-                                                cx.emit(BlockEvent::RequestTableAxisPreview {
-                                                    kind: TableAxisKind::Row,
-                                                    index: hovered.then_some(body_row_index),
-                                                });
-                                            });
-                                        })
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            move |_event, _window, cx| {
-                                                let _ = select_block.update(cx, |_block, cx| {
-                                                    cx.stop_propagation();
-                                                    cx.emit(BlockEvent::RequestSelectTableAxis {
-                                                        kind: TableAxisKind::Row,
-                                                        index: body_row_index,
-                                                    });
-                                                });
-                                            },
-                                        )
-                                        .on_mouse_down(
-                                            MouseButton::Right,
-                                            move |event, _window, cx| {
-                                                let _ = menu_block.update(cx, |_block, cx| {
-                                                    cx.stop_propagation();
-                                                    cx.emit(BlockEvent::RequestOpenTableAxisMenu {
-                                                        kind: TableAxisKind::Row,
-                                                        index: body_row_index,
-                                                        position: event.position,
-                                                    });
-                                                });
-                                            },
-                                        )
-                                        .occlude(),
-                                )
-                                .children(row.into_iter().enumerate().map(|(column, cell)| {
-                                    div()
-                                        .flex_none()
-                                        .flex_basis(relative(column_layout.fraction(column)))
-                                        .w(relative(column_layout.fraction(column)))
-                                        .h_full()
-                                        .min_w(px(0.0))
-                                        .child(cell)
-                                }))
-                        });
-
-                {
-                    let mut rows = Vec::with_capacity(1 + body_row_count);
-                    rows.push(header_row.into_any_element());
-                    rows.extend(body_rows.map(|row| row.into_any_element()));
-
-                    let column_edge_band = div()
-                        .id(ElementId::Name(
-                            format!("table-append-column-edge-{}", self.record.id).into(),
-                        ))
-                        .absolute()
-                        .top(column_append_top)
-                        .bottom(bottom_gutter)
-                        .right(right_gutter)
-                        .w(activation_band)
-                        .on_hover(cx.listener(Self::on_table_append_column_edge_hover));
-
-                    let row_edge_band = div()
-                        .id(ElementId::Name(
-                            format!("table-append-row-edge-{}", self.record.id).into(),
-                        ))
-                        .absolute()
-                        .left_0()
-                        .right(right_gutter)
-                        .bottom(bottom_gutter)
-                        .h(activation_band)
-                        .on_hover(cx.listener(Self::on_table_append_row_edge_hover));
-
-                    let column_control = {
-                        let base = div()
-                            .id(ElementId::Name(
-                                format!("table-append-column-zone-{}", self.record.id).into(),
-                            ))
-                            .absolute()
-                            .top(column_append_top)
-                            .bottom(bottom_gutter)
-                            .right_0()
-                            .w(right_gutter)
-                            .on_hover(cx.listener(Self::on_table_append_column_zone_hover));
-
-                        if column_control_visible {
-                            base.child(
-                                div()
-                                    .id(ElementId::Name(
-                                        format!("table-append-column-button-{}", self.record.id)
-                                            .into(),
-                                    ))
-                                    .absolute()
-                                    .top(append_inset)
-                                    .bottom_0()
-                                    .right_0()
-                                    .w(append_extent)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(999.0))
-                                    .bg(c.table_append_button_bg)
-                                    .hover(|this| this.bg(c.table_append_button_hover))
-                                    .cursor_pointer()
-                                    .text_size(px(t.text_size))
-                                    .text_color(c.table_append_button_text)
-                                    .occlude()
-                                    .on_hover(
-                                        cx.listener(Self::on_table_append_column_button_hover),
-                                    )
-                                    .on_click(cx.listener(Self::on_append_table_column))
-                                    .child("+"),
-                            )
-                        } else {
-                            base
-                        }
-                    };
-
-                    let row_control = {
-                        let base = div()
-                            .id(ElementId::Name(
-                                format!("table-append-row-zone-{}", self.record.id).into(),
-                            ))
-                            .absolute()
-                            .left_0()
-                            .right(right_gutter)
-                            .bottom_0()
-                            .h(bottom_gutter)
-                            .on_hover(cx.listener(Self::on_table_append_row_zone_hover));
-
-                        if row_control_visible {
-                            base.child(
-                                div()
-                                    .id(ElementId::Name(
-                                        format!("table-append-row-button-{}", self.record.id)
-                                            .into(),
-                                    ))
-                                    .absolute()
-                                    .left(append_inset)
-                                    .right(append_inset)
-                                    .bottom_0()
-                                    .h(append_extent)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(999.0))
-                                    .bg(c.table_append_button_bg)
-                                    .hover(|this| this.bg(c.table_append_button_hover))
-                                    .cursor_pointer()
-                                    .text_size(px(t.text_size))
-                                    .text_color(c.table_append_button_text)
-                                    .occlude()
-                                    .on_hover(cx.listener(Self::on_table_append_row_button_hover))
-                                    .on_click(cx.listener(Self::on_append_table_row))
-                                    .child("+"),
-                            )
-                        } else {
-                            base
-                        }
-                    };
-
-                    div()
-                        .id(block_id)
-                        .w_full()
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .border(px(1.0))
-                        .border_color(c.table_border)
-                        .overflow_hidden()
-                        .pr(right_gutter)
-                        .pb(bottom_gutter)
-                        .gap(px(0.0))
-                        .children(rows)
-                        .child(column_edge_band)
-                        .child(row_edge_band)
-                        .child(column_control)
-                        .child(row_control)
-                        .into_any_element()
-                }
+                self.render_native_table_ui(block_id, table_width, &theme, window, cx)
             }
             BlockKind::HtmlBlock => {
                 let html = self.record.html.as_ref().cloned().unwrap_or_else(|| {
@@ -4657,6 +4990,38 @@ mod tests {
                 assert!(raw.contains("A --> B"));
             }
             _ => panic!("expected mermaid segment"),
+        }
+        match &segments[2] {
+            ColumnMarkdownSegment::Markdown(text) => assert_eq!(text, "Tail text"),
+            _ => panic!("expected markdown segment"),
+        }
+    }
+
+    #[test]
+    fn split_column_markdown_extracts_table() {
+        let segments = split_column_markdown_segments(concat!(
+            "### Metrics\n\n",
+            "| Metric | Value | Change |\n",
+            "| --- | ---: | ---: |\n",
+            "| Page Views | 12,000 | +18% |\n\n",
+            "Tail text"
+        ));
+
+        assert_eq!(segments.len(), 3);
+        match &segments[0] {
+            ColumnMarkdownSegment::Markdown(text) => assert!(text.contains("### Metrics")),
+            _ => panic!("expected markdown segment"),
+        }
+        match &segments[1] {
+            ColumnMarkdownSegment::Table(table) => {
+                assert_eq!(table.header.len(), 3);
+                assert_eq!(table.rows.len(), 1);
+                assert_eq!(
+                    table.header[0].render_cache().visible_text(),
+                    "Metric"
+                );
+            }
+            _ => panic!("expected table segment"),
         }
         match &segments[2] {
             ColumnMarkdownSegment::Markdown(text) => assert_eq!(text, "Tail text"),

@@ -1,6 +1,10 @@
 //! Native table runtime installation and table-editing operations.
 
 use super::*;
+use crate::components::{
+    ColumnMarkdownSegment, parse_columns_markdown, split_column_markdown_segments,
+    update_columns_host_table_markdown,
+};
 
 impl Editor {
     pub(crate) fn new_table_block(cx: &mut Context<Self>, table: TableData) -> Entity<Block> {
@@ -99,8 +103,118 @@ impl Editor {
                 self.install_table_runtime_for_block(&visible.entity, &table, cx);
             }
         }
+        self.rebuild_column_embedded_tables(cx);
         self.rebuild_image_runtimes(cx);
         self.sync_table_axis_visuals(cx);
+    }
+
+    pub(super) fn rebuild_column_embedded_tables(&mut self, cx: &mut Context<Self>) {
+        let visible = self.document.visible_blocks().to_vec();
+        for visible in visible {
+            let host = visible.entity.clone();
+            if !host.read(cx).is_columns_raw_markdown() || host.read(cx).columns_source_edit {
+                continue;
+            }
+
+            let Some(columns) = parse_columns_markdown(host.read(cx).display_text()) else {
+                host.update(cx, |block, _cx| block.column_embedded_tables.clear());
+                continue;
+            };
+
+            let host_id = host.read(cx).record.id.clone();
+            let mut expected_keys = std::collections::HashSet::new();
+
+            for (column_index, column) in columns.iter().enumerate() {
+                let segments = split_column_markdown_segments(&column.markdown);
+                for (segment_index, segment) in segments.iter().enumerate() {
+                    let ColumnMarkdownSegment::Table(table) = segment else {
+                        continue;
+                    };
+                    let key = format!("{host_id}-{column_index}-{segment_index}");
+                    expected_keys.insert(key.clone());
+
+                    let table_block = if let Some(existing) =
+                        host.read(cx).column_embedded_tables.get(&key).cloned()
+                    {
+                        existing
+                    } else {
+                        let table_block = Self::new_block(cx, BlockRecord::table(table.clone()));
+                        table_block.update(cx, |block, _cx| {
+                            block.embedded_column_table = true;
+                            block.column_table_host = Some(host.clone());
+                            block.column_table_host_column_index = column_index;
+                            block.column_table_segment_index = segment_index;
+                        });
+                        host.update(cx, |block, _cx| {
+                            block.column_embedded_tables
+                                .insert(key.clone(), table_block.clone());
+                        });
+                        table_block
+                    };
+
+                    let stored = table_block.read(cx).record.table.clone();
+                    if stored.as_ref() != Some(table) {
+                        table_block.update(cx, |block, _cx| {
+                            block.record.table = Some(table.clone());
+                        });
+                        self.install_table_runtime_for_block(&table_block, table, cx);
+                    } else if table_block.read(cx).table_runtime.is_none() {
+                        self.install_table_runtime_for_block(&table_block, table, cx);
+                    }
+                    self.sync_runtime_context_for_block(
+                        &table_block,
+                        self.image_base_dir().as_deref(),
+                        cx,
+                    );
+                }
+            }
+
+            host.update(cx, |block, _cx| {
+                block
+                    .column_embedded_tables
+                    .retain(|key, _| expected_keys.contains(key));
+            });
+        }
+    }
+
+    pub(super) fn sync_column_embedded_table_to_host(
+        &mut self,
+        table_block: &Entity<Block>,
+        cx: &mut Context<Self>,
+    ) {
+        let (host, column_index, segment_index, table) = table_block.read_with(cx, |block, _cx| {
+            (
+                block.column_table_host.clone(),
+                block.column_table_host_column_index,
+                block.column_table_segment_index,
+                block.record.table.clone(),
+            )
+        });
+        let Some(host) = host else {
+            return;
+        };
+        let Some(table) = table else {
+            return;
+        };
+        let host_markdown = host.read(cx).display_text().to_string();
+        let Some(new_markdown) = update_columns_host_table_markdown(
+            &host_markdown,
+            column_index,
+            segment_index,
+            &table,
+        ) else {
+            return;
+        };
+        if new_markdown == host_markdown {
+            return;
+        }
+        host.update(cx, |host_block, cx| {
+            host_block.record.title = InlineTextTree::plain(&new_markdown);
+            host_block.record.raw_fallback = Some(new_markdown);
+            host_block.sync_render_cache();
+            cx.notify();
+        });
+        self.mark_dirty(cx);
     }
 
     pub(super) fn sync_table_record_from_runtime(
@@ -145,6 +259,9 @@ impl Editor {
                 column_width_fractions,
             });
         });
+        if table_block.read(cx).embedded_column_table {
+            self.sync_column_embedded_table_to_host(table_block, cx);
+        }
     }
 
     pub(crate) fn start_table_column_resize_drag(
@@ -669,8 +786,27 @@ impl Editor {
             .filter(|visible| visible.entity.read(cx).kind() == BlockKind::Table)
             .map(|visible| visible.entity)
             .collect::<Vec<_>>();
+        let embedded_tables = self
+            .document
+            .flatten_visible_blocks()
+            .into_iter()
+            .filter(|visible| visible.entity.read(cx).is_columns_raw_markdown())
+            .flat_map(|visible| {
+                visible
+                    .entity
+                    .read(cx)
+                    .column_embedded_tables
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let table_blocks = visible_tables
+            .into_iter()
+            .chain(embedded_tables)
+            .collect::<Vec<_>>();
 
-        for table_block in &visible_tables {
+        for table_block in &table_blocks {
             let block_id = table_block.entity_id();
             let preview_marker = self
                 .table_axis_preview
