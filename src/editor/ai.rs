@@ -80,6 +80,7 @@ pub(super) struct AiState {
     streaming_markdown: String,
     streaming_started_at: Instant,
     streaming_progress_task: Option<Task<()>>,
+    preview_scroll_handle: ScrollHandle,
     preview: Option<AiPreview>,
     error: Option<String>,
     prompt_open: bool,
@@ -123,6 +124,7 @@ impl AiState {
             streaming_markdown: String::new(),
             streaming_started_at: Instant::now(),
             streaming_progress_task: None,
+            preview_scroll_handle: ScrollHandle::new(),
             preview: None,
             error: None,
             prompt_open: false,
@@ -1236,7 +1238,7 @@ impl Editor {
 
     fn ai_streaming_progress(&self) -> f32 {
         let elapsed = self.ai.streaming_started_at.elapsed().as_secs_f32();
-        ((elapsed * 0.85).sin() * 0.5 + 0.5).clamp(0.0, 1.0)
+        (1.0 - (-elapsed / 18.0).exp()).clamp(0.0, 0.96)
     }
 
     fn collect_ai_context(
@@ -1917,6 +1919,26 @@ impl Editor {
         let progress = self.ai_streaming_progress();
         let progress_width = 0.18 + progress * 0.72;
         let progress_dots = ".".repeat(((self.ai.streaming_started_at.elapsed().as_secs_f32() * 2.4) as usize % 3) + 1);
+        let body_lines = body
+            .split('\n')
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        let preview_scroll_height = 360.0;
+        let preview_max_scroll_y = f32::from(
+            self.ai
+                .preview_scroll_handle
+                .max_offset()
+                .height
+                .max(px(0.0)),
+        );
+        let preview_scroll_y = (-f32::from(self.ai.preview_scroll_handle.offset().y))
+            .clamp(0.0, preview_max_scroll_y);
+        let preview_scrollbar = Self::scrollbar_geometry(
+            preview_scroll_height,
+            preview_max_scroll_y,
+            preview_scroll_y,
+        );
+        let show_preview_scrollbar = preview_max_scroll_y > 0.5;
 
         Some(
             div()
@@ -1941,6 +1963,7 @@ impl Editor {
                         .flex()
                         .flex_col()
                         .gap(px(8.0))
+                        .overflow_hidden()
                         .bg(c.dialog_surface)
                         .border(px(d.dialog_border_width))
                         .border_color(c.dialog_border)
@@ -1978,17 +2001,64 @@ impl Editor {
                         })
                         .child(
                             div()
-                                .id("ai-preview-result-scroll")
-                                .flex_1()
-                                .min_h(px(120.0))
+                                .id("ai-preview-result-frame")
+                                .relative()
+                                .w_full()
+                                .h(px(360.0))
+                                .min_h(px(0.0))
                                 .max_h(px(360.0))
-                                .overflow_y_scroll()
-                                .p(px(12.0))
                                 .rounded(px(d.menu_item_radius))
                                 .bg(c.code_bg)
-                                .text_size(px(t.dialog_body_size))
-                                .text_color(c.code_text)
-                                .child(body),
+                                .child(
+                                    div()
+                                        .id("ai-preview-result-scroll")
+                                        .size_full()
+                                        .overflow_y_scroll()
+                                        .scrollbar_width(px(0.0))
+                                        .track_scroll(&self.ai.preview_scroll_handle)
+                                        .p(px(12.0))
+                                        .pr(px(20.0))
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .flex()
+                                                .flex_col()
+                                                .gap(px(2.0))
+                                                .text_size(px(t.dialog_body_size))
+                                                .line_height(rems(t.text_line_height))
+                                                .text_color(c.code_text)
+                                                .children(body_lines.into_iter().map(|line| {
+                                                    div()
+                                                        .w_full()
+                                                        .min_h(px(t.dialog_body_size * t.text_line_height))
+                                                        .child(if line.is_empty() { " ".to_string() } else { line })
+                                                })),
+                                        ),
+                                )
+                                .when(show_preview_scrollbar, |this| {
+                                    this.child(
+                                        div()
+                                            .id("ai-preview-scrollbar-track")
+                                            .absolute()
+                                            .top(px(8.0))
+                                            .right(px(6.0))
+                                            .bottom(px(8.0))
+                                            .w(px(d.scrollbar_width.max(6.0)))
+                                            .rounded(px(999.0))
+                                            .bg(c.dialog_border.opacity(0.7))
+                                            .child(
+                                                div()
+                                                    .id("ai-preview-scrollbar-thumb")
+                                                    .absolute()
+                                                    .top(px(preview_scrollbar.thumb_top))
+                                                    .right(px(0.0))
+                                                    .w_full()
+                                                    .h(px(preview_scrollbar.thumb_height))
+                                                    .rounded(px(999.0))
+                                                    .bg(c.dialog_primary_button_bg),
+                                            ),
+                                    )
+                                }),
                         )
                         .child(
                             div()
