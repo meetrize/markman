@@ -1,6 +1,9 @@
 name: Build and Release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -21,6 +24,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   build:
@@ -85,7 +89,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           New-Item -ItemType Directory -Force dist/package | Out-Null
           Copy-Item target/release/velotype.exe dist/package/velotype.exe
@@ -98,7 +102,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           mkdir -p dist/package/share/applications
           mkdir -p dist/package/share/icons/hicolor/256x256/apps
@@ -115,7 +119,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           mkdir -p "dist/Velotype.app/Contents/MacOS"
           mkdir -p "dist/Velotype.app/Contents/Resources"
@@ -130,7 +134,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.name == 'macOS aarch64'
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           VERSION="${RELEASE_TAG#v}"
           APP_NAME="Velotype"
@@ -179,7 +183,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: dist/velotype-${{ inputs.release_tag }}-${{ matrix.archive_suffix }}
+          path: dist/velotype-${{ env.RELEASE_TAG }}-${{ matrix.archive_suffix }}
           if-no-files-found: error
 
       - name: Upload macOS PKG artifact
@@ -187,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: velotype-macos-pkg
-          path: dist/velotype-${{ inputs.release_tag }}-macos.pkg
+          path: dist/velotype-${{ env.RELEASE_TAG }}-macos.pkg
           if-no-files-found: error
 
   release:
@@ -205,7 +209,7 @@ jobs:
 
       - name: Validate and create release tag
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
           RELEASE_TITLE: ${{ inputs.release_title }}
         run: |
           set -euo pipefail
@@ -244,7 +248,7 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
           RELEASE_TITLE: ${{ inputs.release_title }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
