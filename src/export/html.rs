@@ -18,7 +18,7 @@ use crate::net;
 use crate::theme::{FontWeightDef, Theme};
 
 /// Builds a full HTML document with embedded CSS derived from the active theme.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn render_html(markdown: &str, theme: &Theme, title: &str) -> String {
     render_html_with_base_dir(markdown, theme, title, None)
 }
