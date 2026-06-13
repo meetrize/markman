@@ -32,6 +32,8 @@ const WORKSPACE_CONTEXT_FILE_LIMIT: usize = 8;
 const WORKSPACE_CONTEXT_BYTES_PER_FILE: usize = 1200;
 
 const ICON_AI_TOOLBAR_CONFIG: &str = "icon/toolbar/settings-2.svg";
+const ICON_AI_PREVIEW_INSERT: &str = "icon/toolbar/list-plus.svg";
+const ICON_AI_PREVIEW_REPLACE: &str = "icon/toolbar/replace.svg";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum AiOperation {
@@ -1879,14 +1881,16 @@ impl Editor {
                                     cx.listener(Self::dismiss_ai_preview),
                                 ))
                                 .when(has_preview, |this| {
-                                    this.child(ai_dialog_button(
+                                    this.child(ai_dialog_button_with_icon(
                                         "ai-preview-insert",
+                                        ICON_AI_PREVIEW_INSERT,
                                         "插入下方",
                                         theme,
                                         cx.listener(Self::apply_ai_preview_insert),
                                     ))
-                                    .child(ai_dialog_primary_button(
+                                    .child(ai_dialog_primary_button_with_icon(
                                         "ai-preview-replace",
+                                        ICON_AI_PREVIEW_REPLACE,
                                         "替换",
                                         theme,
                                         cx.listener(Self::apply_ai_preview_replace),
@@ -1961,6 +1965,43 @@ fn ai_dialog_button(
         .text_size(px(t.dialog_button_size))
         .font_weight(t.dialog_button_weight.to_font_weight())
         .text_color(c.dialog_secondary_button_text)
+        .child(label)
+        .on_click(on_click)
+}
+
+fn ai_dialog_button_with_icon(
+    id: &'static str,
+    icon_path: &'static str,
+    label: &'static str,
+    theme: &Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let c = &theme.colors;
+    let d = &theme.dimensions;
+    let t = &theme.typography;
+    div()
+        .id(id)
+        .h(px(d.dialog_button_height))
+        .px(px(d.dialog_button_padding_x))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(5.0))
+        .rounded(px((d.dialog_radius - 4.0).max(0.0)))
+        .border(px(d.dialog_border_width))
+        .border_color(c.dialog_border)
+        .bg(c.dialog_secondary_button_bg)
+        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+        .cursor_pointer()
+        .text_size(px(t.dialog_button_size))
+        .font_weight(t.dialog_button_weight.to_font_weight())
+        .text_color(c.dialog_secondary_button_text)
+        .child(
+            svg()
+                .path(icon_path)
+                .size(px(14.0))
+                .text_color(c.dialog_secondary_button_text),
+        )
         .child(label)
         .on_click(on_click)
 }
@@ -2295,6 +2336,41 @@ fn ai_dialog_primary_button(
         .text_size(px(t.dialog_button_size))
         .font_weight(t.dialog_button_weight.to_font_weight())
         .text_color(c.dialog_primary_button_text)
+        .child(label)
+        .on_click(on_click)
+}
+
+fn ai_dialog_primary_button_with_icon(
+    id: &'static str,
+    icon_path: &'static str,
+    label: &'static str,
+    theme: &Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let c = &theme.colors;
+    let d = &theme.dimensions;
+    let t = &theme.typography;
+    div()
+        .id(id)
+        .h(px(d.dialog_button_height))
+        .px(px(d.dialog_button_padding_x))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(5.0))
+        .rounded(px((d.dialog_radius - 4.0).max(0.0)))
+        .bg(c.dialog_primary_button_bg)
+        .hover(|this| this.bg(c.dialog_primary_button_hover))
+        .cursor_pointer()
+        .text_size(px(t.dialog_button_size))
+        .font_weight(t.dialog_button_weight.to_font_weight())
+        .text_color(c.dialog_primary_button_text)
+        .child(
+            svg()
+                .path(icon_path)
+                .size(px(14.0))
+                .text_color(c.dialog_primary_button_text),
+        )
         .child(label)
         .on_click(on_click)
 }
