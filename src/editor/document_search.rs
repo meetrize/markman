@@ -6,7 +6,7 @@ use std::ops::Range;
 use gpui::*;
 
 use super::single_line_input::{
-    self, SingleLineInputTarget, handle_mouse_down, handle_mouse_move, handle_mouse_up,
+    SingleLineInputTarget, handle_mouse_down, handle_mouse_move, handle_mouse_up,
     index_for_mouse_position, move_caret_to, primary_shortcut_modifiers, select_caret_to,
     text_grapheme_boundary,
 };
@@ -17,9 +17,10 @@ use super::ViewMode;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, FindNextInDocument, FindPreviousInDocument, Home,
     MoveLeft, MoveRight, Paste, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight,
-    ToggleDocumentSearch,
+    ToggleDocumentSearch, toolbar_icon_button,
 };
 use crate::i18n::I18nManager;
+use crate::input::single_line_field::SingleLineFieldState;
 use crate::theme::Theme;
 
 const ICON_SEARCH: &str = "icon/toolbar/search.svg";
@@ -34,13 +35,7 @@ pub(super) struct DocumentSearchMatch {
 #[derive(Default)]
 pub(super) struct DocumentSearchState {
     pub open: bool,
-    pub query: String,
-    pub marked_range: Option<Range<usize>>,
-    pub selected_range: Range<usize>,
-    pub selection_reversed: bool,
-    pub is_selecting: bool,
-    pub last_layout: Option<ShapedLine>,
-    pub last_bounds: Option<Bounds<Pixels>>,
+    pub input: SingleLineFieldState,
     pub matches: Vec<DocumentSearchMatch>,
     pub match_index: Option<usize>,
     pub scroll_entity_id: Option<EntityId>,
@@ -48,34 +43,31 @@ pub(super) struct DocumentSearchState {
 
 impl Editor {
     pub(super) fn document_search_input_active(&self, window: &Window) -> bool {
-        self.document_search.open && self.document_search_focus.is_focused(window)
+        self.search.state.open && self.search.focus.is_focused(window)
     }
 
     pub(super) fn document_search_query_is_empty(&self) -> bool {
-        self.document_search.query.is_empty()
+        self.search.state.input.query.is_empty()
     }
 
     pub(super) fn document_search_display_text(&self, placeholder: &SharedString) -> SharedString {
-        if self.document_search.query.is_empty() {
+        if self.search.state.input.query.is_empty() {
             placeholder.clone()
         } else {
-            self.document_search.query.clone().into()
+            self.search.state.input.query.clone().into()
         }
     }
 
     pub(super) fn document_search_marked_range(&self) -> Option<Range<usize>> {
-        self.document_search.marked_range.clone()
+        self.search.state.input.marked_range.clone()
     }
 
     pub(super) fn document_search_selected_range(&self) -> Range<usize> {
-        self.document_search.selected_range.clone()
+        self.search.state.input.selected_range.clone()
     }
 
     pub(super) fn document_search_cursor_offset(&self) -> usize {
-        single_line_input::cursor_offset(
-            &self.document_search.selected_range,
-            self.document_search.selection_reversed,
-        )
+        self.search.state.input.cursor_offset()
     }
 
     pub(super) fn set_document_search_layout(
@@ -83,8 +75,7 @@ impl Editor {
         line: ShapedLine,
         bounds: Bounds<Pixels>,
     ) {
-        self.document_search.last_layout = Some(line);
-        self.document_search.last_bounds = Some(bounds);
+        self.search.state.input.set_layout(line, bounds);
     }
 
     pub(super) fn on_toggle_document_search(
@@ -124,10 +115,10 @@ impl Editor {
     }
 
     pub(super) fn toggle_document_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.document_search.open = !self.document_search.open;
-        if self.document_search.open {
+        self.search.state.open = !self.search.state.open;
+        if self.search.state.open {
             self.sync_document_search_selection();
-            window.focus(&self.document_search_focus);
+            window.focus(&self.search.focus);
             self.run_document_search(cx);
         } else {
             self.close_document_search(cx);
@@ -136,63 +127,60 @@ impl Editor {
     }
 
     pub(super) fn close_document_search(&mut self, cx: &mut Context<Self>) {
-        if !self.document_search.open && self.document_search.query.is_empty() {
+        if !self.search.state.open && self.search.state.input.query.is_empty() {
             self.clear_document_search_highlights(cx);
             return;
         }
-        self.document_search.open = false;
-        self.document_search.query.clear();
-        self.document_search.marked_range = None;
-        self.document_search.selected_range = 0..0;
-        self.document_search.matches.clear();
-        self.document_search.match_index = None;
-        self.document_search.scroll_entity_id = None;
+        self.search.state.open = false;
+        self.search.state.input.clear();
+        self.search.state.matches.clear();
+        self.search.state.match_index = None;
+        self.search.state.scroll_entity_id = None;
         self.clear_document_search_highlights(cx);
         self.close_single_line_input_context_menu(cx);
         cx.notify();
     }
 
     fn sync_document_search_selection(&mut self) {
-        let len = self.document_search.query.len();
-        self.document_search.selected_range = len..len;
-        self.document_search.selection_reversed = false;
+        self.search.state.input.sync_caret_to_end();
     }
 
     pub(super) fn run_document_search(&mut self, cx: &mut Context<Self>) {
-        let query = self.document_search.query.trim();
+        let query = self.search.state.input.query.trim();
         if query.is_empty() {
-            self.document_search.matches.clear();
-            self.document_search.match_index = None;
+            self.search.state.matches.clear();
+            self.search.state.match_index = None;
             self.clear_document_search_highlights(cx);
             cx.notify();
             return;
         }
 
-        self.search_match_source_range = None;
+        self.search.match_source_range = None;
         self.collect_document_search_matches(cx);
-        self.document_search.match_index = if self.document_search.matches.is_empty() {
+        self.search.state.match_index = if self.search.state.matches.is_empty() {
             None
         } else {
             Some(0)
         };
         self.apply_document_search_highlights(cx);
-        if self.document_search.match_index.is_some() {
-            self.jump_to_document_search_match(self.document_search.match_index, cx);
+        if self.search.state.match_index.is_some() {
+            self.jump_to_document_search_match(self.search.state.match_index, cx);
         } else {
             cx.notify();
         }
     }
 
     pub(super) fn find_next_document_match(&mut self, cx: &mut Context<Self>) {
-        if self.document_search.matches.is_empty() {
-            if self.document_search.open && !self.document_search.query.trim().is_empty() {
+        if self.search.state.matches.is_empty() {
+            if self.search.state.open && !self.search.state.input.query.trim().is_empty() {
                 self.run_document_search(cx);
             }
             return;
         }
-        let len = self.document_search.matches.len();
+        let len = self.search.state.matches.len();
         let next = self
-            .document_search
+            .search
+            .state
             .match_index
             .map(|index| (index + 1) % len)
             .unwrap_or(0);
@@ -200,12 +188,13 @@ impl Editor {
     }
 
     pub(super) fn find_previous_document_match(&mut self, cx: &mut Context<Self>) {
-        if self.document_search.matches.is_empty() {
+        if self.search.state.matches.is_empty() {
             return;
         }
-        let len = self.document_search.matches.len();
+        let len = self.search.state.matches.len();
         let previous = self
-            .document_search
+            .search
+            .state
             .match_index
             .map(|index| (index + len - 1) % len)
             .unwrap_or(len - 1);
@@ -220,11 +209,11 @@ impl Editor {
         let Some(index) = index else {
             return;
         };
-        let Some(match_record) = self.document_search.matches.get(index).cloned() else {
+        let Some(match_record) = self.search.state.matches.get(index).cloned() else {
             return;
         };
 
-        self.document_search.match_index = Some(index);
+        self.search.state.match_index = Some(index);
         self.apply_document_search_highlights(cx);
         self.scroll_document_search_match_into_view(match_record.entity_id, cx);
         cx.notify();
@@ -242,18 +231,18 @@ impl Editor {
         }
 
         let Some(block_entity) = self.document.block_entity_by_id(entity_id) else {
-            self.document_search.scroll_entity_id = Some(entity_id);
+            self.search.state.scroll_entity_id = Some(entity_id);
             self.pending_scroll_recheck_after_layout = true;
             return;
         };
 
         let Some(bounds) = block_entity.read_with(cx, |block, _| block.last_bounds) else {
-            self.document_search.scroll_entity_id = Some(entity_id);
+            self.search.state.scroll_entity_id = Some(entity_id);
             self.pending_scroll_recheck_after_layout = true;
             return;
         };
 
-        self.document_search.scroll_entity_id = None;
+        self.search.state.scroll_entity_id = None;
         let viewport = self.scroll_handle.bounds();
         let padding = px(20.0);
         let top_limit = viewport.top() + padding;
@@ -277,7 +266,7 @@ impl Editor {
     }
 
     pub(super) fn retry_document_search_scroll(&mut self, cx: &App) {
-        let Some(entity_id) = self.document_search.scroll_entity_id else {
+        let Some(entity_id) = self.search.state.scroll_entity_id else {
             return;
         };
         self.scroll_document_search_match_into_view(entity_id, cx);
@@ -303,34 +292,36 @@ impl Editor {
     }
 
     pub(super) fn refresh_document_search_highlights(&mut self, cx: &mut Context<Self>) {
-        if !self.document_search.open || self.document_search.query.trim().is_empty() {
+        if !self.search.state.open || self.search.state.input.query.trim().is_empty() {
             return;
         }
         let current_match = self
-            .document_search
+            .search
+            .state
             .match_index
-            .and_then(|index| self.document_search.matches.get(index).cloned());
+            .and_then(|index| self.search.state.matches.get(index).cloned());
         self.collect_document_search_matches(cx);
-        self.document_search.match_index = if let Some(current) = current_match {
-            self.document_search
+        self.search.state.match_index = if let Some(current) = current_match {
+            self.search
+                .state
                 .matches
                 .iter()
                 .position(|candidate| {
                     candidate.entity_id == current.entity_id && candidate.range == current.range
                 })
                 .or_else(|| {
-                    self.document_search.matches.iter().position(|candidate| {
+                    self.search.state.matches.iter().position(|candidate| {
                         candidate.entity_id == current.entity_id
                             && candidate.range.start >= current.range.start
                     })
                 })
-        } else if self.document_search.matches.is_empty() {
+        } else if self.search.state.matches.is_empty() {
             None
         } else {
             Some(0)
         };
         self.apply_document_search_highlights(cx);
-        if let Some(index) = self.document_search.match_index {
+        if let Some(index) = self.search.state.match_index {
             self.jump_to_document_search_match(Some(index), cx);
         } else {
             cx.notify();
@@ -338,7 +329,7 @@ impl Editor {
     }
 
     fn collect_document_search_matches(&mut self, cx: &App) {
-        let query = self.document_search.query.trim();
+        let query = self.search.state.input.query.trim();
         let mut matches = Vec::new();
         for visible in self.document.visible_blocks() {
             let entity_id = visible.entity.entity_id();
@@ -347,22 +338,23 @@ impl Editor {
                 matches.push(DocumentSearchMatch { entity_id, range });
             }
         }
-        self.document_search.matches = matches;
+        self.search.state.matches = matches;
     }
 
     fn apply_document_search_highlights(&mut self, cx: &mut Context<Self>) {
-        let query = self.document_search.query.trim();
+        let query = self.search.state.input.query.trim();
         if query.is_empty() {
             self.clear_document_search_highlights(cx);
             return;
         }
 
         let active_match = self
-            .document_search
+            .search
+            .state
             .match_index
-            .and_then(|index| self.document_search.matches.get(index).cloned());
+            .and_then(|index| self.search.state.matches.get(index).cloned());
         let mut by_block: HashMap<EntityId, Vec<Range<usize>>> = HashMap::new();
-        for match_record in &self.document_search.matches {
+        for match_record in &self.search.state.matches {
             by_block
                 .entry(match_record.entity_id)
                 .or_default()
@@ -393,21 +385,22 @@ impl Editor {
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if !self.document_search.open {
+        if !self.search.state.open {
             return None;
         }
 
         let c = &theme.colors;
         let strings = cx.global::<I18nManager>().strings_arc();
         let placeholder: SharedString = strings.document_search_placeholder.clone().into();
-        let match_count = self.document_search.matches.len();
+        let match_count = self.search.state.matches.len();
         let next_enabled = match_count > 0;
         let current = self
-            .document_search
+            .search
+            .state
             .match_index
             .map(|index| index + 1)
             .unwrap_or(0);
-        let status = if self.document_search.query.trim().is_empty() {
+        let status = if self.search.state.input.query.trim().is_empty() {
             strings.document_search_status_empty.clone()
         } else if match_count == 0 {
             strings.document_search_no_matches.clone()
@@ -417,9 +410,6 @@ impl Editor {
                 .replace("{current}", &current.to_string())
                 .replace("{total}", &match_count.to_string())
         };
-        let d = &theme.dimensions;
-        let icon_size = px(d.format_toolbar_icon_size);
-        let button_size = px(d.format_toolbar_button_height);
         let editor_for_next = cx.entity();
 
         Some(
@@ -435,7 +425,7 @@ impl Editor {
                 .bg(c.dialog_surface)
                 .border_b(px(theme.dimensions.format_toolbar_border_width))
                 .border_color(c.dialog_border.opacity(0.65))
-                .track_focus(&self.document_search_focus)
+                .track_focus(&self.search.focus)
                 .key_context("BlockEditor")
                 .on_key_down(cx.listener(Self::on_document_search_key_down))
                 .on_action(cx.listener(Self::on_document_search_delete_back))
@@ -495,38 +485,25 @@ impl Editor {
                         .child(SharedString::from(status)),
                 )
                 .child({
-                    let mut button = div()
-                        .id("document-search-next")
-                        .w(button_size)
-                        .h(button_size)
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(d.format_toolbar_button_radius))
-                        .child(
-                            svg()
-                                .path(ICON_CHEVRON_DOWN)
-                                .size(icon_size)
-                                .text_color(c.dialog_muted),
-                        );
+                    let mut button = toolbar_icon_button(
+                        "document-search-next",
+                        theme,
+                        ICON_CHEVRON_DOWN,
+                        false,
+                        !next_enabled,
+                        "",
+                        true,
+                    );
                     if next_enabled {
-                        button = button
-                            .bg(c.dialog_surface)
-                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                            .active(|this| this.opacity(0.92))
-                            .cursor_pointer()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    let _ = editor_for_next.update(cx, |editor, cx| {
-                                        editor.find_next_document_match(cx);
-                                    });
-                                },
-                            );
-                    } else {
-                        button = button.opacity(0.45);
+                        button = button.on_mouse_down(
+                            MouseButton::Left,
+                            move |_, _, cx| {
+                                cx.stop_propagation();
+                                let _ = editor_for_next.update(cx, |editor, cx| {
+                                    editor.find_next_document_match(cx);
+                                });
+                            },
+                        );
                     }
                     button
                 })
@@ -540,7 +517,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.document_search.open || !self.document_search_input_active(window) {
+        if !self.search.state.open || !self.document_search_input_active(window) {
             return;
         }
 
@@ -596,17 +573,18 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
-        window.focus(&self.document_search_focus);
-        let text_len = self.document_search.query.len();
+        window.focus(&self.search.focus);
+        let text_len = self.search.state.input.query.len();
         let offset = self.document_search_index_for_mouse_position(event.position);
+        let input = &mut self.search.state.input;
         handle_mouse_down(
             event.modifiers.shift,
             offset,
             text_len,
-            &mut self.document_search.selected_range,
-            &mut self.document_search.selection_reversed,
-            &mut self.document_search.marked_range,
-            &mut self.document_search.is_selecting,
+            &mut input.selected_range,
+            &mut input.selection_reversed,
+            &mut input.marked_range,
+            &mut input.is_selecting,
         );
         cx.notify();
     }
@@ -616,13 +594,14 @@ impl Editor {
         position: Point<Pixels>,
     ) {
         let offset = self.document_search_index_for_mouse_position(position);
+        let input = &mut self.search.state.input;
         super::single_line_input::prepare_context_menu_selection(
-            &mut self.document_search.selected_range,
-            &mut self.document_search.selection_reversed,
-            &mut self.document_search.marked_range,
-            &mut self.document_search.is_selecting,
+            &mut input.selected_range,
+            &mut input.selection_reversed,
+            &mut input.marked_range,
+            &mut input.is_selecting,
             offset,
-            self.document_search.query.len(),
+            input.query.len(),
         );
     }
 
@@ -632,7 +611,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if handle_mouse_up(&mut self.document_search.is_selecting) {
+        if handle_mouse_up(&mut self.search.state.input.is_selecting) {
             cx.notify();
         }
     }
@@ -646,17 +625,17 @@ impl Editor {
         if !self.document_search_input_active(window) {
             return;
         }
-        let text_len = self.document_search.query.len();
+        let text_len = self.search.state.input.query.len();
         let offset = self.document_search_index_for_mouse_position(event.position);
         if handle_mouse_move(
             event.dragging(),
             offset,
             text_len,
-            self.document_search.is_selecting,
-            &mut self.document_search.selected_range,
-            &mut self.document_search.selection_reversed,
-            &mut self.document_search.marked_range,
-            &mut self.document_search.is_selecting,
+            self.search.state.input.is_selecting,
+            &mut self.search.state.input.selected_range,
+            &mut self.search.state.input.selection_reversed,
+            &mut self.search.state.input.marked_range,
+            &mut self.search.state.input.is_selecting,
         ) {
             cx.notify();
         }
@@ -670,72 +649,72 @@ impl Editor {
         selected_range: Option<Range<usize>>,
         cx: &mut Context<Self>,
     ) {
-        let query = &mut self.document_search.query;
+        let query = &mut self.search.state.input.query;
         let start = range.start.min(query.len());
         let end = range.end.min(query.len());
         query.replace_range(start..end, replacement);
-        self.document_search.marked_range = marked.then(|| {
+        self.search.state.input.marked_range = marked.then(|| {
             let marked_start = start;
             let marked_end = start + replacement.len();
             marked_start..marked_end
         });
         if let Some(selected_range) = selected_range {
-            self.document_search.selected_range = selected_range;
+            self.search.state.input.selected_range = selected_range;
         } else {
             let cursor = start + replacement.len();
-            self.document_search.selected_range = cursor..cursor;
+            self.search.state.input.selected_range = cursor..cursor;
         }
-        self.document_search.selection_reversed = false;
+        self.search.state.input.selection_reversed = false;
         self.run_document_search(cx);
     }
 
     pub(super) fn document_search_index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
         index_for_mouse_position(
-            self.document_search.query.len(),
-            self.document_search.last_bounds.as_ref(),
-            self.document_search.last_layout.as_ref(),
+            self.search.state.input.query.len(),
+            self.search.state.input.last_bounds.as_ref(),
+            self.search.state.input.last_layout.as_ref(),
             position,
         )
     }
 
     fn document_search_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         move_caret_to(
-            &mut self.document_search.selected_range,
-            &mut self.document_search.selection_reversed,
-            &mut self.document_search.marked_range,
-            &mut self.document_search.is_selecting,
+            &mut self.search.state.input.selected_range,
+            &mut self.search.state.input.selection_reversed,
+            &mut self.search.state.input.marked_range,
+            &mut self.search.state.input.is_selecting,
             offset,
-            self.document_search.query.len(),
+            self.search.state.input.query.len(),
         );
         cx.notify();
     }
 
     fn document_search_select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         select_caret_to(
-            &mut self.document_search.selected_range,
-            &mut self.document_search.selection_reversed,
-            &mut self.document_search.marked_range,
+            &mut self.search.state.input.selected_range,
+            &mut self.search.state.input.selection_reversed,
+            &mut self.search.state.input.marked_range,
             offset,
-            self.document_search.query.len(),
+            self.search.state.input.query.len(),
         );
         cx.notify();
     }
 
     fn document_search_delete_backward(&mut self, cx: &mut Context<Self>) {
-        if let Some(marked) = self.document_search.marked_range.clone() {
+        if let Some(marked) = self.search.state.input.marked_range.clone() {
             let cursor = marked.start;
             self.replace_document_search_text(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
 
-        let selected = self.document_search.selected_range.clone();
+        let selected = self.search.state.input.selected_range.clone();
         let delete_range = if selected.is_empty() {
             let cursor = selected.end;
             if cursor == 0 {
                 return;
             }
             let previous =
-                text_grapheme_boundary(&self.document_search.query, cursor, true);
+                text_grapheme_boundary(&self.search.state.input.query, cursor, true);
             previous..cursor
         } else {
             selected
@@ -746,20 +725,20 @@ impl Editor {
     }
 
     fn document_search_delete_forward(&mut self, cx: &mut Context<Self>) {
-        if let Some(marked) = self.document_search.marked_range.clone() {
+        if let Some(marked) = self.search.state.input.marked_range.clone() {
             let cursor = marked.start;
             self.replace_document_search_text(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
 
-        let query_len = self.document_search.query.len();
-        let selected = self.document_search.selected_range.clone();
+        let query_len = self.search.state.input.query.len();
+        let selected = self.search.state.input.selected_range.clone();
         let delete_range = if selected.is_empty() {
             let cursor = selected.end;
             if cursor >= query_len {
                 return;
             }
-            let next = text_grapheme_boundary(&self.document_search.query, cursor, false);
+            let next = text_grapheme_boundary(&self.search.state.input.query, cursor, false);
             cursor..next
         } else {
             selected
@@ -770,11 +749,11 @@ impl Editor {
     }
 
     fn document_search_replace_selection(&mut self, text: &str, cx: &mut Context<Self>) {
-        let range = if self.document_search.selected_range.is_empty() {
+        let range = if self.search.state.input.selected_range.is_empty() {
             let cursor = self.document_search_cursor_offset();
             cursor..cursor
         } else {
-            self.document_search.selected_range.clone()
+            self.search.state.input.selected_range.clone()
         };
         let cursor = range.start + text.len();
         self.replace_document_search_text(range, text, false, Some(cursor..cursor), cx);
@@ -788,10 +767,10 @@ impl Editor {
     }
 
     pub(super) fn document_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
-        if !self.document_search.selected_range.is_empty() {
+        if !self.search.state.input.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.document_search.query
-                    [self.document_search.selected_range.clone()]
+                self.search.state.input.query
+                    [self.search.state.input.selected_range.clone()]
                     .to_string(),
             ));
         }
@@ -799,14 +778,14 @@ impl Editor {
 
     pub(super) fn document_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
         self.document_search_copy_to_clipboard(cx);
-        if !self.document_search.selected_range.is_empty() {
+        if !self.search.state.input.selected_range.is_empty() {
             self.document_search_replace_selection("", cx);
         }
     }
 
     fn document_search_select_all_text(&mut self, cx: &mut Context<Self>) {
         self.document_search_move_to(0, cx);
-        self.document_search_select_to(self.document_search.query.len(), cx);
+        self.document_search_select_to(self.search.state.input.query.len(), cx);
     }
 
     pub(crate) fn on_document_search_delete_back(
@@ -897,15 +876,15 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        if self.document_search.selected_range.is_empty() {
+        if self.search.state.input.selected_range.is_empty() {
             let previous = text_grapheme_boundary(
-                &self.document_search.query,
+                &self.search.state.input.query,
                 self.document_search_cursor_offset(),
                 true,
             );
             self.document_search_move_to(previous, cx);
         } else {
-            self.document_search_move_to(self.document_search.selected_range.start, cx);
+            self.document_search_move_to(self.search.state.input.selected_range.start, cx);
         }
     }
 
@@ -919,15 +898,15 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        if self.document_search.selected_range.is_empty() {
+        if self.search.state.input.selected_range.is_empty() {
             let next = text_grapheme_boundary(
-                &self.document_search.query,
+                &self.search.state.input.query,
                 self.document_search_cursor_offset(),
                 false,
             );
             self.document_search_move_to(next, cx);
         } else {
-            self.document_search_move_to(self.document_search.selected_range.end, cx);
+            self.document_search_move_to(self.search.state.input.selected_range.end, cx);
         }
     }
 
@@ -954,7 +933,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        self.document_search_move_to(self.document_search.query.len(), cx);
+        self.document_search_move_to(self.search.state.input.query.len(), cx);
     }
 
     pub(crate) fn on_document_search_select_left(
@@ -969,7 +948,7 @@ impl Editor {
         cx.stop_propagation();
         self.document_search_select_to(
             text_grapheme_boundary(
-                &self.document_search.query,
+                &self.search.state.input.query,
                 self.document_search_cursor_offset(),
                 true,
             ),
@@ -989,7 +968,7 @@ impl Editor {
         cx.stop_propagation();
         self.document_search_select_to(
             text_grapheme_boundary(
-                &self.document_search.query,
+                &self.search.state.input.query,
                 self.document_search_cursor_offset(),
                 false,
             ),
@@ -1020,7 +999,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        self.document_search_select_to(self.document_search.query.len(), cx);
+        self.document_search_select_to(self.search.state.input.query.len(), cx);
     }
 }
 

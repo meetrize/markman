@@ -12,9 +12,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{
-    VelotypeConfigDirs, object_without_empty_values, prune_empty_json_values, read_json_or_jsonc,
-    sanitize_config_file_stem,
+    VelotypeConfigDirs, catalog, object_without_empty_values, prune_empty_json_values,
+    read_json_or_jsonc, sanitize_config_file_stem,
 };
+use crate::config::catalog::ConfigCatalog;
 
 /// All localisable UI strings for the editor.
 #[derive(Debug, Clone, Serialize)]
@@ -2058,6 +2059,14 @@ fn builtin_language_catalog() -> Vec<LanguageCatalogEntry> {
     ]
 }
 
+struct LanguageCatalog;
+
+impl ConfigCatalog for LanguageCatalog {
+    fn builtin_ids() -> &'static [&'static str] {
+        &[BUILTIN_LANGUAGE_ZH_CN_ID, BUILTIN_LANGUAGE_EN_US_ID]
+    }
+}
+
 /// A JSON language pack with metadata and fallback-completed strings.
 #[derive(Debug, Clone, Serialize)]
 #[allow(dead_code)]
@@ -2133,10 +2142,7 @@ fn language_name_for_id(language_id: &str) -> Option<&'static str> {
 }
 
 fn is_builtin_language_id(language_id: &str) -> bool {
-    matches!(
-        language_id,
-        BUILTIN_LANGUAGE_ZH_CN_ID | BUILTIN_LANGUAGE_EN_US_ID
-    )
+    catalog::is_builtin_id(language_id, LanguageCatalog::builtin_ids())
 }
 
 fn is_valid_custom_language_id(language_id: &str) -> bool {
@@ -2201,15 +2207,6 @@ impl Default for I18nManager {
 }
 
 impl I18nManager {
-    /// Installs the configured UI language into GPUI's global state.
-    #[allow(dead_code)]
-    pub fn init(cx: &mut App) {
-        let language_id = crate::config::read_app_preferences()
-            .map(|preferences| preferences.default_language_id)
-            .unwrap_or_else(|_| BUILTIN_LANGUAGE_EN_US_ID.into());
-        Self::init_with_language_id(cx, &language_id);
-    }
-
     /// Installs a specific UI language into GPUI's global state.
     pub fn init_with_language_id(cx: &mut App, language_id: &str) {
         let mut manager = Self::new_with_language_id(BUILTIN_LANGUAGE_EN_US_ID);
@@ -2295,12 +2292,7 @@ impl I18nManager {
         let raw = read_json_or_jsonc(path.as_ref())?;
         let (pack, normalized) = custom_language_pack_from_value(raw)?;
         let file_name = format!("{}.json", sanitize_config_file_stem(&pack.id));
-        let languages_dir = dirs.languages_dir();
-        std::fs::create_dir_all(&languages_dir)?;
-        std::fs::write(
-            languages_dir.join(file_name),
-            serde_json::to_string_pretty(&normalized)?,
-        )?;
+        catalog::persist_normalized_json_config(&dirs.languages_dir(), &file_name, &normalized)?;
         let imported_id = pack.id.clone();
         self.upsert_custom_language(pack);
         self.set_language_by_id(&imported_id);
@@ -2308,26 +2300,10 @@ impl I18nManager {
     }
 
     fn load_custom_languages_from_dirs(&mut self, dirs: &VelotypeConfigDirs) -> anyhow::Result<()> {
-        let languages_dir = dirs.languages_dir();
-        if !languages_dir.exists() {
-            return Ok(());
-        }
-
-        let mut loaded = Vec::new();
-        for entry in std::fs::read_dir(&languages_dir)? {
-            let path = entry?.path();
-            if path.is_file() {
-                match read_json_or_jsonc(&path).and_then(|value| {
-                    custom_language_pack_from_value(value).map(|(pack, _normalized)| pack)
-                }) {
-                    Ok(pack) => loaded.push(pack),
-                    Err(err) => eprintln!(
-                        "skipping custom language config '{}': {err}",
-                        path.display()
-                    ),
-                }
-            }
-        }
+        let mut loaded =
+            catalog::scan_json_config_dir(&dirs.languages_dir(), "language", |_path, value| {
+                custom_language_pack_from_value(value).map(|(pack, _)| pack)
+            })?;
         loaded.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
         for pack in loaded {
             self.upsert_custom_language(pack);
@@ -2336,15 +2312,7 @@ impl I18nManager {
     }
 
     fn upsert_custom_language(&mut self, pack: I18nLanguagePack) {
-        if let Some(existing) = self
-            .custom_languages
-            .iter_mut()
-            .find(|existing| existing.id == pack.id)
-        {
-            *existing = pack;
-        } else {
-            self.custom_languages.push(pack);
-        }
+        catalog::upsert_by_id(&mut self.custom_languages, pack, |pack| pack.id.as_str());
         self.rebuild_language_catalog();
     }
 

@@ -7,7 +7,10 @@ use directories::ProjectDirs;
 use serde_json::{Map, Value};
 
 pub(crate) mod ai_toolbar;
+pub(crate) mod catalog;
 pub(crate) mod preferences;
+pub(crate) mod store;
+mod ui;
 
 pub(crate) use preferences::{
     AiPreferences, StartupOpenPreference, apply_configured_language, apply_configured_theme,

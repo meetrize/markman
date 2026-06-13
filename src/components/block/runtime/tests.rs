@@ -2620,7 +2620,7 @@ async fn ending_pointer_selection_session_preserves_text_state(cx: &mut TestAppC
 #[gpui::test]
 async fn non_dragging_mouse_move_ends_stale_text_selection(cx: &mut TestAppContext) {
     cx.update(|cx| {
-        I18nManager::init(cx);
+        I18nManager::init_with_language_id(cx, "en-US");
         ThemeManager::init(cx);
     });
     let (block, cx) = cx.add_window_view(|_window, cx| {
@@ -2653,7 +2653,7 @@ async fn non_dragging_mouse_move_ends_stale_text_selection(cx: &mut TestAppConte
 #[gpui::test]
 async fn unfocused_mouse_down_starts_pointer_selection(cx: &mut TestAppContext) {
     cx.update(|cx| {
-        I18nManager::init(cx);
+        I18nManager::init_with_language_id(cx, "en-US");
         ThemeManager::init(cx);
     });
     let (block, cx) = cx.add_window_view(|_window, cx| {
@@ -2685,7 +2685,7 @@ async fn unfocused_mouse_down_starts_pointer_selection(cx: &mut TestAppContext) 
 #[gpui::test]
 async fn dragging_mouse_move_keeps_text_selection_session_active(cx: &mut TestAppContext) {
     cx.update(|cx| {
-        I18nManager::init(cx);
+        I18nManager::init_with_language_id(cx, "en-US");
         ThemeManager::init(cx);
     });
     let (block, cx) = cx.add_window_view(|_window, cx| {

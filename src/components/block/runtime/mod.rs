@@ -515,12 +515,12 @@ impl Block {
         )
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn inline_style_at(&self, offset: usize) -> InlineStyle {
         self.current_cache().style_at(offset)
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn inline_html_style_at(
         &self,
         offset: usize,
@@ -528,24 +528,19 @@ impl Block {
         self.current_cache().html_style_at(offset)
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn inline_link_at(&self, offset: usize) -> Option<&str> {
         self.current_cache().link_at(offset)
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn inline_link_hit_at(&self, offset: usize) -> Option<&InlineLinkHit> {
         self.current_cache().link_hit_at(offset)
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn inline_footnote_hit_at(&self, offset: usize) -> Option<&InlineFootnoteHit> {
         self.current_cache().footnote_hit_at(offset)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn inline_math_at(&self, offset: usize) -> Option<&crate::components::InlineMath> {
-        self.current_cache().inline_math_at(offset)
     }
 
     pub(crate) fn has_mixed_inline_visuals(&self) -> bool {
@@ -1207,7 +1202,7 @@ impl Block {
         self.unexpand_offset(offset)
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn pointer_target_offset(&self, offset: usize) -> usize {
         self.projection
             .as_ref()

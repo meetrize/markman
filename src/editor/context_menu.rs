@@ -263,14 +263,14 @@ impl Editor {
 
     pub(super) fn dismiss_contextual_overlays(&mut self, cx: &mut Context<Self>) {
         let had_inline_code_popover = self.dismiss_inline_code_run_popover(cx);
-        let had_document_search = self.document_search.open;
+        let had_document_search = self.search.state.open;
         let had_quick_file_open = self.quick_file_open.open;
         let had_menu = self.context_menu.take().is_some();
         let had_dialog = self.table_insert_dialog.take().is_some();
         let had_mermaid_menu = self.mermaid_template_menu_position.take().is_some();
         let had_submenu_close = self.context_menu_submenu_close_task.take().is_some();
-        let had_file_menu = self.workspace_file_context_menu.take().is_some();
-        let had_name_dialog = self.workspace_name_dialog.take().is_some();
+        let had_file_menu = self.workspace.file_context_menu.take().is_some();
+        let had_name_dialog = self.workspace.name_dialog.take().is_some();
         let had_code_language_menu = self.close_all_code_language_menus(cx);
         if had_document_search {
             self.close_document_search(cx);

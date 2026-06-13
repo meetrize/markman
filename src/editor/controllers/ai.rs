@@ -1,4 +1,4 @@
-//! Editor AI actions, context collection, and preview application.
+//! AI controller: prompt dialog, streaming, preview, and selection toolbar actions.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -9,8 +9,8 @@ use std::sync::mpsc;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
-use super::{CrossBlockSelection, Editor};
-use super::single_line_input::{
+use super::super::{CrossBlockSelection, Editor};
+use super::super::single_line_input::{
     cursor_offset, handle_mouse_down, handle_mouse_move, handle_mouse_up, select_caret_to,
     text_grapheme_boundary, SingleLineArrowKey,
 };
@@ -18,7 +18,7 @@ use crate::components::{
     AiExpandSelection, AiExplainSelection, AiImproveSelection, AiSummarizeSelection,
     AiTasksSelection, AiTranslateSelection, AskAi, Copy, Cut, Delete, DeleteBack, End, Home,
     MoveLeft, MoveRight, Paste, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight,
-    BlockKind, UndoCaptureKind,
+    BlockKind, UndoCaptureKind, toolbar_icon_label_button,
 };
 use crate::config::ai_toolbar::{AiSelectionToolbarBuiltin, AiSelectionToolbarButton};
 use crate::app_menu::dispatch_menu_action;
@@ -75,7 +75,7 @@ enum AiPromptContextMode {
     Blank,
 }
 
-pub(super) struct AiState {
+pub(in crate::editor) struct AiController {
     in_flight: bool,
     streaming_markdown: String,
     streaming_started_at: Instant,
@@ -127,8 +127,8 @@ struct AiPromptDialogDrag {
     dialog_start: Point<Pixels>,
 }
 
-impl AiState {
-    pub(super) fn new(cx: &mut Context<Editor>) -> Self {
+impl AiController {
+    pub(in crate::editor) fn new(cx: &mut Context<Editor>) -> Self {
         Self {
             in_flight: false,
             streaming_markdown: String::new(),
@@ -407,7 +407,7 @@ impl Editor {
         cx.notify();
     }
 
-    pub(super) fn on_ai_prompt_dialog_mouse_move(
+    pub(in crate::editor) fn on_ai_prompt_dialog_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
         window: &mut Window,
@@ -431,7 +431,7 @@ impl Editor {
         cx.notify();
     }
 
-    pub(super) fn on_ai_prompt_dialog_mouse_up(
+    pub(in crate::editor) fn on_ai_prompt_dialog_mouse_up(
         &mut self,
         _event: &MouseUpEvent,
         _window: &mut Window,
@@ -442,15 +442,15 @@ impl Editor {
         }
     }
 
-    pub(super) fn ai_prompt_focus_handle(&self) -> FocusHandle {
+    pub(in crate::editor) fn ai_prompt_focus_handle(&self) -> FocusHandle {
         self.ai.prompt_focus.clone()
     }
 
-    pub(super) fn ai_prompt_input_active(&self, window: &Window) -> bool {
+    pub(in crate::editor) fn ai_prompt_input_active(&self, window: &Window) -> bool {
         self.ai.prompt_open && self.ai.prompt_focus.is_focused(window)
     }
 
-    pub(super) fn sync_ai_prompt_cursor_blink(
+    pub(in crate::editor) fn sync_ai_prompt_cursor_blink(
         &mut self,
         focused: bool,
         cx: &mut Context<Self>,
@@ -492,34 +492,34 @@ impl Editor {
         self.ai.prompt_cursor_blink_epoch = Instant::now();
     }
 
-    pub(super) fn ai_prompt_is_open(&self) -> bool {
+    pub(in crate::editor) fn ai_prompt_is_open(&self) -> bool {
         self.ai.prompt_open
     }
 
-    pub(super) fn ai_prompt_text(&self) -> &str {
+    pub(in crate::editor) fn ai_prompt_text(&self) -> &str {
         &self.ai.prompt_text
     }
 
-    pub(super) fn ai_prompt_marked_range(&self) -> Option<Range<usize>> {
+    pub(in crate::editor) fn ai_prompt_marked_range(&self) -> Option<Range<usize>> {
         self.ai.prompt_marked_range.clone()
     }
 
-    pub(super) fn ai_prompt_selected_range(&self) -> Range<usize> {
+    pub(in crate::editor) fn ai_prompt_selected_range(&self) -> Range<usize> {
         self.ai.prompt_selected_range.clone()
     }
 
-    pub(super) fn ai_prompt_selection_reversed(&self) -> bool {
+    pub(in crate::editor) fn ai_prompt_selection_reversed(&self) -> bool {
         self.ai.prompt_selection_reversed
     }
 
-    pub(super) fn ai_prompt_cursor_offset(&self) -> usize {
+    pub(in crate::editor) fn ai_prompt_cursor_offset(&self) -> usize {
         cursor_offset(
             &self.ai.prompt_selected_range,
             self.ai.prompt_selection_reversed,
         )
     }
 
-    pub(super) fn set_ai_prompt_layout(
+    pub(in crate::editor) fn set_ai_prompt_layout(
         &mut self,
         lines: Vec<WrappedLine>,
         line_height: Pixels,
@@ -530,15 +530,15 @@ impl Editor {
         self.ai.prompt_last_bounds = Some(bounds);
     }
 
-    pub(super) fn ai_prompt_line_layouts(&self) -> &[WrappedLine] {
+    pub(in crate::editor) fn ai_prompt_line_layouts(&self) -> &[WrappedLine] {
         &self.ai.prompt_line_layouts
     }
 
-    pub(super) fn ai_prompt_line_height(&self) -> Pixels {
+    pub(in crate::editor) fn ai_prompt_line_height(&self) -> Pixels {
         self.ai.prompt_line_height
     }
 
-    pub(super) fn ai_prompt_offset_for_position(&self, position: Point<Pixels>) -> usize {
+    pub(in crate::editor) fn ai_prompt_offset_for_position(&self, position: Point<Pixels>) -> usize {
         let Some(bounds) = self.ai.prompt_last_bounds else {
             return self.ai.prompt_text.len();
         };
@@ -554,11 +554,11 @@ impl Editor {
         )
     }
 
-    pub(super) fn unmark_ai_prompt_text(&mut self) {
+    pub(in crate::editor) fn unmark_ai_prompt_text(&mut self) {
         self.ai.prompt_marked_range = None;
     }
 
-    pub(super) fn on_ai_prompt_mouse_down(
+    pub(in crate::editor) fn on_ai_prompt_mouse_down(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
@@ -579,7 +579,7 @@ impl Editor {
         cx.notify();
     }
 
-    pub(super) fn on_ai_prompt_mouse_up(
+    pub(in crate::editor) fn on_ai_prompt_mouse_up(
         &mut self,
         _event: &MouseUpEvent,
         _window: &mut Window,
@@ -590,7 +590,7 @@ impl Editor {
         }
     }
 
-    pub(super) fn on_ai_prompt_mouse_move(
+    pub(in crate::editor) fn on_ai_prompt_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
         _window: &mut Window,
@@ -612,7 +612,7 @@ impl Editor {
         }
     }
 
-    pub(super) fn replace_ai_prompt_text(
+    pub(in crate::editor) fn replace_ai_prompt_text(
         &mut self,
         range: Range<usize>,
         new_text: &str,
@@ -1385,7 +1385,7 @@ impl Editor {
         cx.notify();
     }
 
-    pub(super) fn on_ai_preview_scrollbar_mouse_move(
+    pub(in crate::editor) fn on_ai_preview_scrollbar_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
         _window: &mut Window,
@@ -1415,7 +1415,7 @@ impl Editor {
         cx.notify();
     }
 
-    pub(super) fn on_ai_preview_scrollbar_mouse_up(
+    pub(in crate::editor) fn on_ai_preview_scrollbar_mouse_up(
         &mut self,
         _event: &MouseUpEvent,
         _window: &mut Window,
@@ -1532,7 +1532,27 @@ impl Editor {
         ))
     }
 
-    pub(super) fn render_ai_floating_toolbar(
+    pub(in crate::editor) fn ai_preview_overlay_active(&self) -> bool {
+        self.ai.in_flight || self.ai.preview.is_some() || self.ai.error.is_some()
+    }
+
+    pub(in crate::editor) fn ai_prompt_dialog_active(&self) -> bool {
+        self.ai.prompt_open
+    }
+
+    pub(in crate::editor) fn ai_floating_toolbar_active(&self, window: &Window, cx: &App) -> bool {
+        if self.ai.prompt_open
+            || self.ai.preview.is_some()
+            || self.ai.in_flight
+            || self.ai.error.is_some()
+        {
+            return false;
+        }
+        self.ai_selection_toolbar_position(window, cx).is_some()
+            && self.collect_selected_ai_context(window, cx).is_some()
+    }
+
+    pub(in crate::editor) fn render_ai_floating_toolbar(
         &self,
         theme: &Theme,
         window: &Window,
@@ -1704,7 +1724,7 @@ impl Editor {
         })
     }
 
-    pub(super) fn render_ai_prompt_dialog_overlay(
+    pub(in crate::editor) fn render_ai_prompt_dialog_overlay(
         &self,
         theme: &Theme,
         _window: &Window,
@@ -1976,7 +1996,7 @@ impl Editor {
         )
     }
 
-    pub(super) fn render_ai_preview_overlay(
+    pub(in crate::editor) fn render_ai_preview_overlay(
         &self,
         theme: &Theme,
         cx: &mut Context<Self>,
@@ -2245,30 +2265,7 @@ fn ai_toolbar_action_button(
     theme: &Theme,
     action: impl Fn(&mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
-    let label = label.into();
-    let c = &theme.colors;
-    let d = &theme.dimensions;
-    div()
-        .id(id)
-        .h(px(26.0))
-        .px(px(8.0))
-        .flex()
-        .items_center()
-        .gap(px(4.0))
-        .rounded(px(d.format_toolbar_button_radius))
-        .bg(c.dialog_surface)
-        .hover(|this| this.bg(c.dialog_secondary_button_hover))
-        .active(|this| this.opacity(0.92))
-        .cursor_pointer()
-        .text_size(px(12.0))
-        .text_color(c.dialog_secondary_button_text)
-        .child(
-            svg()
-                .path(SharedString::from(icon_path))
-                .size(px(14.0))
-                .text_color(c.dialog_secondary_button_text),
-        )
-        .child(label)
+    toolbar_icon_label_button(id, icon_path, label, theme, "")
         .on_click(move |_, window, cx| {
             cx.stop_propagation();
             action(window, cx);
@@ -2570,7 +2567,7 @@ fn ai_range_segments(
     segments
 }
 
-pub(super) fn ai_range_bounds(
+pub(in crate::editor) fn ai_range_bounds(
     lines: &[WrappedLine],
     bounds: Bounds<Pixels>,
     line_height: Pixels,

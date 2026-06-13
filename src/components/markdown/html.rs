@@ -8,6 +8,8 @@ use std::ops::Range;
 
 use cssparser::color::{parse_hash_color, parse_named_color};
 
+use super::{escape_html_attr, escape_html_text};
+
 #[cfg(feature = "html-native")]
 use tree_sitter::Parser;
 
@@ -313,7 +315,7 @@ pub(crate) fn sanitize_html_for_export(raw_source: &str) -> String {
     if !document.is_semantic() {
         return format!(
             "<pre class=\"vlt-raw-html\">{}</pre>",
-            escape_html(raw_source)
+            escape_html_text(raw_source)
         );
     }
 
@@ -341,7 +343,7 @@ fn sanitize_node_for_export(node: &HtmlNode) -> String {
     if node.kind == HtmlNodeKind::RawTextBlock {
         return format!(
             "<span class=\"vlt-raw-html\">{}</span>",
-            escape_html(&node.raw_source)
+            escape_html_text(&node.raw_source)
         );
     }
 
@@ -354,7 +356,7 @@ fn sanitize_node_for_export(node: &HtmlNode) -> String {
     }
 
     let Some(_open_end) = node.raw_source.find('>').map(|index| index + 1) else {
-        return escape_html(&node.raw_source);
+        return escape_html_text(&node.raw_source);
     };
     let close_start =
         find_closing_tag_start(&node.raw_source, &node.tag_name).unwrap_or(node.raw_source.len());
@@ -394,34 +396,6 @@ fn sanitized_open_tag(node: &HtmlNode) -> String {
 fn find_closing_tag_start(raw_source: &str, tag_name: &str) -> Option<usize> {
     let needle = format!("</{tag_name}");
     raw_source.to_ascii_lowercase().rfind(&needle)
-}
-
-fn escape_html_attr(value: &str) -> String {
-    let mut escaped = String::new();
-    for ch in value.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '"' => escaped.push_str("&quot;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
-fn escape_html(value: &str) -> String {
-    let mut escaped = String::new();
-    for ch in value.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 fn parse_nodes(

@@ -49,31 +49,31 @@ pub(super) struct WorkspaceNameDialogState {
 
 impl Editor {
     pub(super) fn workspace_name_input_active(&self, window: &Window) -> bool {
-        self.workspace_name_dialog.is_some() && self.workspace_name_focus.is_focused(window)
+        self.workspace.name_dialog.is_some() && self.workspace.name_focus.is_focused(window)
     }
 
     pub(super) fn workspace_name_text(&self) -> String {
-        self.workspace_name_dialog
+        self.workspace.name_dialog
             .as_ref()
             .map(|dialog| dialog.name.clone())
             .unwrap_or_default()
     }
 
     pub(super) fn workspace_name_marked_range(&self) -> Option<Range<usize>> {
-        self.workspace_name_dialog
+        self.workspace.name_dialog
             .as_ref()
             .and_then(|dialog| dialog.marked_range.clone())
     }
 
     pub(super) fn workspace_name_selected_range(&self) -> Range<usize> {
-        self.workspace_name_dialog
+        self.workspace.name_dialog
             .as_ref()
             .map(|dialog| dialog.selected_range.clone())
             .unwrap_or(0..0)
     }
 
     pub(super) fn workspace_name_cursor_offset(&self) -> usize {
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return 0;
         };
         single_line_input::cursor_offset(&dialog.selected_range, dialog.selection_reversed)
@@ -84,8 +84,8 @@ impl Editor {
         line: ShapedLine,
         bounds: Bounds<Pixels>,
     ) {
-        self.workspace_name_last_layout = Some(line);
-        self.workspace_name_last_bounds = Some(bounds);
+        self.workspace.name_last_layout = Some(line);
+        self.workspace.name_last_bounds = Some(bounds);
     }
 
     pub(super) fn workspace_name_index_for_mouse_position(
@@ -94,8 +94,8 @@ impl Editor {
     ) -> usize {
         index_for_mouse_position(
             self.workspace_name_text().len(),
-            self.workspace_name_last_bounds.as_ref(),
-            self.workspace_name_last_layout.as_ref(),
+            self.workspace.name_last_bounds.as_ref(),
+            self.workspace.name_last_layout.as_ref(),
             position,
         )
     }
@@ -115,19 +115,19 @@ impl Editor {
         self.close_single_line_input_context_menu(cx);
         self.context_menu = None;
         self.context_menu_submenu_close_task = None;
-        self.workspace_file_context_menu = Some(WorkspaceFileContextMenuState { position, target });
+        self.workspace.file_context_menu = Some(WorkspaceFileContextMenuState { position, target });
         cx.notify();
     }
 
     pub(super) fn close_workspace_file_context_menu(&mut self, cx: &mut Context<Self>) {
-        if self.workspace_file_context_menu.take().is_some() {
+        if self.workspace.file_context_menu.take().is_some() {
             cx.notify();
         }
     }
 
     pub(super) fn close_workspace_name_dialog(&mut self, cx: &mut Context<Self>) {
-        if self.workspace_name_dialog.take().is_some() {
-            self.workspace_name_is_selecting = false;
+        if self.workspace.name_dialog.take().is_some() {
+            self.workspace.name_is_selecting = false;
             self.close_single_line_input_context_menu(cx);
             cx.notify();
         }
@@ -152,7 +152,7 @@ impl Editor {
     }
 
     fn workspace_file_menu_target(&self) -> Option<WorkspaceFileMenuTarget> {
-        self.workspace_file_context_menu
+        self.workspace.file_context_menu
             .as_ref()
             .map(|menu| menu.target.clone())
     }
@@ -182,14 +182,14 @@ impl Editor {
     ) {
         self.close_workspace_file_context_menu(cx);
         let len = default_name.len();
-        self.workspace_name_dialog = Some(WorkspaceNameDialogState {
+        self.workspace.name_dialog = Some(WorkspaceNameDialogState {
             kind,
             name: default_name,
             marked_range: None,
             selected_range: 0..len,
             selection_reversed: false,
         });
-        window.focus(&self.workspace_name_focus);
+        window.focus(&self.workspace.name_focus);
         cx.notify();
     }
 
@@ -268,7 +268,7 @@ impl Editor {
             return;
         };
         if let Some(WorkspaceFileMenuTarget::Directory(dir_path)) =
-            self.workspace_file_context_menu.as_ref().map(|menu| menu.target.clone())
+            self.workspace.file_context_menu.as_ref().map(|menu| menu.target.clone())
         {
             if self.is_workspace_tree_root(&dir_path) {
                 return;
@@ -384,7 +384,7 @@ impl Editor {
     }
 
     fn confirm_workspace_name_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.clone() else {
+        let Some(dialog) = self.workspace.name_dialog.clone() else {
             return;
         };
         let trimmed = dialog.name.trim();
@@ -498,7 +498,7 @@ impl Editor {
         selected: Option<Range<usize>>,
         cx: &mut Context<Self>,
     ) {
-        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
         let start = range.start.min(dialog.name.len());
@@ -511,14 +511,14 @@ impl Editor {
     }
 
     fn workspace_name_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
         move_caret_to(
             &mut dialog.selected_range,
             &mut dialog.selection_reversed,
             &mut dialog.marked_range,
-            &mut self.workspace_name_is_selecting,
+            &mut self.workspace.name_is_selecting,
             offset,
             dialog.name.len(),
         );
@@ -526,7 +526,7 @@ impl Editor {
     }
 
     fn workspace_name_select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
         select_caret_to(
@@ -540,7 +540,7 @@ impl Editor {
     }
 
     fn workspace_name_delete_backward(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         if !dialog.selected_range.is_empty() {
@@ -563,7 +563,7 @@ impl Editor {
     }
 
     fn workspace_name_delete_forward(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         if !dialog.selected_range.is_empty() {
@@ -588,7 +588,7 @@ impl Editor {
     pub(super) fn workspace_name_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             let text = super::single_line_input::sanitize_pasted_text(&text);
-            let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            let Some(dialog) = self.workspace.name_dialog.as_ref() else {
                 return;
             };
             let range = dialog.selected_range.clone();
@@ -597,7 +597,7 @@ impl Editor {
     }
 
     pub(super) fn workspace_name_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         if dialog.selected_range.is_empty() {
@@ -609,7 +609,7 @@ impl Editor {
 
     pub(super) fn workspace_name_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
         self.workspace_name_copy_to_clipboard(cx);
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         if !dialog.selected_range.is_empty() {
@@ -618,7 +618,7 @@ impl Editor {
     }
 
     fn workspace_name_select_all_text(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         let len = dialog.name.len();
@@ -631,7 +631,7 @@ impl Editor {
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let menu = self.workspace_file_context_menu.as_ref()?;
+        let menu = self.workspace.file_context_menu.as_ref()?;
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
@@ -795,7 +795,7 @@ impl Editor {
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let dialog = self.workspace_name_dialog.as_ref()?;
+        let dialog = self.workspace.name_dialog.as_ref()?;
         let c = &theme.colors;
         let d = &theme.dimensions;
         let t = &theme.typography;
@@ -805,7 +805,7 @@ impl Editor {
             WorkspaceNameDialogKind::NewMarkdown { .. } => s.workspace_dialog_new_file_title.clone(),
             WorkspaceNameDialogKind::Rename { .. } => s.workspace_dialog_rename_title.clone(),
         };
-        let name_focus = self.workspace_name_focus.clone();
+        let name_focus = self.workspace.name_focus.clone();
 
         Some(
             div()
@@ -838,7 +838,7 @@ impl Editor {
                         .border_color(c.dialog_border)
                         .rounded(px(d.dialog_radius))
                         .shadow_lg()
-                        .track_focus(&self.workspace_name_focus)
+                        .track_focus(&self.workspace.name_focus)
                         .key_context("BlockEditor")
                         .on_key_down(cx.listener(Self::on_workspace_name_dialog_key_down))
                         .on_action(cx.listener(Self::on_workspace_name_delete_back))
@@ -985,9 +985,9 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
-        window.focus(&self.workspace_name_focus);
+        window.focus(&self.workspace.name_focus);
         let offset = self.workspace_name_index_for_mouse_position(event.position);
-        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
         handle_mouse_down(
@@ -997,7 +997,7 @@ impl Editor {
             &mut dialog.selected_range,
             &mut dialog.selection_reversed,
             &mut dialog.marked_range,
-            &mut self.workspace_name_is_selecting,
+            &mut self.workspace.name_is_selecting,
         );
         cx.notify();
     }
@@ -1007,7 +1007,7 @@ impl Editor {
         position: Point<Pixels>,
     ) {
         let offset = self.workspace_name_index_for_mouse_position(position);
-        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
         let text_len = dialog.name.len();
@@ -1015,7 +1015,7 @@ impl Editor {
             &mut dialog.selected_range,
             &mut dialog.selection_reversed,
             &mut dialog.marked_range,
-            &mut self.workspace_name_is_selecting,
+            &mut self.workspace.name_is_selecting,
             offset,
             text_len,
         );
@@ -1027,7 +1027,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if handle_mouse_up(&mut self.workspace_name_is_selecting) {
+        if handle_mouse_up(&mut self.workspace.name_is_selecting) {
             cx.notify();
         }
     }
@@ -1041,23 +1041,23 @@ impl Editor {
         if !self.workspace_name_input_active(window) {
             return;
         }
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         let text_len = dialog.name.len();
         let offset = self.workspace_name_index_for_mouse_position(event.position);
-        let Some(dialog) = self.workspace_name_dialog.as_mut() else {
+        let Some(dialog) = self.workspace.name_dialog.as_mut() else {
             return;
         };
         if handle_mouse_move(
             event.dragging(),
             offset,
             text_len,
-            self.workspace_name_is_selecting,
+            self.workspace.name_is_selecting,
             &mut dialog.selected_range,
             &mut dialog.selection_reversed,
             &mut dialog.marked_range,
-            &mut self.workspace_name_is_selecting,
+            &mut self.workspace.name_is_selecting,
         ) {
             cx.notify();
         }
@@ -1151,7 +1151,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         if dialog.selected_range.is_empty() {
@@ -1176,7 +1176,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         if dialog.selected_range.is_empty() {
@@ -1215,7 +1215,7 @@ impl Editor {
         }
         cx.stop_propagation();
         let len = self
-            .workspace_name_dialog
+            .workspace.name_dialog
             .as_ref()
             .map(|dialog| dialog.name.len())
             .unwrap_or(0);
@@ -1232,7 +1232,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         self.workspace_name_select_to(
@@ -1255,7 +1255,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
         };
         self.workspace_name_select_to(
@@ -1292,7 +1292,7 @@ impl Editor {
         }
         cx.stop_propagation();
         let len = self
-            .workspace_name_dialog
+            .workspace.name_dialog
             .as_ref()
             .map(|dialog| dialog.name.len())
             .unwrap_or(0);

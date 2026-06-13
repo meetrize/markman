@@ -1,9 +1,10 @@
 //! Markdown formatting toolbar shown above the editor content area.
 
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use crate::components::markdown::source_format::{MarkdownToolbarAction, apply_markdown_toolbar_action};
-use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
+use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind, toolbar_icon_button};
 use crate::theme::Theme;
 
 use super::Editor;
@@ -312,27 +313,7 @@ impl Editor {
             ViewMode::Source => ICON_VIEW_RENDERED,
         };
         let auto_save_enabled = self.auto_save_enabled;
-        let auto_save_bg = if auto_save_enabled {
-            c.selection.opacity(0.35)
-        } else {
-            c.dialog_surface
-        };
-        let auto_save_hover_bg = if auto_save_enabled {
-            c.selection.opacity(0.5)
-        } else {
-            c.dialog_secondary_button_hover
-        };
-        let document_search_open = self.document_search.open;
-        let document_search_bg = if document_search_open {
-            c.selection.opacity(0.35)
-        } else {
-            c.dialog_surface
-        };
-        let document_search_hover_bg = if document_search_open {
-            c.selection.opacity(0.5)
-        } else {
-            c.dialog_secondary_button_hover
-        };
+        let document_search_open = self.search.state.open;
         let can_undo = self.can_undo();
         let can_redo = self.can_redo();
         let can_save = self.document_dirty;
@@ -465,28 +446,19 @@ impl Editor {
                                 });
                             })
                     })
-                    .child(
-                        div()
-                            .id("document-search-toggle")
-                            .w(px(d.format_toolbar_button_height))
-                            .h(px(d.format_toolbar_button_height))
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(d.format_toolbar_button_radius))
-                            .bg(document_search_bg)
-                            .hover(|this| this.bg(document_search_hover_bg))
-                            .active(|this| this.opacity(0.92))
-                            .cursor_pointer()
-                            .child(
-                                svg()
-                                    .path(ICON_SEARCH)
-                                    .size(icon_size)
-                                    .text_color(icon_color),
-                            )
-                            .on_click(cx.listener(Self::on_toggle_document_search_click)),
-                    )
+                    .child({
+                        let _button_editor = editor.clone();
+                        toolbar_icon_button(
+                            "document-search-toggle",
+                            theme,
+                            ICON_SEARCH,
+                            document_search_open,
+                            false,
+                            "",
+                            false,
+                        )
+                        .on_click(cx.listener(Self::on_toggle_document_search_click))
+                    })
                     .child(Self::render_history_toolbar_button(
                         "save-toolbar-button",
                         ICON_SAVE,
@@ -496,48 +468,28 @@ impl Editor {
                         Self::request_save_document,
                     ))
                     .child(
-                        div()
-                            .id("auto-save-toggle")
-                            .w(px(d.format_toolbar_button_height))
-                            .h(px(d.format_toolbar_button_height))
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(d.format_toolbar_button_radius))
-                            .bg(auto_save_bg)
-                            .hover(|this| this.bg(auto_save_hover_bg))
-                            .active(|this| this.opacity(0.92))
-                            .cursor_pointer()
-                            .child(
-                                svg()
-                                    .path(ICON_AUTO_SAVE)
-                                    .size(icon_size)
-                                    .text_color(icon_color),
-                            )
-                            .on_click(cx.listener(Self::on_toggle_auto_save)),
+                        toolbar_icon_button(
+                            "auto-save-toggle",
+                            theme,
+                            ICON_AUTO_SAVE,
+                            auto_save_enabled,
+                            false,
+                            "",
+                            false,
+                        )
+                        .on_click(cx.listener(Self::on_toggle_auto_save)),
                     )
                     .child(
-                        div()
-                            .id("view-mode-toggle")
-                            .w(px(d.format_toolbar_button_height))
-                            .h(px(d.format_toolbar_button_height))
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(d.format_toolbar_button_radius))
-                            .bg(c.dialog_surface)
-                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                            .active(|this| this.opacity(0.92))
-                            .cursor_pointer()
-                            .child(
-                                svg()
-                                    .path(view_mode_icon)
-                                    .size(icon_size)
-                                    .text_color(icon_color),
-                            )
-                            .on_click(cx.listener(Self::on_toggle_view_mode)),
+                        toolbar_icon_button(
+                            "view-mode-toggle",
+                            theme,
+                            view_mode_icon,
+                            false,
+                            false,
+                            "",
+                            false,
+                        )
+                        .on_click(cx.listener(Self::on_toggle_view_mode)),
                     ),
             )
     }
@@ -547,30 +499,18 @@ impl Editor {
         editor: WeakEntity<Self>,
         menu_open: bool,
     ) -> impl IntoElement {
-        let c = &theme.colors;
         let d = &theme.dimensions;
-        let icon_color = c.dialog_secondary_button_text;
-        let icon_size = px(d.format_toolbar_icon_size);
         let menu_offset_y = px(d.format_toolbar_button_height + 6.0);
-        div()
-            .id("mermaid-template-toolbar-button")
-            .w(px(d.format_toolbar_button_height))
-            .h(px(d.format_toolbar_button_height))
-            .flex()
-            .flex_shrink_0()
-            .items_center()
-            .justify_center()
-            .rounded(px(d.format_toolbar_button_radius))
-            .bg(if menu_open {
-                c.selection.opacity(0.35)
-            } else {
-                c.dialog_surface
-            })
-            .hover(|this| this.bg(c.dialog_secondary_button_hover))
-            .active(|this| this.opacity(0.92))
-            .cursor_pointer()
-            .child(svg().path(ICON_WORKFLOW).size(icon_size).text_color(icon_color))
-            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+        toolbar_icon_button(
+            "mermaid-template-toolbar-button",
+            theme,
+            ICON_WORKFLOW,
+            menu_open,
+            false,
+            "",
+            false,
+        )
+        .on_mouse_down(MouseButton::Left, move |event, _, cx| {
                 cx.stop_propagation();
                 let position = point(event.position.x, event.position.y + menu_offset_y);
                 let _ = editor.update(cx, |editor, cx| {
@@ -638,43 +578,14 @@ impl Editor {
         editor: WeakEntity<Self>,
         action: fn(&mut Self, &mut Context<Self>),
     ) -> impl IntoElement {
-        let c = &theme.colors;
-        let d = &theme.dimensions;
-        let icon_color = c.dialog_secondary_button_text;
-        let icon_size = px(d.format_toolbar_icon_size);
-        let mut button = div()
-            .id(id)
-            .w(px(d.format_toolbar_button_height))
-            .h(px(d.format_toolbar_button_height))
-            .flex()
-            .flex_shrink_0()
-            .items_center()
-            .justify_center()
-            .rounded(px(d.format_toolbar_button_radius))
-            .bg(c.dialog_surface)
-            .child(
-                svg()
-                    .path(icon_path)
-                    .size(icon_size)
-                    .text_color(icon_color),
-            );
-
-        if enabled {
-            button = button
-                .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                .active(|this| this.opacity(0.92))
-                .cursor_pointer()
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = editor.update(cx, |editor, cx| {
-                        action(editor, cx);
-                    });
+        toolbar_icon_button(id, theme, icon_path, false, !enabled, "", false).when(enabled, |this| {
+            this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                cx.stop_propagation();
+                let _ = editor.update(cx, |editor, cx| {
+                    action(editor, cx);
                 });
-        } else {
-            button = button.opacity(0.45);
-        }
-
-        button
+            })
+        })
     }
 
     fn append_code_block_from_toolbar(&mut self, cx: &mut Context<Self>) {

@@ -26,7 +26,7 @@ use crate::components::{
 };
 use crate::theme::ThemeManager;
 mod close;
-mod ai;
+mod controllers;
 mod code_language_menu;
 mod code_run;
 mod context_menu;
@@ -36,6 +36,7 @@ mod export;
 mod file_drop;
 mod format_toolbar;
 mod history;
+mod overlays;
 mod persistence;
 mod quick_file_open;
 mod render;
@@ -56,7 +57,7 @@ mod window_state;
 mod workspace;
 mod workspace_file_menu;
 
-use self::workspace::WorkspaceState;
+use self::controllers::{SearchController, WorkspaceController};
 
 /// Link navigation request deferred until a `Window` is available.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,10 +99,7 @@ pub struct Editor {
     auto_save_enabled: bool,
     auto_save_task: Option<Task<()>>,
     pending_open_link: Option<PendingOpenLink>,
-    pending_workspace_search_jump: Option<PendingWorkspaceSearchJump>,
-    search_match_source_range: Option<std::ops::Range<usize>>,
-    document_search: document_search::DocumentSearchState,
-    document_search_focus: FocusHandle,
+    search: SearchController,
     pending_window_edited: bool,
     pending_window_title_refresh: bool,
     document_dirty: bool,
@@ -122,14 +120,7 @@ pub struct Editor {
     info_dialog: Option<InfoDialogKind>,
     /// True while an online update check is running in the background.
     update_check_in_progress: bool,
-    workspace: WorkspaceState,
-    workspace_search_focus: FocusHandle,
-    workspace_name_focus: FocusHandle,
-    workspace_name_is_selecting: bool,
-    workspace_name_last_layout: Option<ShapedLine>,
-    workspace_name_last_bounds: Option<Bounds<Pixels>>,
-    workspace_file_context_menu: Option<workspace_file_menu::WorkspaceFileContextMenuState>,
-    workspace_name_dialog: Option<workspace_file_menu::WorkspaceNameDialogState>,
+    workspace: WorkspaceController,
     single_line_input_context_menu: Option<single_line_input_menu::SingleLineInputContextMenuState>,
     context_menu: Option<ContextMenuState>,
     table_insert_dialog: Option<TableInsertDialogState>,
@@ -151,7 +142,6 @@ pub struct Editor {
     scrollbar_visible_until: Instant,
     scrollbar_fade_task: Option<Task<()>>,
     scrollbar_drag: Option<ScrollbarDragSession>,
-    workspace_resize_drag: Option<WorkspaceResizeDragSession>,
     table_column_resize_drag: Option<TableColumnResizeDragSession>,
     undo_history: Vec<HistoryEntry>,
     redo_history: Vec<HistoryEntry>,
@@ -169,7 +159,7 @@ pub struct Editor {
     inline_code_run_popover: Option<code_run::InlineCodeRunTarget>,
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
     quick_file_open: quick_file_open::QuickFileOpenState,
-    ai: ai::AiState,
+    ai: controllers::AiController,
 }
 
 /// Runtime binding between a table block and one cell editor.
@@ -197,15 +187,7 @@ struct ScrollbarGeometry {
     max_scroll_y: f32,
 }
 
-/// Active drag session for resizing the workspace panel.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct WorkspaceResizeDragSession {
-    start_pointer_x: f32,
-    start_width: f32,
-    viewport_width: f32,
-}
-
-/// Active drag session for resizing adjacent native table columns.
+/// Active drag session for the custom scrollbar thumb.
 #[derive(Clone, Debug, PartialEq)]
 struct TableColumnResizeDragSession {
     table_block: Entity<Block>,
@@ -327,10 +309,7 @@ impl Editor {
             auto_save_enabled: false,
             auto_save_task: None,
             pending_open_link: None,
-            pending_workspace_search_jump: None,
-            search_match_source_range: None,
-            document_search: document_search::DocumentSearchState::default(),
-            document_search_focus: cx.focus_handle(),
+            search: SearchController::new(cx),
             pending_window_edited: false,
             pending_window_title_refresh: false,
             document_dirty: false,
@@ -347,14 +326,7 @@ impl Editor {
             drop_replace_restore_focus: None,
             info_dialog: None,
             update_check_in_progress: false,
-            workspace: WorkspaceState::default(),
-            workspace_search_focus: cx.focus_handle(),
-            workspace_name_focus: cx.focus_handle(),
-            workspace_name_is_selecting: false,
-            workspace_name_last_layout: None,
-            workspace_name_last_bounds: None,
-            workspace_file_context_menu: None,
-            workspace_name_dialog: None,
+            workspace: WorkspaceController::new(cx),
             single_line_input_context_menu: None,
             context_menu: None,
             table_insert_dialog: None,
@@ -374,7 +346,6 @@ impl Editor {
             scrollbar_visible_until: Instant::now(),
             scrollbar_fade_task: None,
             scrollbar_drag: None,
-            workspace_resize_drag: None,
             table_column_resize_drag: None,
             undo_history: Vec::new(),
             redo_history: Vec::new(),
@@ -392,7 +363,7 @@ impl Editor {
             inline_code_run_popover: None,
             code_run_dialog: None,
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
-            ai: ai::AiState::new(cx),
+            ai: controllers::AiController::new(cx),
         };
         editor.rebuild_table_runtimes(cx);
         editor.rebuild_image_runtimes(cx);

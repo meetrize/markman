@@ -103,9 +103,9 @@ impl Editor {
         target: SingleLineInputTarget,
     ) -> FocusHandle {
         match target {
-            SingleLineInputTarget::WorkspaceSearch => self.workspace_search_focus.clone(),
-            SingleLineInputTarget::DocumentSearch => self.document_search_focus.clone(),
-            SingleLineInputTarget::WorkspaceName => self.workspace_name_focus.clone(),
+            SingleLineInputTarget::WorkspaceSearch => self.workspace.search_focus.clone(),
+            SingleLineInputTarget::DocumentSearch => self.search.focus.clone(),
+            SingleLineInputTarget::WorkspaceName => self.workspace.name_focus.clone(),
             SingleLineInputTarget::QuickFileOpen => self.quick_file_open.focus_handle.clone(),
         }
     }

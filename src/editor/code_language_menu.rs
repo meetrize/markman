@@ -133,7 +133,7 @@ impl Editor {
         )
     }
 
-    fn code_language_menu_block(&self, cx: &App) -> Option<Entity<Block>> {
+    pub(super) fn code_language_menu_block(&self, cx: &App) -> Option<Entity<Block>> {
         for visible in self.document.flatten_visible_blocks() {
             if visible.entity.read(cx).code_language_menu_open {
                 return Some(visible.entity.clone());

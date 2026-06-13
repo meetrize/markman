@@ -521,7 +521,7 @@ impl Editor {
     }
 
     pub(super) fn clear_search_match_highlight(&mut self, cx: &mut Context<Self>) {
-        let had_source_range = self.search_match_source_range.take().is_some();
+        let had_source_range = self.search.match_source_range.take().is_some();
         let mut changed = had_source_range;
         for visible in self.document.visible_blocks().to_vec() {
             visible.entity.update(cx, |block, cx| {
@@ -539,14 +539,14 @@ impl Editor {
     }
 
     pub(super) fn refresh_search_match_highlights(&mut self, cx: &mut Context<Self>) {
-        if self.search_match_source_range.is_some() {
+        if self.search.match_source_range.is_some() {
             self.sync_search_match_highlights(cx);
             cx.notify();
         }
     }
 
     fn sync_search_match_highlights(&mut self, cx: &mut Context<Self>) {
-        let source_range = self.search_match_source_range.clone();
+        let source_range = self.search.match_source_range.clone();
         let mappings = self.build_source_target_mappings(cx);
         let visible_blocks = self.document.visible_blocks().to_vec();
         for visible in visible_blocks {
@@ -644,7 +644,7 @@ impl Editor {
             self.focus_block(start.entity_id);
         }
 
-        self.search_match_source_range = Some(source_range);
+        self.search.match_source_range = Some(source_range);
         self.sync_search_match_highlights(cx);
         cx.notify();
         true
@@ -1034,6 +1034,8 @@ fn resolve_search_match_in_source(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use gpui::{AppContext, Bounds, Context, TestAppContext, point, px, size};
 
     use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor, source_line_index_start_offset};
@@ -1043,9 +1045,9 @@ mod tests {
 
     fn init_editor_test_app(cx: &mut TestAppContext) {
         cx.update(|cx| {
-            I18nManager::init(cx);
+            I18nManager::init_with_language_id(cx, "en-US");
             ThemeManager::init(cx);
-            crate::components::init(cx);
+            crate::components::init_with_keybindings(cx, &BTreeMap::new());
         });
     }
 

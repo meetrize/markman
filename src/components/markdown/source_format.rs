@@ -2,6 +2,16 @@
 
 use std::ops::Range;
 
+/// Default link label inserted when the toolbar link action has no selection.
+pub(crate) const DEFAULT_LINK_TEXT: &str = "link text";
+/// Default URL inserted when the toolbar link action has no selection.
+pub(crate) const DEFAULT_LINK_URL: &str = "https://example.com";
+/// Default alt text inserted when the toolbar image action has no selection.
+pub(crate) const DEFAULT_IMAGE_ALT_TEXT: &str = "alt text";
+/// Default image URL inserted when the toolbar image action has no selection.
+pub(crate) const DEFAULT_IMAGE_URL: &str =
+    "https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg";
+
 /// Toolbar actions that insert or toggle standard Markdown syntax.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MarkdownToolbarAction {
@@ -95,12 +105,14 @@ fn toggle_inline_wrap(
     (next, start..end)
 }
 
-fn apply_link_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+/// Inserts or wraps a Markdown link at `selection`, returning the updated text
+/// and a UTF-8 byte range selecting the URL portion.
+pub(crate) fn apply_link_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
     let selection = clamp_range(text, selection);
     let (link_text, url) = if selection.is_empty() {
         (
-            "link text".to_string(),
-            "https://example.com".to_string(),
+            DEFAULT_LINK_TEXT.to_string(),
+            DEFAULT_LINK_URL.to_string(),
         )
     } else {
         let selected = text[selection.clone()].to_string();
@@ -382,12 +394,14 @@ fn insert_horizontal_rule(text: &str, selection: Range<usize>) -> (String, Range
     (next, cursor..cursor)
 }
 
-fn apply_image_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
+/// Inserts or wraps a Markdown image at `selection`, returning the updated text
+/// and a UTF-8 byte range selecting the URL portion.
+pub(crate) fn apply_image_format(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
     let selection = clamp_range(text, selection);
     let (alt_text, url) = if selection.is_empty() {
         (
-            "alt text".to_string(),
-            "https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg".to_string(),
+            DEFAULT_IMAGE_ALT_TEXT.to_string(),
+            DEFAULT_IMAGE_URL.to_string(),
         )
     } else {
         let selected = text[selection.clone()].to_string();
@@ -403,6 +417,18 @@ fn apply_image_format(text: &str, selection: Range<usize>) -> (String, Range<usi
     let url_start = selection.start + alt_text.len() + 4;
     let url_end = url_start + url.len();
     (next, url_start..url_end)
+}
+
+/// Extracts the replacement snippet and post-edit selection from a formatted result.
+pub(crate) fn toolbar_replacement_from_formatted_text(
+    original: &str,
+    selection: Range<usize>,
+    formatted: (String, Range<usize>),
+) -> (String, Range<usize>) {
+    let (new_text, post_selection) = formatted;
+    let replacement_end = new_text.len() - (original.len() - selection.end);
+    let replacement = new_text[selection.start..replacement_end].to_string();
+    (replacement, post_selection)
 }
 
 fn insert_table_of_contents(text: &str, selection: Range<usize>) -> (String, Range<usize>) {
@@ -590,5 +616,16 @@ mod tests {
         assert!(text.contains("## 目录"));
         assert!(text.contains("- [章节 1](#)"));
         assert!(text.contains("- [章节 2](#)"));
+    }
+
+    #[test]
+    fn toolbar_replacement_extracts_inserted_snippet() {
+        let original = "click here";
+        let selection = 0..10;
+        let formatted = apply_link_format(original, selection.clone());
+        let (replacement, url_range) =
+            toolbar_replacement_from_formatted_text(original, selection, formatted);
+        assert_eq!(replacement, "[click here](click here)");
+        assert_eq!(url_range, 13..23);
     }
 }

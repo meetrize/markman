@@ -805,7 +805,7 @@ impl Editor {
         )
     }
 
-    fn inline_code_run_anchor_bounds(
+    pub(super) fn inline_code_run_anchor_bounds(
         &self,
         target: &InlineCodeRunTarget,
         cx: &App,

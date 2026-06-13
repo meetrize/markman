@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": ".cursor/hooks/refactor-queue-next.sh",
+        "loop_limit": 25
+      }
+    ]
+  }
+}

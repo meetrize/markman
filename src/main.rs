@@ -23,6 +23,7 @@ mod editor;
 mod export;
 mod input;
 mod i18n;
+mod layout;
 mod net;
 mod theme;
 mod window_chrome;

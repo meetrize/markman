@@ -5,14 +5,13 @@ use std::str::FromStr;
 
 use gpui::http_client::Uri;
 
+use super::fence::{
+    is_closing_fence_unindented, parse_opening_fence_unindented, FenceInfo as ScanFenceInfo,
+};
 use super::image::normalize_reference_label;
 
 /// Active fenced code block while scanning for link reference definitions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FenceInfo {
-    ch: char,
-    len: usize,
-}
+type ScanFence = ScanFenceInfo;
 
 /// HTML block start that suppresses reference-definition scanning.
 enum HtmlBlockStart {
@@ -55,7 +54,7 @@ pub(crate) fn parse_link_reference_definitions(markdown: &str) -> LinkReferenceD
     while index < lines.len() {
         let line = normalized_refs[index];
 
-        if let Some(fence) = active_fence {
+        if let Some(ref fence) = active_fence {
             if is_reference_scan_closing_fence(line, fence) {
                 active_fence = None;
             }
@@ -82,7 +81,7 @@ pub(crate) fn parse_link_reference_definitions(markdown: &str) -> LinkReferenceD
         }
 
         if let Some(fence) = parse_reference_scan_opening_fence(line) {
-            if !is_reference_scan_closing_fence(line, fence) {
+            if !is_reference_scan_closing_fence(line, &fence) {
                 active_fence = Some(fence);
             }
             index += 1;
@@ -247,31 +246,12 @@ fn strip_reference_scan_list_marker(line: &str) -> Option<&str> {
     Some(&rest[digit_len + 2..])
 }
 
-fn parse_reference_scan_opening_fence(line: &str) -> Option<FenceInfo> {
-    let trimmed = line.trim_end();
-    let ch = trimmed.chars().next()?;
-    if !matches!(ch, '`' | '~') {
-        return None;
-    }
-    let len = trimmed.chars().take_while(|current| *current == ch).count();
-    let rest = &trimmed[ch.len_utf8() * len..];
-    if ch == '`' && rest.contains('`') {
-        return None;
-    }
-    (len >= 3).then_some(FenceInfo { ch, len })
+fn parse_reference_scan_opening_fence(line: &str) -> Option<ScanFence> {
+    parse_opening_fence_unindented(line)
 }
 
-fn is_reference_scan_closing_fence(line: &str, opener: FenceInfo) -> bool {
-    let trimmed = line.trim_end();
-    if !trimmed.starts_with(opener.ch) {
-        return false;
-    }
-
-    let run_len = trimmed
-        .chars()
-        .take_while(|current| *current == opener.ch)
-        .count();
-    run_len == opener.len && trimmed[opener.ch.len_utf8() * run_len..].trim().is_empty()
+fn is_reference_scan_closing_fence(line: &str, opener: &ScanFence) -> bool {
+    is_closing_fence_unindented(line, opener)
 }
 
 fn parse_reference_scan_html_block_start(line: &str) -> Option<HtmlBlockStart> {

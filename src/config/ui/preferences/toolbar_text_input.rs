@@ -9,13 +9,14 @@ use crate::components::{
     SelectHome, SelectLeft, SelectRight,
 };
 use crate::input::single_line::{
-    self, cursor_offset, handle_mouse_down, handle_mouse_move, handle_mouse_up,
-    index_for_mouse_position, move_caret_to, primary_shortcut_modifiers, sanitize_pasted_text,
-    select_caret_to, text_grapheme_boundary,
+    self, handle_mouse_down, handle_mouse_move, handle_mouse_up,
+    index_for_mouse_position, move_caret_to, primary_shortcut_modifiers, select_caret_to,
+    text_grapheme_boundary,
 };
+use crate::input::single_line_field::SingleLineFieldState;
 use crate::theme::{Theme, ThemeManager};
 
-use super::{PreferencesNav, PreferencesWindow};
+use crate::config::ui::preferences::window::{PreferencesNav, PreferencesWindow};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolbarTextField {
@@ -26,35 +27,20 @@ pub(crate) enum ToolbarTextField {
 #[derive(Debug)]
 pub(crate) struct ToolbarTextInputState {
     pub active_field: Option<ToolbarTextField>,
-    pub marked_range: Option<Range<usize>>,
-    pub selected_range: Range<usize>,
-    pub selection_reversed: bool,
-    pub is_selecting: bool,
-    pub last_layout: Option<ShapedLine>,
-    pub last_bounds: Option<Bounds<Pixels>>,
+    pub input: SingleLineFieldState,
 }
 
 impl ToolbarTextInputState {
     pub(crate) fn new() -> Self {
         Self {
             active_field: None,
-            marked_range: None,
-            selected_range: 0..0,
-            selection_reversed: false,
-            is_selecting: false,
-            last_layout: None,
-            last_bounds: None,
+            input: SingleLineFieldState::new(),
         }
     }
 
     pub(crate) fn clear(&mut self) {
         self.active_field = None;
-        self.marked_range = None;
-        self.selected_range = 0..0;
-        self.selection_reversed = false;
-        self.is_selecting = false;
-        self.last_layout = None;
-        self.last_bounds = None;
+        self.input.clear_selection_and_layout();
     }
 }
 
@@ -164,10 +150,7 @@ impl PreferencesWindow {
     }
 
     fn toolbar_text_cursor_offset(&self) -> usize {
-        cursor_offset(
-            &self.toolbar_text_input.selected_range,
-            self.toolbar_text_input.selection_reversed,
-        )
+        self.toolbar_text_input.input.cursor_offset()
     }
 
     fn toolbar_text_index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
@@ -176,15 +159,14 @@ impl PreferencesWindow {
         };
         index_for_mouse_position(
             self.toolbar_text_for_field(field).len(),
-            self.toolbar_text_input.last_bounds.as_ref(),
-            self.toolbar_text_input.last_layout.as_ref(),
+            self.toolbar_text_input.input.last_bounds.as_ref(),
+            self.toolbar_text_input.input.last_layout.as_ref(),
             position,
         )
     }
 
     pub(super) fn set_toolbar_text_layout(&mut self, line: ShapedLine, bounds: Bounds<Pixels>) {
-        self.toolbar_text_input.last_layout = Some(line);
-        self.toolbar_text_input.last_bounds = Some(bounds);
+        self.toolbar_text_input.input.set_layout(line, bounds);
     }
 
     pub(super) fn on_toolbar_text_mouse_down(
@@ -204,10 +186,10 @@ impl PreferencesWindow {
             event.modifiers.shift,
             offset,
             text_len,
-            &mut self.toolbar_text_input.selected_range,
-            &mut self.toolbar_text_input.selection_reversed,
-            &mut self.toolbar_text_input.marked_range,
-            &mut self.toolbar_text_input.is_selecting,
+            &mut self.toolbar_text_input.input.selected_range,
+            &mut self.toolbar_text_input.input.selection_reversed,
+            &mut self.toolbar_text_input.input.marked_range,
+            &mut self.toolbar_text_input.input.is_selecting,
         );
         cx.notify();
     }
@@ -218,7 +200,7 @@ impl PreferencesWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if handle_mouse_up(&mut self.toolbar_text_input.is_selecting) {
+        if handle_mouse_up(&mut self.toolbar_text_input.input.is_selecting) {
             cx.notify();
         }
     }
@@ -241,11 +223,11 @@ impl PreferencesWindow {
             event.dragging(),
             offset,
             text_len,
-            self.toolbar_text_input.is_selecting,
-            &mut self.toolbar_text_input.selected_range,
-            &mut self.toolbar_text_input.selection_reversed,
-            &mut self.toolbar_text_input.marked_range,
-            &mut self.toolbar_text_input.is_selecting,
+            self.toolbar_text_input.input.is_selecting,
+            &mut self.toolbar_text_input.input.selected_range,
+            &mut self.toolbar_text_input.input.selection_reversed,
+            &mut self.toolbar_text_input.input.marked_range,
+            &mut self.toolbar_text_input.input.is_selecting,
         ) {
             cx.notify();
         }
@@ -257,10 +239,10 @@ impl PreferencesWindow {
         };
         let text_len = self.toolbar_text_for_field(field).len();
         move_caret_to(
-            &mut self.toolbar_text_input.selected_range,
-            &mut self.toolbar_text_input.selection_reversed,
-            &mut self.toolbar_text_input.marked_range,
-            &mut self.toolbar_text_input.is_selecting,
+            &mut self.toolbar_text_input.input.selected_range,
+            &mut self.toolbar_text_input.input.selection_reversed,
+            &mut self.toolbar_text_input.input.marked_range,
+            &mut self.toolbar_text_input.input.is_selecting,
             offset,
             text_len,
         );
@@ -273,9 +255,9 @@ impl PreferencesWindow {
         };
         let text_len = self.toolbar_text_for_field(field).len();
         select_caret_to(
-            &mut self.toolbar_text_input.selected_range,
-            &mut self.toolbar_text_input.selection_reversed,
-            &mut self.toolbar_text_input.marked_range,
+            &mut self.toolbar_text_input.input.selected_range,
+            &mut self.toolbar_text_input.input.selection_reversed,
+            &mut self.toolbar_text_input.input.marked_range,
             offset,
             text_len,
         );
@@ -314,18 +296,18 @@ impl PreferencesWindow {
         let start = range.start.min(text.len());
         let end = range.end.min(text.len());
         text.replace_range(start..end, replacement);
-        self.toolbar_text_input.marked_range = marked.then(|| {
+        self.toolbar_text_input.input.marked_range = marked.then(|| {
             let marked_start = start;
             let marked_end = start + replacement.len();
             marked_start..marked_end
         });
         if let Some(selected_range) = selected_range {
-            self.toolbar_text_input.selected_range = selected_range;
+            self.toolbar_text_input.input.selected_range = selected_range;
         } else {
             let cursor = start + replacement.len();
-            self.toolbar_text_input.selected_range = cursor..cursor;
+            self.toolbar_text_input.input.selected_range = cursor..cursor;
         }
-        self.toolbar_text_input.selection_reversed = false;
+        self.toolbar_text_input.input.selection_reversed = false;
         cx.notify();
     }
 
@@ -333,13 +315,13 @@ impl PreferencesWindow {
         let Some(field) = self.toolbar_text_input.active_field else {
             return;
         };
-        if let Some(marked) = self.toolbar_text_input.marked_range.clone() {
+        if let Some(marked) = self.toolbar_text_input.input.marked_range.clone() {
             let cursor = marked.start;
             self.toolbar_text_replace(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
         let text = self.toolbar_text_for_field(field).to_string();
-        let selected = self.toolbar_text_input.selected_range.clone();
+        let selected = self.toolbar_text_input.input.selected_range.clone();
         let delete_range = if selected.is_empty() {
             let cursor = selected.end;
             if cursor == 0 {
@@ -358,14 +340,14 @@ impl PreferencesWindow {
         let Some(field) = self.toolbar_text_input.active_field else {
             return;
         };
-        if let Some(marked) = self.toolbar_text_input.marked_range.clone() {
+        if let Some(marked) = self.toolbar_text_input.input.marked_range.clone() {
             let cursor = marked.start;
             self.toolbar_text_replace(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
         let text = self.toolbar_text_for_field(field).to_string();
         let text_len = text.len();
-        let selected = self.toolbar_text_input.selected_range.clone();
+        let selected = self.toolbar_text_input.input.selected_range.clone();
         let delete_range = if selected.is_empty() {
             let cursor = selected.end;
             if cursor >= text_len {
@@ -381,11 +363,11 @@ impl PreferencesWindow {
     }
 
     fn toolbar_text_replace_selection(&mut self, text: &str, cx: &mut Context<Self>) {
-        let range = if self.toolbar_text_input.selected_range.is_empty() {
+        let range = if self.toolbar_text_input.input.selected_range.is_empty() {
             let cursor = self.toolbar_text_cursor_offset();
             cursor..cursor
         } else {
-            self.toolbar_text_input.selected_range.clone()
+            self.toolbar_text_input.input.selected_range.clone()
         };
         let cursor = range.start + text.len();
         self.toolbar_text_replace(range, text, false, Some(cursor..cursor), cx);
@@ -393,7 +375,7 @@ impl PreferencesWindow {
 
     fn toolbar_text_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let text = sanitize_pasted_text(&text);
+            let text = self.toolbar_text_input.input.sanitize_paste(&text);
             self.toolbar_text_replace_selection(&text, cx);
         }
     }
@@ -402,17 +384,17 @@ impl PreferencesWindow {
         let Some(field) = self.toolbar_text_input.active_field else {
             return;
         };
-        if !self.toolbar_text_input.selected_range.is_empty() {
+        if !self.toolbar_text_input.input.selected_range.is_empty() {
             let text = self.toolbar_text_for_field(field);
             cx.write_to_clipboard(ClipboardItem::new_string(
-                text[self.toolbar_text_input.selected_range.clone()].to_string(),
+                text[self.toolbar_text_input.input.selected_range.clone()].to_string(),
             ));
         }
     }
 
     fn toolbar_text_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
         self.toolbar_text_copy_to_clipboard(cx);
-        if !self.toolbar_text_input.selected_range.is_empty() {
+        if !self.toolbar_text_input.input.selected_range.is_empty() {
             self.toolbar_text_replace_selection("", cx);
         }
     }
@@ -562,11 +544,11 @@ impl PreferencesWindow {
         cx.stop_propagation();
         let field = self.toolbar_text_input.active_field.expect("active field");
         let text = self.toolbar_text_for_field(field).to_string();
-        if self.toolbar_text_input.selected_range.is_empty() {
+        if self.toolbar_text_input.input.selected_range.is_empty() {
             let previous = text_grapheme_boundary(&text, self.toolbar_text_cursor_offset(), true);
             self.toolbar_text_move_to(previous, cx);
         } else {
-            self.toolbar_text_move_to(self.toolbar_text_input.selected_range.start, cx);
+            self.toolbar_text_move_to(self.toolbar_text_input.input.selected_range.start, cx);
         }
     }
 
@@ -582,11 +564,11 @@ impl PreferencesWindow {
         cx.stop_propagation();
         let field = self.toolbar_text_input.active_field.expect("active field");
         let text = self.toolbar_text_for_field(field).to_string();
-        if self.toolbar_text_input.selected_range.is_empty() {
+        if self.toolbar_text_input.input.selected_range.is_empty() {
             let next = text_grapheme_boundary(&text, self.toolbar_text_cursor_offset(), false);
             self.toolbar_text_move_to(next, cx);
         } else {
-            self.toolbar_text_move_to(self.toolbar_text_input.selected_range.end, cx);
+            self.toolbar_text_move_to(self.toolbar_text_input.input.selected_range.end, cx);
         }
     }
 
@@ -797,6 +779,7 @@ impl Element for ToolbarTextInputElement {
 
         let marked = preferences
             .toolbar_text_input
+            .input
             .marked_range
             .as_ref()
             .filter(|_| focused && !is_placeholder)
@@ -810,7 +793,7 @@ impl Element for ToolbarTextInputElement {
                 )
             });
         let selected_range = if preferences.toolbar_text_input.active_field == Some(self.field) {
-            preferences.toolbar_text_input.selected_range.clone()
+            preferences.toolbar_text_input.input.selected_range.clone()
         } else {
             0..0
         };
@@ -832,7 +815,7 @@ impl Element for ToolbarTextInputElement {
             None
         };
         let cursor = if focused
-            && preferences.toolbar_text_input.marked_range.is_none()
+            && preferences.toolbar_text_input.input.marked_range.is_none()
             && selected_range.is_empty()
         {
             let mut cursor_color = theme.colors.cursor;
@@ -843,7 +826,7 @@ impl Element for ToolbarTextInputElement {
                         bounds.left()
                             + line.x_for_index(single_line::cursor_offset(
                                 &selected_range,
-                                preferences.toolbar_text_input.selection_reversed,
+                                preferences.toolbar_text_input.input.selection_reversed,
                             )),
                         text_top,
                     ),

@@ -15,16 +15,17 @@ use super::document_search::{
     document_search_range_to_utf16,
 };
 use super::single_line_input::{
-    self, SingleLineInputTarget, arrow_key_from_event, handle_mouse_down, handle_mouse_move,
+    SingleLineInputTarget, arrow_key_from_event, handle_mouse_down, handle_mouse_move,
     handle_mouse_up, index_for_mouse_position, move_caret_to, prepare_context_menu_selection,
     primary_shortcut_modifiers, select_caret_to, text_grapheme_boundary, SingleLineArrowKey,
 };
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
-    Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste, SelectAll, SelectEnd,
-    SelectHome, SelectLeft, SelectRight,
+    Copy, Cut, Delete, DeleteBack, End, FenceInfo, Home, MoveLeft, MoveRight, Paste, SelectAll,
+    SelectEnd, SelectHome, SelectLeft, SelectRight, is_closing_fence, parse_opening_fence,
 };
 use crate::i18n::I18nStrings;
+use crate::input::single_line_field::SingleLineFieldState;
 use crate::theme::Theme;
 
 const FOLDER_ICON: &str = "icon/workspace/folder.svg";
@@ -95,14 +96,8 @@ pub(super) struct WorkspaceState {
     expanded: HashSet<String>,
     selected: Option<WorkspaceSelection>,
     search_open: bool,
-    search_query: String,
+    search_input: SingleLineFieldState,
     search_results: Vec<WorkspaceSearchResult>,
-    search_marked_range: Option<Range<usize>>,
-    search_selected_range: Range<usize>,
-    search_selection_reversed: bool,
-    search_is_selecting: bool,
-    search_last_layout: Option<ShapedLine>,
-    search_last_bounds: Option<Bounds<Pixels>>,
 }
 
 impl Default for WorkspaceState {
@@ -120,30 +115,24 @@ impl Default for WorkspaceState {
             expanded: HashSet::new(),
             selected: None,
             search_open: false,
-            search_query: String::new(),
+            search_input: SingleLineFieldState::new(),
             search_results: Vec::new(),
-            search_marked_range: None,
-            search_selected_range: 0..0,
-            search_selection_reversed: false,
-            search_is_selecting: false,
-            search_last_layout: None,
-            search_last_bounds: None,
         }
     }
 }
 
 impl Editor {
     pub(super) fn workspace_root_for_ai(&self) -> Option<PathBuf> {
-        self.workspace.root.clone()
+        self.workspace.state.root.clone()
     }
 
     pub(crate) fn toggle_workspace_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.workspace.is_open {
-            self.workspace.is_open = false;
+        if self.workspace.state.is_open {
+            self.workspace.state.is_open = false;
         } else {
             self.close_menu_bar(cx);
             self.dismiss_contextual_overlays(cx);
-            self.workspace.is_open = true;
+            self.workspace.state.is_open = true;
             self.sync_workspace_models(cx);
             window.activate_window();
         }
@@ -172,29 +161,29 @@ impl Editor {
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
 
-        let was_open = self.workspace.is_open;
-        self.workspace.is_open = true;
+        let was_open = self.workspace.state.is_open;
+        self.workspace.state.is_open = true;
         if !was_open {
             self.sync_workspace_models(cx);
         }
 
-        self.workspace.active_tab = WorkspaceTab::Files;
-        self.workspace.search_open = true;
+        self.workspace.state.active_tab = WorkspaceTab::Files;
+        self.workspace.state.search_open = true;
         self.sync_workspace_search_selection();
         self.run_workspace_search();
-        window.focus(&self.workspace_search_focus);
+        window.focus(&self.workspace.search_focus);
         window.activate_window();
         cx.notify();
     }
 
     pub(super) fn sync_workspace_after_document_path_change(&mut self, cx: &mut Context<Self>) {
-        if self.workspace.folder_root.is_none() {
-            self.workspace.root = None;
-            self.workspace.file_tree = None;
-            self.workspace.file_error = None;
+        if self.workspace.state.folder_root.is_none() {
+            self.workspace.state.root = None;
+            self.workspace.state.file_tree = None;
+            self.workspace.state.file_error = None;
         }
-        self.workspace.outline_source = None;
-        if self.workspace.is_open {
+        self.workspace.state.outline_source = None;
+        if self.workspace.state.is_open {
             self.sync_workspace_models(cx);
         }
     }
@@ -210,6 +199,7 @@ impl Editor {
 
     pub(super) fn effective_workspace_root(&self) -> Option<PathBuf> {
         self.workspace
+            .state
             .folder_root
             .clone()
             .or_else(|| self.workspace_root_for_current_file())
@@ -217,63 +207,63 @@ impl Editor {
 
     fn sync_workspace_file_tree(&mut self) {
         let next_root = self.effective_workspace_root();
-        if self.workspace.root == next_root && self.workspace.file_tree.is_some() {
-            self.workspace.selected = self
+        if self.workspace.state.root == next_root && self.workspace.state.file_tree.is_some() {
+            self.workspace.state.selected = self
                 .file_path
                 .as_ref()
                 .map(|path| WorkspaceSelection::File(path.clone()));
             return;
         }
 
-        self.workspace.root = next_root.clone();
-        self.workspace.file_tree = None;
-        self.workspace.file_error = None;
+        self.workspace.state.root = next_root.clone();
+        self.workspace.state.file_tree = None;
+        self.workspace.state.file_error = None;
 
         let Some(root) = next_root else {
-            self.workspace.selected = None;
+            self.workspace.state.selected = None;
             return;
         };
 
         // Validate the root path
         if root.as_os_str().is_empty() {
-            self.workspace.file_error = Some("Invalid workspace path: empty path".to_string());
-            self.workspace.selected = None;
+            self.workspace.state.file_error = Some("Invalid workspace path: empty path".to_string());
+            self.workspace.state.selected = None;
             return;
         }
 
         match scan_workspace_dir(&root) {
             Ok(tree) => {
-                self.workspace.expanded.insert(tree.id.clone());
-                self.workspace.file_tree = Some(tree);
-                self.workspace.selected = self
+                self.workspace.state.expanded.insert(tree.id.clone());
+                self.workspace.state.file_tree = Some(tree);
+                self.workspace.state.selected = self
                     .file_path
                     .as_ref()
                     .map(|path| WorkspaceSelection::File(path.clone()));
             }
             Err(err) => {
-                self.workspace.file_error = Some(err.to_string());
+                self.workspace.state.file_error = Some(err.to_string());
             }
         }
     }
 
     fn sync_workspace_outline(&mut self, cx: &mut Context<Self>) {
         let source = self.serialized_document_text(cx);
-        if self.workspace.outline_source.as_deref() == Some(source.as_str()) {
+        if self.workspace.state.outline_source.as_deref() == Some(source.as_str()) {
             return;
         }
 
         let outline = build_outline_tree(&source);
-        prune_outline_state(&mut self.workspace, &outline);
-        self.workspace.outline_tree = outline;
-        self.workspace.outline_source = Some(source);
+        prune_outline_state(&mut self.workspace.state, &outline);
+        self.workspace.state.outline_tree = outline;
+        self.workspace.state.outline_source = Some(source);
     }
 
     pub(super) fn workspace_files_panel_active(&self) -> bool {
-        matches!(self.workspace.active_tab, WorkspaceTab::Files) && !self.workspace.search_open
+        matches!(self.workspace.state.active_tab, WorkspaceTab::Files) && !self.workspace.state.search_open
     }
 
     pub(super) fn workspace_tree_root_path(&self) -> Option<PathBuf> {
-        self.workspace.file_tree.as_ref().and_then(|root| {
+        self.workspace.state.file_tree.as_ref().and_then(|root| {
             if let WorkspaceTreeKind::Directory(path) = &root.kind {
                 Some(path.clone())
             } else {
@@ -289,29 +279,29 @@ impl Editor {
     pub(super) fn workspace_expand_path(&mut self, path: &Path, cx: &mut Context<Self>) {
         let mut current = Some(path);
         while let Some(path) = current {
-            self.workspace.expanded.insert(workspace_file_node_id(path));
+            self.workspace.state.expanded.insert(workspace_file_node_id(path));
             current = path.parent();
         }
         cx.notify();
     }
 
     pub(super) fn workspace_select_file_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.workspace.selected = Some(WorkspaceSelection::File(path));
+        self.workspace.state.selected = Some(WorkspaceSelection::File(path));
         cx.notify();
     }
 
     pub(super) fn workspace_refresh_file_tree(&mut self, cx: &mut Context<Self>) {
-        self.workspace.root = None;
+        self.workspace.state.root = None;
         self.sync_workspace_file_tree();
         cx.notify();
     }
 
     pub(super) fn workspace_clear_file_selection_if(&mut self, path: &Path, cx: &mut Context<Self>) {
         if matches!(
-            &self.workspace.selected,
+            &self.workspace.state.selected,
             Some(WorkspaceSelection::File(selected)) if selected == path
         ) {
-            self.workspace.selected = None;
+            self.workspace.state.selected = None;
             cx.notify();
         }
     }
@@ -332,64 +322,60 @@ impl Editor {
 
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);
-        self.workspace.folder_root = Some(path);
-        self.workspace.root = None;
-        self.workspace.file_tree = None;
-        self.workspace.file_error = None;
-        self.workspace.is_open = true;
+        self.workspace.state.folder_root = Some(path);
+        self.workspace.state.root = None;
+        self.workspace.state.file_tree = None;
+        self.workspace.state.file_error = None;
+        self.workspace.state.is_open = true;
         self.sync_workspace_models(cx);
         window.activate_window();
         cx.notify();
     }
 
     fn set_workspace_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
-        if self.workspace.active_tab == tab && !self.workspace.search_open {
+        if self.workspace.state.active_tab == tab && !self.workspace.state.search_open {
             return;
         }
-        self.workspace.active_tab = tab;
-        self.workspace.search_open = false;
+        self.workspace.state.active_tab = tab;
+        self.workspace.state.search_open = false;
         self.sync_workspace_models(cx);
         cx.notify();
     }
 
     fn sync_workspace_search_selection(&mut self) {
-        let len = self.workspace.search_query.len();
-        self.workspace.search_selected_range = len..len;
-        self.workspace.search_marked_range = None;
-        self.workspace.search_selection_reversed = false;
-        self.workspace.search_is_selecting = false;
+        self.workspace.state.search_input.sync_caret_to_end();
     }
 
     pub(super) fn workspace_search_input_active(&self, window: &Window) -> bool {
-        self.workspace.search_open && self.workspace_search_focus.is_focused(window)
+        self.workspace.state.search_open && self.workspace.search_focus.is_focused(window)
     }
 
     pub(super) fn workspace_search_is_open(&self) -> bool {
-        self.workspace.search_open
+        self.workspace.state.search_open
     }
 
     pub(super) fn workspace_search_has_selection(&self) -> bool {
-        !self.workspace.search_selected_range.is_empty()
+        !self.workspace.state.search_input.selected_range.is_empty()
     }
 
     pub(super) fn workspace_search_query_is_empty(&self) -> bool {
-        self.workspace.search_query.is_empty()
+        self.workspace.state.search_input.query.is_empty()
     }
 
     pub(super) fn workspace_search_display_text(&self, placeholder: &SharedString) -> SharedString {
-        if self.workspace.search_query.is_empty() {
+        if self.workspace.state.search_input.query.is_empty() {
             placeholder.clone()
         } else {
-            self.workspace.search_query.clone().into()
+            self.workspace.state.search_input.query.clone().into()
         }
     }
 
     pub(super) fn workspace_search_marked_range(&self) -> Option<Range<usize>> {
-        self.workspace.search_marked_range.clone()
+        self.workspace.state.search_input.marked_range.clone()
     }
 
     pub(super) fn workspace_search_selected_range(&self) -> Range<usize> {
-        self.workspace.search_selected_range.clone()
+        self.workspace.state.search_input.selected_range.clone()
     }
 
     pub(super) fn workspace_search_index_for_mouse_position(
@@ -397,18 +383,15 @@ impl Editor {
         position: Point<Pixels>,
     ) -> usize {
         index_for_mouse_position(
-            self.workspace.search_query.len(),
-            self.workspace.search_last_bounds.as_ref(),
-            self.workspace.search_last_layout.as_ref(),
+            self.workspace.state.search_input.query.len(),
+            self.workspace.state.search_input.last_bounds.as_ref(),
+            self.workspace.state.search_input.last_layout.as_ref(),
             position,
         )
     }
 
     pub(super) fn workspace_search_cursor_offset(&self) -> usize {
-        single_line_input::cursor_offset(
-            &self.workspace.search_selected_range,
-            self.workspace.search_selection_reversed,
-        )
+        self.workspace.state.search_input.cursor_offset()
     }
 
     pub(super) fn set_workspace_search_layout(
@@ -416,8 +399,7 @@ impl Editor {
         layout: ShapedLine,
         bounds: Bounds<Pixels>,
     ) {
-        self.workspace.search_last_layout = Some(layout);
-        self.workspace.search_last_bounds = Some(bounds);
+        self.workspace.state.search_input.set_layout(layout, bounds);
     }
 
     pub(super) fn replace_workspace_search_text(
@@ -429,51 +411,51 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let sanitized = new_text.replace(['\r', '\n'], "");
-        let query = &mut self.workspace.search_query;
+        let query = &mut self.workspace.state.search_input.query;
         let start = range.start.min(query.len());
         let end = range.end.min(query.len());
         query.replace_range(start..end, &sanitized);
 
         if mark_composing && !sanitized.is_empty() {
-            self.workspace.search_marked_range = Some(start..start + sanitized.len());
+            self.workspace.state.search_input.marked_range = Some(start..start + sanitized.len());
         } else {
-            self.workspace.search_marked_range = None;
+            self.workspace.state.search_input.marked_range = None;
         }
 
-        self.workspace.search_selected_range = new_selected.unwrap_or_else(|| {
+        self.workspace.state.search_input.selected_range = new_selected.unwrap_or_else(|| {
             let cursor = start + sanitized.len();
             cursor..cursor
         });
-        self.workspace.search_selection_reversed = false;
+        self.workspace.state.search_input.selection_reversed = false;
         self.run_workspace_search();
         cx.notify();
     }
 
     fn toggle_workspace_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.workspace.search_open = !self.workspace.search_open;
-        if self.workspace.search_open {
-            self.workspace.active_tab = WorkspaceTab::Files;
+        self.workspace.state.search_open = !self.workspace.state.search_open;
+        if self.workspace.state.search_open {
+            self.workspace.state.active_tab = WorkspaceTab::Files;
             self.sync_workspace_search_selection();
-            window.focus(&self.workspace_search_focus);
+            window.focus(&self.workspace.search_focus);
             self.run_workspace_search();
         } else {
-            self.workspace.search_query.clear();
-            self.workspace.search_results.clear();
-            self.workspace.search_marked_range = None;
-            self.workspace.search_selected_range = 0..0;
-            self.workspace.search_selection_reversed = false;
+            self.workspace.state.search_input.query.clear();
+            self.workspace.state.search_results.clear();
+            self.workspace.state.search_input.marked_range = None;
+            self.workspace.state.search_input.selected_range = 0..0;
+            self.workspace.state.search_input.selection_reversed = false;
         }
         cx.notify();
     }
 
     fn close_workspace_search(&mut self, cx: &mut Context<Self>) {
-        if self.workspace.search_open {
-            self.workspace.search_open = false;
-            self.workspace.search_query.clear();
-            self.workspace.search_results.clear();
-            self.workspace.search_marked_range = None;
-            self.workspace.search_selected_range = 0..0;
-            self.workspace.search_selection_reversed = false;
+        if self.workspace.state.search_open {
+            self.workspace.state.search_open = false;
+            self.workspace.state.search_input.query.clear();
+            self.workspace.state.search_results.clear();
+            self.workspace.state.search_input.marked_range = None;
+            self.workspace.state.search_input.selected_range = 0..0;
+            self.workspace.state.search_input.selection_reversed = false;
             self.clear_search_match_highlight(cx);
             self.close_single_line_input_context_menu(cx);
             cx.notify();
@@ -481,22 +463,22 @@ impl Editor {
     }
 
     fn focus_workspace_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.workspace.search_open {
-            self.workspace.search_open = true;
-            self.workspace.active_tab = WorkspaceTab::Files;
+        if !self.workspace.state.search_open {
+            self.workspace.state.search_open = true;
+            self.workspace.state.active_tab = WorkspaceTab::Files;
             self.sync_workspace_search_selection();
         }
-        window.focus(&self.workspace_search_focus);
+        window.focus(&self.workspace.search_focus);
         cx.notify();
     }
 
     fn run_workspace_search(&mut self) {
         let Some(root) = self.effective_workspace_root() else {
-            self.workspace.search_results.clear();
+            self.workspace.state.search_results.clear();
             return;
         };
 
-        self.workspace.search_results = search_markdown_files(&root, &self.workspace.search_query);
+        self.workspace.state.search_results = search_markdown_files(&root, &self.workspace.state.search_input.query);
     }
 
     pub(crate) fn on_workspace_search_key_down(
@@ -505,7 +487,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.workspace.search_open || !self.workspace_search_focus.is_focused(window) {
+        if !self.workspace.state.search_open || !self.workspace.search_focus.is_focused(window) {
             return;
         }
 
@@ -570,36 +552,36 @@ impl Editor {
     ) {
         match arrow {
             SingleLineArrowKey::MoveLeft => {
-                if self.workspace.search_selected_range.is_empty() {
+                if self.workspace.state.search_input.selected_range.is_empty() {
                     let previous = text_grapheme_boundary(
-                        &self.workspace.search_query,
+                        &self.workspace.state.search_input.query,
                         self.workspace_search_cursor_offset(),
                         true,
                     );
                     self.workspace_search_move_to(previous, cx);
                 } else {
-                    self.workspace_search_move_to(self.workspace.search_selected_range.start, cx);
+                    self.workspace_search_move_to(self.workspace.state.search_input.selected_range.start, cx);
                 }
             }
             SingleLineArrowKey::MoveRight => {
-                if self.workspace.search_selected_range.is_empty() {
+                if self.workspace.state.search_input.selected_range.is_empty() {
                     let next = text_grapheme_boundary(
-                        &self.workspace.search_query,
+                        &self.workspace.state.search_input.query,
                         self.workspace_search_cursor_offset(),
                         false,
                     );
                     self.workspace_search_move_to(next, cx);
                 } else {
-                    self.workspace_search_move_to(self.workspace.search_selected_range.end, cx);
+                    self.workspace_search_move_to(self.workspace.state.search_input.selected_range.end, cx);
                 }
             }
             SingleLineArrowKey::Home => self.workspace_search_move_to(0, cx),
             SingleLineArrowKey::End => {
-                self.workspace_search_move_to(self.workspace.search_query.len(), cx);
+                self.workspace_search_move_to(self.workspace.state.search_input.query.len(), cx);
             }
             SingleLineArrowKey::SelectLeft => self.workspace_search_select_to(
                 text_grapheme_boundary(
-                    &self.workspace.search_query,
+                    &self.workspace.state.search_input.query,
                     self.workspace_search_cursor_offset(),
                     true,
                 ),
@@ -607,7 +589,7 @@ impl Editor {
             ),
             SingleLineArrowKey::SelectRight => self.workspace_search_select_to(
                 text_grapheme_boundary(
-                    &self.workspace.search_query,
+                    &self.workspace.state.search_input.query,
                     self.workspace_search_cursor_offset(),
                     false,
                 ),
@@ -615,7 +597,7 @@ impl Editor {
             ),
             SingleLineArrowKey::SelectHome => self.workspace_search_select_to(0, cx),
             SingleLineArrowKey::SelectEnd => {
-                self.workspace_search_select_to(self.workspace.search_query.len(), cx);
+                self.workspace_search_select_to(self.workspace.state.search_input.query.len(), cx);
             }
         }
     }
@@ -628,16 +610,16 @@ impl Editor {
     ) {
         cx.stop_propagation();
         self.focus_workspace_search(window, cx);
-        let text_len = self.workspace.search_query.len();
+        let text_len = self.workspace.state.search_input.query.len();
         let offset = self.workspace_search_index_for_mouse_position(event.position);
         handle_mouse_down(
             event.modifiers.shift,
             offset,
             text_len,
-            &mut self.workspace.search_selected_range,
-            &mut self.workspace.search_selection_reversed,
-            &mut self.workspace.search_marked_range,
-            &mut self.workspace.search_is_selecting,
+            &mut self.workspace.state.search_input.selected_range,
+            &mut self.workspace.state.search_input.selection_reversed,
+            &mut self.workspace.state.search_input.marked_range,
+            &mut self.workspace.state.search_input.is_selecting,
         );
         cx.notify();
     }
@@ -648,12 +630,12 @@ impl Editor {
     ) {
         let offset = self.workspace_search_index_for_mouse_position(position);
         prepare_context_menu_selection(
-            &mut self.workspace.search_selected_range,
-            &mut self.workspace.search_selection_reversed,
-            &mut self.workspace.search_marked_range,
-            &mut self.workspace.search_is_selecting,
+            &mut self.workspace.state.search_input.selected_range,
+            &mut self.workspace.state.search_input.selection_reversed,
+            &mut self.workspace.state.search_input.marked_range,
+            &mut self.workspace.state.search_input.is_selecting,
             offset,
-            self.workspace.search_query.len(),
+            self.workspace.state.search_input.query.len(),
         );
     }
 
@@ -663,7 +645,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if handle_mouse_up(&mut self.workspace.search_is_selecting) {
+        if handle_mouse_up(&mut self.workspace.state.search_input.is_selecting) {
             cx.notify();
         }
     }
@@ -677,17 +659,17 @@ impl Editor {
         if !self.workspace_search_input_active(window) {
             return;
         }
-        let text_len = self.workspace.search_query.len();
+        let text_len = self.workspace.state.search_input.query.len();
         let offset = self.workspace_search_index_for_mouse_position(event.position);
         if handle_mouse_move(
             event.dragging(),
             offset,
             text_len,
-            self.workspace.search_is_selecting,
-            &mut self.workspace.search_selected_range,
-            &mut self.workspace.search_selection_reversed,
-            &mut self.workspace.search_marked_range,
-            &mut self.workspace.search_is_selecting,
+            self.workspace.state.search_input.is_selecting,
+            &mut self.workspace.state.search_input.selected_range,
+            &mut self.workspace.state.search_input.selection_reversed,
+            &mut self.workspace.state.search_input.marked_range,
+            &mut self.workspace.state.search_input.is_selecting,
         ) {
             cx.notify();
         }
@@ -720,7 +702,7 @@ impl Editor {
     }
 
     fn workspace_search_delete_backward(&mut self, cx: &mut Context<Self>) {
-        if let Some(marked) = self.workspace.search_marked_range.clone() {
+        if let Some(marked) = self.workspace.state.search_input.marked_range.clone() {
             let cursor = marked.start;
             self.replace_workspace_search_text(
                 marked,
@@ -732,13 +714,13 @@ impl Editor {
             return;
         }
 
-        let selected = self.workspace.search_selected_range.clone();
+        let selected = self.workspace.state.search_input.selected_range.clone();
         let delete_range = if selected.is_empty() {
             let cursor = selected.end;
             if cursor == 0 {
                 return;
             }
-            let previous = text_grapheme_boundary(&self.workspace.search_query, cursor, true);
+            let previous = text_grapheme_boundary(&self.workspace.state.search_input.query, cursor, true);
             previous..cursor
         } else {
             selected
@@ -749,7 +731,7 @@ impl Editor {
     }
 
     fn workspace_search_delete_forward(&mut self, cx: &mut Context<Self>) {
-        if let Some(marked) = self.workspace.search_marked_range.clone() {
+        if let Some(marked) = self.workspace.state.search_input.marked_range.clone() {
             let cursor = marked.start;
             self.replace_workspace_search_text(
                 marked,
@@ -761,14 +743,14 @@ impl Editor {
             return;
         }
 
-        let query_len = self.workspace.search_query.len();
-        let selected = self.workspace.search_selected_range.clone();
+        let query_len = self.workspace.state.search_input.query.len();
+        let selected = self.workspace.state.search_input.selected_range.clone();
         let delete_range = if selected.is_empty() {
             let cursor = selected.end;
             if cursor >= query_len {
                 return;
             }
-            let next = text_grapheme_boundary(&self.workspace.search_query, cursor, false);
+            let next = text_grapheme_boundary(&self.workspace.state.search_input.query, cursor, false);
             cursor..next
         } else {
             selected
@@ -780,23 +762,23 @@ impl Editor {
 
     fn workspace_search_move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         move_caret_to(
-            &mut self.workspace.search_selected_range,
-            &mut self.workspace.search_selection_reversed,
-            &mut self.workspace.search_marked_range,
-            &mut self.workspace.search_is_selecting,
+            &mut self.workspace.state.search_input.selected_range,
+            &mut self.workspace.state.search_input.selection_reversed,
+            &mut self.workspace.state.search_input.marked_range,
+            &mut self.workspace.state.search_input.is_selecting,
             offset,
-            self.workspace.search_query.len(),
+            self.workspace.state.search_input.query.len(),
         );
         cx.notify();
     }
 
     fn workspace_search_select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         select_caret_to(
-            &mut self.workspace.search_selected_range,
-            &mut self.workspace.search_selection_reversed,
-            &mut self.workspace.search_marked_range,
+            &mut self.workspace.state.search_input.selected_range,
+            &mut self.workspace.state.search_input.selection_reversed,
+            &mut self.workspace.state.search_input.marked_range,
             offset,
-            self.workspace.search_query.len(),
+            self.workspace.state.search_input.query.len(),
         );
         cx.notify();
     }
@@ -808,7 +790,7 @@ impl Editor {
     ) {
         let sanitized = new_text.replace("\r\n", " ").replace(['\r', '\n'], " ");
         self.replace_workspace_search_text(
-            self.workspace.search_selected_range.clone(),
+            self.workspace.state.search_input.selected_range.clone(),
             &sanitized,
             false,
             None,
@@ -823,20 +805,20 @@ impl Editor {
     }
 
     pub(super) fn workspace_search_copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
-        if !self.workspace.search_selected_range.is_empty() {
+        if !self.workspace.state.search_input.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.workspace.search_query
-                    [self.workspace.search_selected_range.clone()]
+                self.workspace.state.search_input.query
+                    [self.workspace.state.search_input.selected_range.clone()]
                     .to_string(),
             ));
         }
     }
 
     pub(super) fn workspace_search_cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
-        if !self.workspace.search_selected_range.is_empty() {
+        if !self.workspace.state.search_input.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.workspace.search_query
-                    [self.workspace.search_selected_range.clone()]
+                self.workspace.state.search_input.query
+                    [self.workspace.state.search_input.selected_range.clone()]
                     .to_string(),
             ));
             self.workspace_search_replace_selection("", cx);
@@ -845,7 +827,7 @@ impl Editor {
 
     fn workspace_search_select_all_text(&mut self, cx: &mut Context<Self>) {
         self.workspace_search_move_to(0, cx);
-        self.workspace_search_select_to(self.workspace.search_query.len(), cx);
+        self.workspace_search_select_to(self.workspace.state.search_input.query.len(), cx);
     }
 
     pub(crate) fn on_workspace_search_paste(
@@ -910,15 +892,15 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        if self.workspace.search_selected_range.is_empty() {
+        if self.workspace.state.search_input.selected_range.is_empty() {
             let previous = text_grapheme_boundary(
-                &self.workspace.search_query,
+                &self.workspace.state.search_input.query,
                 self.workspace_search_cursor_offset(),
                 true,
             );
             self.workspace_search_move_to(previous, cx);
         } else {
-            self.workspace_search_move_to(self.workspace.search_selected_range.start, cx);
+            self.workspace_search_move_to(self.workspace.state.search_input.selected_range.start, cx);
         }
     }
 
@@ -932,15 +914,15 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        if self.workspace.search_selected_range.is_empty() {
+        if self.workspace.state.search_input.selected_range.is_empty() {
             let next = text_grapheme_boundary(
-                &self.workspace.search_query,
+                &self.workspace.state.search_input.query,
                 self.workspace_search_cursor_offset(),
                 false,
             );
             self.workspace_search_move_to(next, cx);
         } else {
-            self.workspace_search_move_to(self.workspace.search_selected_range.end, cx);
+            self.workspace_search_move_to(self.workspace.state.search_input.selected_range.end, cx);
         }
     }
 
@@ -967,7 +949,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        self.workspace_search_move_to(self.workspace.search_query.len(), cx);
+        self.workspace_search_move_to(self.workspace.state.search_input.query.len(), cx);
     }
 
     pub(crate) fn on_workspace_search_select_left(
@@ -982,7 +964,7 @@ impl Editor {
         cx.stop_propagation();
         self.workspace_search_select_to(
             text_grapheme_boundary(
-                &self.workspace.search_query,
+                &self.workspace.state.search_input.query,
                 self.workspace_search_cursor_offset(),
                 true,
             ),
@@ -1002,7 +984,7 @@ impl Editor {
         cx.stop_propagation();
         self.workspace_search_select_to(
             text_grapheme_boundary(
-                &self.workspace.search_query,
+                &self.workspace.state.search_input.query,
                 self.workspace_search_cursor_offset(),
                 false,
             ),
@@ -1033,18 +1015,18 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        self.workspace_search_select_to(self.workspace.search_query.len(), cx);
+        self.workspace_search_select_to(self.workspace.state.search_input.query.len(), cx);
     }
 
     fn toggle_workspace_node(&mut self, id: &str, cx: &mut Context<Self>) {
-        if !self.workspace.expanded.remove(id) {
-            self.workspace.expanded.insert(id.to_string());
+        if !self.workspace.state.expanded.remove(id) {
+            self.workspace.state.expanded.insert(id.to_string());
         }
         cx.notify();
     }
 
     fn select_outline_node(&mut self, id: String, line_index: usize, cx: &mut Context<Self>) {
-        self.workspace.selected = Some(WorkspaceSelection::Outline(id));
+        self.workspace.state.selected = Some(WorkspaceSelection::Outline(id));
         if self.jump_to_source_line_index(line_index, cx) {
             self.pending_scroll_active_block_into_view = true;
             self.pending_scroll_recheck_after_layout = true;
@@ -1053,19 +1035,19 @@ impl Editor {
     }
 
     pub(super) fn workspace_clear_folder_root_if(&mut self, path: &Path, cx: &mut Context<Self>) {
-        if self.workspace.folder_root.as_deref() == Some(path) {
-            self.workspace.folder_root = None;
+        if self.workspace.state.folder_root.as_deref() == Some(path) {
+            self.workspace.state.folder_root = None;
             cx.notify();
         }
     }
 
     pub(super) fn workspace_set_folder_root(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.workspace.folder_root = Some(path);
+        self.workspace.state.folder_root = Some(path);
         cx.notify();
     }
 
     pub(super) fn workspace_folder_root_is(&self, path: &Path) -> bool {
-        self.workspace.folder_root.as_deref() == Some(path)
+        self.workspace.state.folder_root.as_deref() == Some(path)
     }
 
     pub(super) fn open_workspace_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -1082,18 +1064,18 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.workspace.selected = Some(WorkspaceSelection::File(path.clone()));
+        self.workspace.state.selected = Some(WorkspaceSelection::File(path.clone()));
 
         if let Some(line) = line {
-            self.pending_workspace_search_jump = Some(PendingWorkspaceSearchJump {
+            self.workspace.pending_search_jump = Some(PendingWorkspaceSearchJump {
                 line,
-                query: self.workspace.search_query.clone(),
+                query: self.workspace.state.search_input.query.clone(),
                 preview,
                 match_start_byte,
                 raw_file_len,
             });
         } else {
-            self.pending_workspace_search_jump = None;
+            self.workspace.pending_search_jump = None;
             self.clear_search_match_highlight(cx);
         }
 
@@ -1111,7 +1093,7 @@ impl Editor {
     }
 
     pub(super) fn apply_pending_workspace_search_jump(&mut self, cx: &mut Context<Self>) {
-        let Some(jump) = self.pending_workspace_search_jump.clone() else {
+        let Some(jump) = self.workspace.pending_search_jump.clone() else {
             return;
         };
 
@@ -1123,14 +1105,14 @@ impl Editor {
             jump.raw_file_len,
             cx,
         ) {
-            self.pending_workspace_search_jump = None;
+            self.workspace.pending_search_jump = None;
             self.pending_scroll_active_block_into_view = true;
             self.pending_scroll_recheck_after_layout = true;
         }
     }
 
     pub(super) fn workspace_panel_width(&self, viewport_width: f32) -> f32 {
-        workspace_panel_width_for_viewport(viewport_width, self.workspace.panel_width)
+        workspace_panel_width_for_viewport(viewport_width, self.workspace.state.panel_width)
     }
 
     pub(crate) fn start_workspace_resize_drag(
@@ -1140,7 +1122,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let current_width = self.workspace_panel_width(viewport_width);
-        self.workspace_resize_drag = Some(super::WorkspaceResizeDragSession {
+        self.workspace.resize_drag = Some(super::controllers::workspace::WorkspaceResizeDragSession {
             start_pointer_x: pointer_x,
             start_width: current_width,
             viewport_width,
@@ -1149,21 +1131,21 @@ impl Editor {
     }
 
     pub(crate) fn update_workspace_resize_drag(&mut self, pointer_x: f32, cx: &mut Context<Self>) {
-        let Some(drag) = self.workspace_resize_drag else {
+        let Some(drag) = self.workspace.resize_drag else {
             return;
         };
 
         let delta = pointer_x - drag.start_pointer_x;
         let next_width =
             clamp_workspace_panel_width(drag.start_width + delta, drag.viewport_width);
-        if self.workspace.panel_width != Some(next_width) {
-            self.workspace.panel_width = Some(next_width);
+        if self.workspace.state.panel_width != Some(next_width) {
+            self.workspace.state.panel_width = Some(next_width);
             cx.notify();
         }
     }
 
     pub(crate) fn end_workspace_resize_drag(&mut self, cx: &mut Context<Self>) {
-        if self.workspace_resize_drag.take().is_some() {
+        if self.workspace.resize_drag.take().is_some() {
             cx.notify();
         }
     }
@@ -1175,7 +1157,7 @@ impl Editor {
         viewport_width: f32,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if !self.workspace.is_open {
+        if !self.workspace.state.is_open {
             return None;
         }
 
@@ -1212,7 +1194,7 @@ impl Editor {
                 .justify_center()
                 .gap(px(4.0))
                 .rounded(px(4.0))
-                .bg(if active && !self.workspace.search_open {
+                .bg(if active && !self.workspace.state.search_open {
                     c.selection
                 } else {
                     hsla(0.0, 0.0, 0.0, 0.0)
@@ -1241,9 +1223,9 @@ impl Editor {
                 })
         };
 
-        let search_active = self.workspace.search_open;
+        let search_active = self.workspace.state.search_open;
         let search_button_editor = editor.clone();
-        let search_focus = self.workspace_search_focus.clone();
+        let search_focus = self.workspace.search_focus.clone();
         let search_button = {
             let search_focus_for_click = search_focus.clone();
             div()
@@ -1352,10 +1334,10 @@ impl Editor {
             None
         };
 
-        let body = if self.workspace.search_open {
+        let body = if self.workspace.state.search_open {
             self.render_workspace_search_results(theme, strings, &editor)
         } else {
-            match self.workspace.active_tab {
+            match self.workspace.state.active_tab {
                 WorkspaceTab::Files => self.render_workspace_files_tree(theme, strings, &editor),
                 WorkspaceTab::Outline => {
                     self.render_workspace_outline_tree(theme, strings, &editor)
@@ -1397,13 +1379,13 @@ impl Editor {
                                     strings.workspace_tab_files.clone(),
                                     FILES_TAB_ICON,
                                     WorkspaceTab::Files,
-                                    self.workspace.active_tab == WorkspaceTab::Files,
+                                    self.workspace.state.active_tab == WorkspaceTab::Files,
                                 ))
                                 .child(tab(
                                     strings.workspace_tab_outline.clone(),
                                     OUTLINE_TAB_ICON,
                                     WorkspaceTab::Outline,
-                                    self.workspace.active_tab == WorkspaceTab::Outline,
+                                    self.workspace.state.active_tab == WorkspaceTab::Outline,
                                 ))
                                 .child(search_button),
                         )
@@ -1485,7 +1467,7 @@ impl Editor {
         strings: &I18nStrings,
         editor: &WeakEntity<Editor>,
     ) -> AnyElement {
-        if self.workspace.root.is_none() {
+        if self.workspace.state.root.is_none() {
             return self.render_workspace_empty_state(
                 &strings.workspace_no_file_title,
                 &strings.workspace_no_file_message,
@@ -1493,7 +1475,7 @@ impl Editor {
             );
         }
 
-        if let Some(error) = self.workspace.file_error.as_ref() {
+        if let Some(error) = self.workspace.state.file_error.as_ref() {
             return self.render_workspace_empty_state(
                 &strings.workspace_scan_failed_title,
                 error,
@@ -1501,7 +1483,7 @@ impl Editor {
             );
         }
 
-        let Some(root) = self.workspace.file_tree.as_ref() else {
+        let Some(root) = self.workspace.state.file_tree.as_ref() else {
             return self.render_workspace_empty_state("", &strings.workspace_empty_files, theme);
         };
 
@@ -1519,7 +1501,7 @@ impl Editor {
         strings: &I18nStrings,
         editor: &WeakEntity<Editor>,
     ) -> AnyElement {
-        if self.workspace.outline_tree.is_empty() {
+        if self.workspace.state.outline_tree.is_empty() {
             return self.render_workspace_empty_state("", &strings.workspace_empty_outline, theme);
         }
 
@@ -1527,7 +1509,7 @@ impl Editor {
             .w_full()
             .flex()
             .flex_col()
-            .children(self.render_workspace_nodes(&self.workspace.outline_tree, 0, theme, editor))
+            .children(self.render_workspace_nodes(&self.workspace.state.outline_tree, 0, theme, editor))
             .into_any_element()
     }
 
@@ -1545,7 +1527,7 @@ impl Editor {
             );
         }
 
-        if self.workspace.search_query.trim().is_empty() {
+        if self.workspace.state.search_input.query.trim().is_empty() {
             return self.render_workspace_empty_state(
                 "",
                 &strings.workspace_search_placeholder,
@@ -1553,7 +1535,7 @@ impl Editor {
             );
         }
 
-        if self.workspace.search_results.is_empty() {
+        if self.workspace.state.search_results.is_empty() {
             return self.render_workspace_empty_state(
                 "",
                 &strings.workspace_search_no_results,
@@ -1565,7 +1547,7 @@ impl Editor {
         let c = &theme.colors;
         let t = &theme.typography;
         let mut rows = Vec::new();
-        for (index, result) in self.workspace.search_results.iter().enumerate() {
+        for (index, result) in self.workspace.state.search_results.iter().enumerate() {
             let label = workspace_search_result_label(root.as_deref(), result);
             let detail = workspace_search_result_detail(result);
             let path = result.path.clone();
@@ -1678,7 +1660,7 @@ impl Editor {
         let mut elements = Vec::new();
         for node in nodes {
             elements.push(self.render_workspace_node(node, depth, theme, editor));
-            if !node.children.is_empty() && self.workspace.expanded.contains(&node.id) {
+            if !node.children.is_empty() && self.workspace.state.expanded.contains(&node.id) {
                 elements.extend(self.render_workspace_nodes(
                     &node.children,
                     depth + 1,
@@ -1699,9 +1681,9 @@ impl Editor {
     ) -> AnyElement {
         let c = &theme.colors;
         let t = &theme.typography;
-        let is_expanded = self.workspace.expanded.contains(&node.id);
+        let is_expanded = self.workspace.state.expanded.contains(&node.id);
         let has_children = !node.children.is_empty();
-        let selected = match (&self.workspace.selected, &node.kind) {
+        let selected = match (&self.workspace.state.selected, &node.kind) {
             (Some(WorkspaceSelection::File(selected)), WorkspaceTreeKind::MarkdownFile(path)) => {
                 selected == path
             }
@@ -2067,18 +2049,17 @@ fn is_outline_node_id(id: &str) -> bool {
 fn build_outline_tree(markdown: &str) -> Vec<WorkspaceTreeNode> {
     let mut roots = Vec::new();
     let mut stack: Vec<(u8, Vec<usize>)> = Vec::new();
-    let mut fence: Option<(char, usize)> = None;
+    let mut fence: Option<FenceInfo> = None;
 
     for (line_index, line) in markdown.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if let Some((marker, len)) = fence {
-            if is_closing_fence(trimmed, marker, len) {
+        if let Some(ref opener) = fence {
+            if is_closing_fence(line, opener) {
                 fence = None;
             }
             continue;
         }
 
-        if let Some(next_fence) = opening_fence(trimmed) {
+        if let Some(next_fence) = parse_opening_fence(line) {
             fence = Some(next_fence);
             continue;
         }
@@ -2131,20 +2112,6 @@ fn children_at_path_mut<'a>(
         current = &mut current[index].children;
     }
     current
-}
-
-fn opening_fence(trimmed: &str) -> Option<(char, usize)> {
-    let marker = trimmed.chars().next()?;
-    if marker != '`' && marker != '~' {
-        return None;
-    }
-    let len = trimmed.chars().take_while(|ch| *ch == marker).count();
-    (len >= 3).then_some((marker, len))
-}
-
-fn is_closing_fence(trimmed: &str, marker: char, len: usize) -> bool {
-    let count = trimmed.chars().take_while(|ch| *ch == marker).count();
-    count >= len && trimmed[count..].trim().is_empty()
 }
 
 fn workspace_search_offset_from_utf16(text: &str, offset: usize) -> usize {
@@ -2203,21 +2170,21 @@ impl EntityInputHandler for Editor {
         }
 
         if self.quick_file_open_input_active(window) {
-            let text = self.quick_file_open.query.clone();
+            let text = self.quick_file_open.input.query.clone();
             let range = range_utf16.start.min(text.len())..range_utf16.end.min(text.len());
             actual_range.replace(range.clone());
             return Some(text[range].to_string());
         }
 
         if self.workspace_name_input_active(window) {
-            let text = self.workspace_name_dialog.as_ref()?.name.clone();
+            let text = self.workspace.name_dialog.as_ref()?.name.clone();
             let range = workspace_search_range_from_utf16(&text, &range_utf16);
             actual_range.replace(workspace_search_range_to_utf16(&text, &range));
             return Some(text[range].to_string());
         }
 
         if self.document_search_input_active(window) {
-            let text = self.document_search.query.clone();
+            let text = self.search.state.input.query.clone();
             let range = document_search_range_from_utf16(&text, &range_utf16);
             actual_range.replace(document_search_range_to_utf16(&text, &range));
             return Some(text[range].to_string());
@@ -2227,7 +2194,7 @@ impl EntityInputHandler for Editor {
             return None;
         }
 
-        let text = self.workspace.search_query.clone();
+        let text = self.workspace.state.search_input.query.clone();
         let range = workspace_search_range_from_utf16(&text, &range_utf16);
         actual_range.replace(workspace_search_range_to_utf16(&text, &range));
         Some(text[range].to_string())
@@ -2248,7 +2215,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.quick_file_open_input_active(window) {
-            let len = self.quick_file_open.query.len();
+            let len = self.quick_file_open.input.text_len();
             return Some(UTF16Selection {
                 range: len..len,
                 reversed: false,
@@ -2256,7 +2223,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let dialog = self.workspace_name_dialog.as_ref()?;
+            let dialog = self.workspace.name_dialog.as_ref()?;
             return Some(UTF16Selection {
                 range: workspace_search_range_to_utf16(&dialog.name, &dialog.selected_range),
                 reversed: false,
@@ -2264,10 +2231,10 @@ impl EntityInputHandler for Editor {
         }
 
         if self.document_search_input_active(window) {
-            let text = &self.document_search.query;
+            let text = &self.search.state.input.query;
             return Some(UTF16Selection {
-                range: document_search_range_to_utf16(text, &self.document_search.selected_range),
-                reversed: self.document_search.selection_reversed,
+                range: document_search_range_to_utf16(text, &self.search.state.input.selected_range),
+                reversed: self.search.state.input.selection_reversed,
             });
         }
 
@@ -2275,9 +2242,9 @@ impl EntityInputHandler for Editor {
             return None;
         }
 
-        let text = &self.workspace.search_query;
+        let text = &self.workspace.state.search_input.query;
         Some(UTF16Selection {
-            range: workspace_search_range_to_utf16(text, &self.workspace.search_selected_range),
+            range: workspace_search_range_to_utf16(text, &self.workspace.state.search_input.selected_range),
             reversed: false,
         })
     }
@@ -2295,7 +2262,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let dialog = self.workspace_name_dialog.as_ref()?;
+            let dialog = self.workspace.name_dialog.as_ref()?;
             return dialog
                 .marked_range
                 .as_ref()
@@ -2304,10 +2271,12 @@ impl EntityInputHandler for Editor {
 
         if self.document_search_input_active(window) {
             return self
-                .document_search
+                .search
+                .state
+                .input
                 .marked_range
                 .as_ref()
-                .map(|range| document_search_range_to_utf16(&self.document_search.query, range));
+                .map(|range| document_search_range_to_utf16(&self.search.state.input.query, range));
         }
 
         if !self.workspace_search_input_active(window) {
@@ -2315,9 +2284,11 @@ impl EntityInputHandler for Editor {
         }
 
         self.workspace
-            .search_marked_range
+            .state
+            .search_input
+            .marked_range
             .as_ref()
-            .map(|range| workspace_search_range_to_utf16(&self.workspace.search_query, range))
+            .map(|range| workspace_search_range_to_utf16(&self.workspace.state.search_input.query, range))
     }
 
     fn unmark_text(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
@@ -2331,19 +2302,19 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            if let Some(dialog) = self.workspace_name_dialog.as_mut() {
+            if let Some(dialog) = self.workspace.name_dialog.as_mut() {
                 dialog.marked_range = None;
             }
             return;
         }
 
         if self.document_search_input_active(window) {
-            self.document_search.marked_range = None;
+            self.search.state.input.marked_range = None;
             return;
         }
 
         if self.workspace_search_input_active(window) {
-            self.workspace.search_marked_range = None;
+            self.workspace.state.search_input.marked_range = None;
         }
     }
 
@@ -2369,7 +2340,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            let Some(dialog) = self.workspace.name_dialog.as_ref() else {
                 return;
             };
             let text = dialog.name.clone();
@@ -2386,10 +2357,10 @@ impl EntityInputHandler for Editor {
             let range = range_utf16
                 .as_ref()
                 .map(|range_utf16| {
-                    document_search_range_from_utf16(&self.document_search.query, range_utf16)
+                    document_search_range_from_utf16(&self.search.state.input.query, range_utf16)
                 })
-                .or_else(|| self.document_search.marked_range.clone())
-                .unwrap_or_else(|| self.document_search.selected_range.clone());
+                .or_else(|| self.search.state.input.marked_range.clone())
+                .unwrap_or_else(|| self.search.state.input.selected_range.clone());
             self.replace_document_search_text(range, new_text, false, None, cx);
             return;
         }
@@ -2400,9 +2371,9 @@ impl EntityInputHandler for Editor {
 
         let range = range_utf16
             .as_ref()
-            .map(|range_utf16| workspace_search_range_from_utf16(&self.workspace.search_query, range_utf16))
-            .or_else(|| self.workspace.search_marked_range.clone())
-            .unwrap_or_else(|| self.workspace.search_selected_range.clone());
+            .map(|range_utf16| workspace_search_range_from_utf16(&self.workspace.state.search_input.query, range_utf16))
+            .or_else(|| self.workspace.state.search_input.marked_range.clone())
+            .unwrap_or_else(|| self.workspace.state.search_input.selected_range.clone());
 
         self.replace_workspace_search_text(range, new_text, false, None, cx);
     }
@@ -2434,7 +2405,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let Some(dialog) = self.workspace_name_dialog.as_ref() else {
+            let Some(dialog) = self.workspace.name_dialog.as_ref() else {
                 return;
             };
             let text = dialog.name.clone();
@@ -2455,10 +2426,10 @@ impl EntityInputHandler for Editor {
             let range = range_utf16
                 .as_ref()
                 .map(|range_utf16| {
-                    document_search_range_from_utf16(&self.document_search.query, range_utf16)
+                    document_search_range_from_utf16(&self.search.state.input.query, range_utf16)
                 })
-                .or_else(|| self.document_search.marked_range.clone())
-                .unwrap_or_else(|| self.document_search.selected_range.clone());
+                .or_else(|| self.search.state.input.marked_range.clone())
+                .unwrap_or_else(|| self.search.state.input.selected_range.clone());
             let selected = new_selected_range_utf16
                 .as_ref()
                 .map(|range_utf16| document_search_range_from_utf16(new_text, range_utf16))
@@ -2473,9 +2444,9 @@ impl EntityInputHandler for Editor {
 
         let range = range_utf16
             .as_ref()
-            .map(|range_utf16| workspace_search_range_from_utf16(&self.workspace.search_query, range_utf16))
-            .or_else(|| self.workspace.search_marked_range.clone())
-            .unwrap_or_else(|| self.workspace.search_selected_range.clone());
+            .map(|range_utf16| workspace_search_range_from_utf16(&self.workspace.state.search_input.query, range_utf16))
+            .or_else(|| self.workspace.state.search_input.marked_range.clone())
+            .unwrap_or_else(|| self.workspace.state.search_input.selected_range.clone());
         let selected = new_selected_range_utf16
             .as_ref()
             .map(|range_utf16| workspace_search_range_from_utf16(new_text, range_utf16))
@@ -2493,7 +2464,7 @@ impl EntityInputHandler for Editor {
     ) -> Option<Bounds<Pixels>> {
         if self.ai_prompt_input_active(window) {
             let range = document_search_range_from_utf16(self.ai_prompt_text(), &range_utf16);
-            return super::ai::ai_range_bounds(
+            return super::controllers::ai::ai_range_bounds(
                 self.ai_prompt_line_layouts(),
                 bounds,
                 self.ai_prompt_line_height(),
@@ -2508,7 +2479,7 @@ impl EntityInputHandler for Editor {
         }
 
         if self.workspace_name_input_active(window) {
-            let line = self.workspace_name_last_layout.as_ref()?;
+            let line = self.workspace.name_last_layout.as_ref()?;
             let text = self.workspace_name_text();
             let range = workspace_search_range_from_utf16(&text, &range_utf16);
             return Some(Bounds::from_corners(
@@ -2518,8 +2489,8 @@ impl EntityInputHandler for Editor {
         }
 
         if self.document_search_input_active(window) {
-            let line = self.document_search.last_layout.as_ref()?;
-            let text = &self.document_search.query;
+            let line = self.search.state.input.last_layout.as_ref()?;
+            let text = &self.search.state.input.query;
             let range = document_search_range_from_utf16(text, &range_utf16);
             return Some(Bounds::from_corners(
                 point(bounds.left() + line.x_for_index(range.start), bounds.top()),
@@ -2531,8 +2502,8 @@ impl EntityInputHandler for Editor {
             return None;
         }
 
-        let line = self.workspace.search_last_layout.as_ref()?;
-        let range = workspace_search_range_from_utf16(&self.workspace.search_query, &range_utf16);
+        let line = self.workspace.state.search_input.last_layout.as_ref()?;
+        let range = workspace_search_range_from_utf16(&self.workspace.state.search_input.query, &range_utf16);
         Some(Bounds::from_corners(
             point(bounds.left() + line.x_for_index(range.start), bounds.top()),
             point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
@@ -2553,12 +2524,12 @@ impl EntityInputHandler for Editor {
         }
 
         if self.quick_file_open_input_active(window) {
-            return Some(self.quick_file_open.query.len());
+            return Some(self.quick_file_open.input.text_len());
         }
 
         if self.workspace_name_input_active(window) {
-            let bounds = self.workspace_name_last_bounds?;
-            let line = self.workspace_name_last_layout.as_ref()?;
+            let bounds = self.workspace.name_last_bounds?;
+            let line = self.workspace.name_last_layout.as_ref()?;
             let text = self.workspace_name_text();
             let local = bounds.localize(&point)?;
             let utf8_index = line.index_for_x(local.x - bounds.left())?;
@@ -2569,9 +2540,9 @@ impl EntityInputHandler for Editor {
         }
 
         if self.document_search_input_active(window) {
-            let bounds = self.document_search.last_bounds?;
-            let line = self.document_search.last_layout.as_ref()?;
-            let text = &self.document_search.query;
+            let bounds = self.search.state.input.last_bounds?;
+            let line = self.search.state.input.last_layout.as_ref()?;
+            let text = &self.search.state.input.query;
             let local = bounds.localize(&point)?;
             let utf8_index = line.index_for_x(local.x - bounds.left())?;
             return Some(document_search_offset_to_utf16(
@@ -2584,13 +2555,13 @@ impl EntityInputHandler for Editor {
             return None;
         }
 
-        let bounds = self.workspace.search_last_bounds?;
-        let line = self.workspace.search_last_layout.as_ref()?;
+        let bounds = self.workspace.state.search_input.last_bounds?;
+        let line = self.workspace.state.search_input.last_layout.as_ref()?;
         let local = bounds.localize(&point)?;
         let utf8_index = line.index_for_x(local.x - bounds.left())?;
         Some(workspace_search_offset_to_utf16(
-            &self.workspace.search_query,
-            utf8_index.min(self.workspace.search_query.len()),
+            &self.workspace.state.search_input.query,
+            utf8_index.min(self.workspace.state.search_input.query.len()),
         ))
     }
 }

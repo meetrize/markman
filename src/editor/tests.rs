@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -21,9 +22,9 @@ use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::{Theme, ThemeManager};
 fn init_editor_test_app(cx: &mut TestAppContext) {
     cx.update(|cx| {
-        I18nManager::init(cx);
+        I18nManager::init_with_language_id(cx, "en-US");
         ThemeManager::init(cx);
-        crate::components::init(cx);
+        crate::components::init_with_keybindings(cx, &BTreeMap::new());
     });
 }
 
@@ -54,24 +55,6 @@ fn activate_visual_window(cx: &mut VisualTestContext) -> AnyWindowHandle {
     cx.run_until_parked();
     cx.cx
         .update(|cx| cx.active_window().expect("window should be active"))
-}
-
-#[test]
-fn centered_column_ratio_stays_full_before_shrink_start() {
-    let theme = Theme::default_theme();
-    assert_eq!(Editor::centered_column_ratio(900.0, &theme.dimensions), 1.0);
-    assert_eq!(
-        Editor::centered_column_ratio(theme.dimensions.centered_shrink_start, &theme.dimensions),
-        1.0
-    );
-}
-
-#[test]
-fn centered_column_ratio_stays_full_at_large_viewports() {
-    let theme = Theme::default_theme();
-    let ratio =
-        Editor::centered_column_ratio(theme.dimensions.centered_shrink_end, &theme.dimensions);
-    assert!((ratio - 1.0).abs() < f32::EPSILON);
 }
 
 #[test]

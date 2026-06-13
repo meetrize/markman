@@ -2,7 +2,7 @@
 
 本文档基于 [代码 Review 结论](development.zh-CN.md)，将 Velotype 重构工作拆分为 **Quick Wins → Medium → Large** 三阶段、共 **22 步**。每步可直接复制提示词块交给 AI Agent 执行。
 
-[开发与构建](development.zh-CN.md) | [行内代码执行提示词示例](inline-code-run-implementation.zh-CN.md)
+[开发与构建](development.zh-CN.md) | [行内代码执行提示词示例](inline-code-run-implementation.zh-CN.md) | [执行队列使用说明](refactor-queue-usage.zh-CN.md)
 
 ---
 

@@ -1,0 +1,90 @@
+{
+  "1": {
+    "title": "删除 table root 别名 API",
+    "status": "done"
+  },
+  "2": {
+    "title": "清理 dead_code API",
+    "status": "done"
+  },
+  "3": {
+    "title": "提取 HTML 转义模块",
+    "status": "done"
+  },
+  "4": {
+    "title": "提取 GFM parser 选项",
+    "status": "done"
+  },
+  "5": {
+    "title": "提取文本规范化工具",
+    "status": "pending"
+  },
+  "6": {
+    "title": "外迁 document.rs 内联测试",
+    "status": "pending"
+  },
+  "7": {
+    "title": "修复 Mermaid 模板 i18n",
+    "status": "pending"
+  },
+  "8": {
+    "title": "单行输入状态 struct 提取",
+    "status": "done"
+  },
+  "9": {
+    "title": "单行输入迁移其余模块",
+    "status": "done"
+  },
+  "10": {
+    "title": "统一 fence 解析模块",
+    "status": "done"
+  },
+  "11": {
+    "title": "统一 columns 块解析模块",
+    "status": "done"
+  },
+  "12": {
+    "title": "工具栏图标按钮组件",
+    "status": "done"
+  },
+  "13": {
+    "title": "Overlay 栈简化",
+    "status": "done"
+  },
+  "14": {
+    "title": "Theme/I18n catalog 抽象（第一阶段）",
+    "status": "in_progress"
+  },
+  "15": {
+    "title": "统一工具栏 format 双路径",
+    "status": "done"
+  },
+  "16": {
+    "title": "布局常量下沉，打破循环依赖",
+    "status": "done"
+  },
+  "17": {
+    "title": "拆分 block/render.rs（第一阶段）",
+    "status": "done"
+  },
+  "18": {
+    "title": "拆分 block/render.rs（第二阶段）",
+    "status": "done"
+  },
+  "19": {
+    "title": "拆分 markdown/inline.rs",
+    "status": "done"
+  },
+  "20": {
+    "title": "Editor 子控制器拆分（第一阶段）",
+    "status": "done"
+  },
+  "21": {
+    "title": "Editor 子控制器拆分（第二阶段）",
+    "status": "done"
+  },
+  "22": {
+    "title": "config 存储与 UI 分离",
+    "status": "done"
+  }
+}

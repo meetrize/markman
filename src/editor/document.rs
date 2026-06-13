@@ -8,24 +8,19 @@ use gpui::*;
 
 use super::Editor;
 use crate::components::{
-    BlockKind, BlockRecord, CalloutVariant, CodeFenceOpening, InlineTextTree,
-    parse_footnote_definition_head,
+    BlockKind, BlockRecord, CalloutVariant, InlineTextTree, collect_columns_block_region,
+    is_columns_block_start, parse_footnote_definition_head,
 };
-use crate::components::{HtmlSafetyClass, parse_html_document};
 use crate::components::{
-    collect_root_table_candidate_region, collect_table_candidate_region,
-    is_root_table_candidate_line, is_table_candidate_line, parse_root_table_region,
-    parse_standalone_image, parse_table_region,
+    FenceInfo, HtmlSafetyClass, is_closing_fence, parse_html_document, parse_opening_fence,
+    strip_fence_indent,
+};
+use crate::components::{
+    collect_table_candidate_region, is_table_candidate_line, parse_standalone_image,
+    parse_table_region,
 };
 use crate::components::{is_mermaid_info_string, parse_display_math_source};
 
-/// Parsed opening code-fence metadata.
-///
-/// The opening fence records both the marker character and its run length so
-/// only a matching closing fence can terminate the block.
-type FenceInfo = CodeFenceOpening;
-
-/// HTML block form recognized by the Markdown importer.
 enum HtmlBlockStart {
     /// HTML comment region beginning with `<!--`.
     Comment,
@@ -44,11 +39,6 @@ struct ListMarker {
     indent_columns: usize,
     content_indent_columns: usize,
     text: String,
-}
-
-fn strip_fence_indent(line: &str) -> Option<&str> {
-    let indent = line.bytes().take_while(|b| *b == b' ').count();
-    (indent <= 3).then_some(&line[indent..])
 }
 
 fn collect_until_blank_line(lines: &[String], start: usize) -> usize {
@@ -138,24 +128,6 @@ fn paragraph_can_continue_through_boundary(
         .any(|line| line_contains_matching_backtick_run(line, run_len))
 }
 
-fn parse_opening_fence(line: &str) -> Option<FenceInfo> {
-    BlockKind::parse_code_fence_opening(strip_fence_indent(line)?.trim_end())
-}
-
-fn is_closing_fence(line: &str, opener: &FenceInfo) -> bool {
-    let Some(trimmed) = strip_fence_indent(line).map(str::trim_end) else {
-        return false;
-    };
-    if !trimmed.starts_with(opener.ch) {
-        return false;
-    }
-    let run_len = trimmed.chars().take_while(|&c| c == opener.ch).count();
-    if run_len != opener.len {
-        return false;
-    }
-    trimmed[opener.ch.len_utf8() * run_len..].trim().is_empty()
-}
-
 fn find_matching_closing_fence(
     lines: &[String],
     start_index: usize,
@@ -170,18 +142,14 @@ fn find_matching_closing_fence(
             // greedy search below would merge adjacent empty-language blocks
             // (issue #58). Close at the first match instead; greedy matching
             // is only needed for info-tagged blocks that may wrap bare fences.
-            if opener.language.is_none() {
+            if opener.language().is_none() {
                 return Some(index);
             }
             last_match = Some(index);
             continue;
         }
 
-        if parse_opening_fence(line)
-            .as_ref()
-            .and_then(|fence| fence.language.as_ref())
-            .is_some()
-        {
+        if parse_opening_fence(line).is_some_and(|fence| !fence.info.is_empty()) {
             break;
         }
     }
@@ -605,7 +573,7 @@ fn quote_content_starts_unsupported(lines: &[String], index: usize) -> bool {
     is_block_html_start(line)
         || is_footnote_definition_start(line)
         || is_reference_definition_start(line)
-        || is_root_table_candidate_line(line)
+        || is_table_candidate_line(line)
         || is_display_math_start(line)
         || BlockKind::parse_atx_heading_line(line).is_some()
         || BlockKind::parse_separator_line(line)
@@ -630,8 +598,8 @@ fn collect_unsupported_quote_region(lines: &[String], start: usize) -> Option<us
     if is_reference_definition_start(line) {
         return Some(collect_reference_definition_region(lines, start));
     }
-    if is_root_table_candidate_line(line) {
-        return Some(collect_root_table_candidate_region(lines, start));
+    if is_table_candidate_line(line) {
+        return Some(collect_table_candidate_region(lines, start));
     }
     if is_display_math_start(line) {
         return Some(collect_display_math_region(lines, start));
@@ -705,56 +673,8 @@ fn looks_like_root_block_start(lines: &[String], index: usize) -> bool {
             .get(index + 1)
             .and_then(|next| BlockKind::parse_setext_underline(next))
             .is_some()
-        || is_root_table_candidate_line(line)
+        || is_table_candidate_line(line)
         || is_display_math_start(line)
-}
-
-fn is_columns_block_start(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-    let Some(rest) = trimmed.strip_prefix("::: columns") else {
-        return false;
-    };
-    rest.is_empty() || rest.starts_with(char::is_whitespace)
-}
-
-fn is_columns_block_end(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    line.len() - trimmed.len() <= 3 && trimmed.trim_end() == ":::"
-}
-
-fn collect_columns_block_region(lines: &[String], start: usize) -> Option<usize> {
-    if !is_columns_block_start(&lines[start]) {
-        return None;
-    }
-
-    let mut index = start + 1;
-    let mut active_fence: Option<FenceInfo> = None;
-    while index < lines.len() {
-        let line = &lines[index];
-        if let Some(fence) = active_fence.as_ref() {
-            if is_closing_fence(line, fence) {
-                active_fence = None;
-            }
-            index += 1;
-            continue;
-        }
-
-        if let Some(fence) = parse_opening_fence(line) {
-            active_fence = Some(fence);
-            index += 1;
-            continue;
-        }
-
-        if is_columns_block_end(line) {
-            return Some(index + 1);
-        }
-        index += 1;
-    }
-
-    None
 }
 
 fn attach_child_blocks(
@@ -792,7 +712,7 @@ fn collect_fenced_code_block(
 ) -> Option<(Entity<super::Block>, usize)> {
     let fence = parse_opening_fence(&lines[start])?;
     let closing_index = find_matching_closing_fence(lines, start, &fence)?;
-    if is_mermaid_info_string(fence.language.as_ref().map(|language| language.as_ref())) {
+    if is_mermaid_info_string(fence.language().as_ref().map(|language| language.as_ref())) {
         let raw = lines[start..=closing_index].join("\n");
         return Some((
             Editor::new_block(cx, BlockRecord::mermaid(raw)),
@@ -806,7 +726,7 @@ fn collect_fenced_code_block(
     let code_lines = lines[start + 1..closing_index].to_vec();
 
     Some((
-        build_code_block(cx, fence.language.clone(), code_lines.join("\n")),
+        build_code_block(cx, fence.language(), code_lines.join("\n")),
         closing_index + 1,
     ))
 }
@@ -906,7 +826,7 @@ fn starts_with_standalone_image_child_paragraph(lines: &[String]) -> bool {
             || is_block_html_start(next)
             || is_footnote_definition_start(next)
             || is_reference_definition_start(next)
-            || is_root_table_candidate_line(next)
+            || is_table_candidate_line(next)
             || is_display_math_start(next)
     })
 }
@@ -1151,10 +1071,10 @@ impl Editor {
                 continue;
             }
 
-            if is_root_table_candidate_line(line) {
-                let end = collect_root_table_candidate_region(lines, index);
+            if is_table_candidate_line(line) {
+                let end = collect_table_candidate_region(lines, index);
                 let region = &lines[index..end];
-                if let Some(table) = parse_root_table_region(region) {
+                if let Some(table) = parse_table_region(region) {
                     roots.push(Self::new_block(cx, BlockRecord::table(table)));
                 } else {
                     roots.extend(
@@ -1697,10 +1617,10 @@ impl Editor {
                         continue;
                     }
 
-                    if is_root_table_candidate_line(&anchor_dedented[0]) {
-                        let table_end = collect_root_table_candidate_region(&anchor_dedented, 0);
+                    if is_table_candidate_line(&anchor_dedented[0]) {
+                        let table_end = collect_table_candidate_region(&anchor_dedented, 0);
                         let table_region = &anchor_dedented[..table_end];
-                        let child = if let Some(table) = parse_root_table_region(table_region) {
+                        let child = if let Some(table) = parse_table_region(table_region) {
                             Self::new_block(cx, BlockRecord::table(table))
                         } else {
                             raw_block(cx, table_region.join("\n"))
@@ -1880,29 +1800,10 @@ mod tests {
     use gpui::{AppContext, TestAppContext};
 
     use super::{
-        collect_block_html_region, find_matching_closing_fence, is_closing_fence,
-        is_reference_definition_start, parse_list_marker, parse_opening_fence,
-        strip_indented_code_prefix, strip_one_quote_level,
+        collect_block_html_region, find_matching_closing_fence, is_reference_definition_start,
+        parse_list_marker, strip_indented_code_prefix, strip_one_quote_level,
     };
-    use crate::components::{BlockKind, CalloutVariant, Editor, HtmlCssColor};
-
-    #[test]
-    fn closing_fence_must_match_exact_opening_run_length() {
-        let opener = parse_opening_fence("````rust").expect("opening fence");
-
-        assert!(is_closing_fence("````", &opener));
-        assert!(is_closing_fence("  ````   ", &opener));
-        assert!(!is_closing_fence("```", &opener));
-        assert!(!is_closing_fence("`````", &opener));
-    }
-
-    #[test]
-    fn fence_detection_rejects_indent_beyond_three_spaces() {
-        assert!(parse_opening_fence("    ```rust").is_none());
-
-        let opener = parse_opening_fence("```rust").expect("opening fence");
-        assert!(!is_closing_fence("    ```", &opener));
-    }
+    use crate::components::{parse_opening_fence, BlockKind, CalloutVariant, Editor, HtmlCssColor};
 
     #[test]
     fn unmatched_opening_fence_does_not_form_code_block() {

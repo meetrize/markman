@@ -2,7 +2,10 @@
 
 use gpui::*;
 
-use crate::components::markdown::source_format::MarkdownToolbarAction;
+use crate::components::markdown::source_format::{
+    apply_image_format, apply_link_format, toolbar_replacement_from_formatted_text,
+    MarkdownToolbarAction,
+};
 use crate::components::{BlockKind, InlineFormat, UndoCaptureKind};
 
 use super::Block;
@@ -94,23 +97,14 @@ impl Block {
     fn insert_link_markdown(&mut self, cx: &mut Context<Self>) {
         let selection = self.selected_range.clone();
         let text = self.display_text();
-        let (link_text, url) = if selection.is_empty() {
-            (
-                "link text".to_string(),
-                "https://example.com".to_string(),
-            )
-        } else {
-            let selected = text[selection.clone()].to_string();
-            (selected.clone(), selected)
-        };
-        let replacement = format!("[{link_text}]({url})");
-        let url_start = selection.start + link_text.len() + 3;
-        let url_end = url_start + url.len();
+        let formatted = apply_link_format(text, selection.clone());
+        let (replacement, url_range) =
+            toolbar_replacement_from_formatted_text(text, selection.clone(), formatted);
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         self.replace_text_in_visible_range(
             selection,
             &replacement,
-            Some(url_start..url_end),
+            Some(url_range),
             false,
             cx,
         );
@@ -119,23 +113,14 @@ impl Block {
     pub(crate) fn insert_image_markdown(&mut self, cx: &mut Context<Self>) {
         let selection = self.selected_range.clone();
         let text = self.display_text();
-        let (alt_text, url) = if selection.is_empty() {
-            (
-                "alt text".to_string(),
-                "https://vcg03.cfp.cn/creative/vcg/800/new/VCG41N1224074145.jpg".to_string(),
-            )
-        } else {
-            let selected = text[selection.clone()].to_string();
-            (selected.clone(), selected)
-        };
-        let replacement = format!("![{alt_text}]({url})");
-        let url_start = selection.start + alt_text.len() + 4;
-        let url_end = url_start + url.len();
+        let formatted = apply_image_format(text, selection.clone());
+        let (replacement, url_range) =
+            toolbar_replacement_from_formatted_text(text, selection.clone(), formatted);
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         self.replace_text_in_visible_range(
             selection,
             &replacement,
-            Some(url_start..url_end),
+            Some(url_range),
             false,
             cx,
         );

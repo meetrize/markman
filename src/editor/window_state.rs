@@ -48,34 +48,6 @@ impl Editor {
         max_scroll_y * progress
     }
 
-    /// Linearly interpolates the editor content width ratio based on viewport
-    /// width. The column stays full-width until `centered_shrink_start`, then
-    /// shrinks to `centered_min_ratio` at `centered_shrink_end`.
-    pub(super) fn centered_column_ratio(
-        viewport_width: f32,
-        dimensions: &crate::theme::ThemeDimensions,
-    ) -> f32 {
-        if viewport_width <= dimensions.centered_shrink_start {
-            return 1.0;
-        }
-
-        let t = ((viewport_width - dimensions.centered_shrink_start)
-            / (dimensions.centered_shrink_end - dimensions.centered_shrink_start))
-            .clamp(0.0, 1.0);
-        1.0 - t * (1.0 - dimensions.centered_min_ratio)
-    }
-
-    pub(crate) fn centered_column_width(
-        viewport_width: f32,
-        dimensions: &crate::theme::ThemeDimensions,
-    ) -> f32 {
-        let available_content_width = (viewport_width - dimensions.editor_padding * 2.0).max(1.0);
-        let centered_ratio = Self::centered_column_ratio(viewport_width, dimensions);
-        (available_content_width * centered_ratio)
-            .max(320.0)
-            .min(available_content_width)
-    }
-
     /// Builds the OS window title, including the dirty marker when the
     /// document has unsaved changes.
     pub(super) fn window_title(

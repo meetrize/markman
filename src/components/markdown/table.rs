@@ -692,21 +692,6 @@ pub fn parse_table_region(lines: &[String]) -> Option<TableData> {
     })
 }
 
-/// Returns true when a root-level line is a candidate native table row.
-pub fn is_root_table_candidate_line(line: &str) -> bool {
-    is_table_candidate_line(line)
-}
-
-/// Collects a contiguous root-level table candidate region.
-pub fn collect_root_table_candidate_region(lines: &[String], start: usize) -> usize {
-    collect_table_candidate_region(lines, start)
-}
-
-/// Parses a root-level pipe table region into native table data.
-pub fn parse_root_table_region(lines: &[String]) -> Option<TableData> {
-    parse_table_region(lines)
-}
-
 /// Serializes native table data to canonical pipe-table Markdown lines.
 pub fn serialize_table_markdown_lines(table: &TableData) -> Vec<String> {
     let mut lines = Vec::with_capacity(2 + table.rows.len());
@@ -727,8 +712,8 @@ pub fn serialize_table_markdown_lines(table: &TableData) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TableColumnAlignment, TableColumnLayout, TableData, collect_root_table_candidate_region,
-        is_root_table_candidate_line, parse_root_table_region, serialize_table_markdown_lines,
+        TableColumnAlignment, TableColumnLayout, TableData, collect_table_candidate_region,
+        is_table_candidate_line, parse_table_region, serialize_table_markdown_lines,
     };
     use crate::components::InlineTextTree;
 
@@ -746,7 +731,7 @@ mod tests {
             "| :--- | :---: | ---: |".to_string(),
             "| a | b | c |".to_string(),
         ];
-        let table = parse_root_table_region(&lines).expect("table should parse");
+        let table = parse_table_region(&lines).expect("table should parse");
         assert_eq!(table.alignments.len(), 3);
         assert_eq!(
             table.alignments,
@@ -763,7 +748,7 @@ mod tests {
     #[test]
     fn rejects_invalid_alignment_row() {
         let lines = vec!["| Left | Right |".to_string(), "| nope | --- |".to_string()];
-        assert!(parse_root_table_region(&lines).is_none());
+        assert!(parse_table_region(&lines).is_none());
     }
 
     #[test]
@@ -798,8 +783,8 @@ mod tests {
             "| 1 | 2 |".to_string(),
             "paragraph".to_string(),
         ];
-        assert!(is_root_table_candidate_line(&lines[0]));
-        assert_eq!(collect_root_table_candidate_region(&lines, 0), 3);
+        assert!(is_table_candidate_line(&lines[0]));
+        assert_eq!(collect_table_candidate_region(&lines, 0), 3);
     }
 
     #[test]

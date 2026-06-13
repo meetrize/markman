@@ -441,7 +441,7 @@ impl Editor {
         let has_bounds = self.ensure_focused_caret_visible(window, cx);
         if self.pending_scroll_recheck_after_layout {
             self.pending_scroll_recheck_after_layout = false;
-            if self.document_search.open {
+            if self.search.state.open {
                 self.retry_document_search_scroll(cx);
             }
             cx.notify();
@@ -932,7 +932,7 @@ impl Editor {
 
     /// Builds the unsaved-changes dialog with backdrop, message, and three
     /// action buttons (cancel, discard, save-and-close).
-    fn render_unsaved_changes_overlay(
+    pub(super) fn render_unsaved_changes_overlay(
         &self,
         theme: &Theme,
         cx: &mut Context<Self>,
@@ -1064,7 +1064,7 @@ impl Editor {
 
     /// Builds the dropped-file replacement dialog shown when the current
     /// document has unsaved changes.
-    fn render_drop_replace_overlay(
+    pub(super) fn render_drop_replace_overlay(
         &self,
         theme: &Theme,
         cx: &mut Context<Self>,
@@ -1286,7 +1286,7 @@ impl Editor {
         self.hide_info_dialog(cx);
     }
 
-    fn render_info_dialog_overlay(
+    pub(super) fn render_info_dialog_overlay(
         &self,
         theme: &Theme,
         kind: InfoDialogKind,
@@ -1821,83 +1821,7 @@ impl Render for Editor {
         } else {
             base
         };
-        let base = if let Some(context_menu) = self.render_context_menu_overlay(&theme, window, cx) {
-            base.child(context_menu)
-        } else {
-            base
-        };
-        let base = if let Some(ai_toolbar) = self.render_ai_floating_toolbar(&theme, window, cx) {
-            base.child(ai_toolbar)
-        } else {
-            base
-        };
-        let base = if let Some(code_language_menu) =
-            self.render_code_language_menu_overlay(&theme, window, cx)
-        {
-            base.child(code_language_menu)
-        } else {
-            base
-        };
-        let base = if let Some(mermaid_menu) = self.render_mermaid_template_menu_overlay(&theme, cx) {
-            base.child(mermaid_menu)
-        } else {
-            base
-        };
-        let base = if let Some(file_menu) = self.render_workspace_file_context_menu_overlay(&theme, cx)
-        {
-            base.child(file_menu)
-        } else {
-            base
-        };
-        let base = if let Some(name_dialog) = self.render_workspace_name_dialog_overlay(&theme, cx) {
-            base.child(name_dialog)
-        } else {
-            base
-        };
-        let base = if let Some(single_line_menu) =
-            self.render_single_line_input_context_menu_overlay(&theme, cx)
-        {
-            base.child(single_line_menu)
-        } else {
-            base
-        };
-        let base = if let Some(table_dialog) = self.render_table_insert_dialog_overlay(&theme, cx) {
-            base.child(table_dialog)
-        } else {
-            base
-        };
-        let base =
-            if let Some(popover) = self.render_inline_code_run_popover_overlay(&theme, window, cx) {
-                base.child(popover)
-            } else if let Some(run_button) = self.render_inline_code_run_button_overlay(window, cx)
-            {
-                base.child(run_button)
-            } else {
-                base
-            };
-        let base = if let Some(ai_preview) = self.render_ai_preview_overlay(&theme, cx) {
-            base.child(ai_preview)
-        } else {
-            base
-        };
-        let base = if let Some(ai_prompt) = self.render_ai_prompt_dialog_overlay(&theme, window, cx) {
-            base.child(ai_prompt)
-        } else {
-            base
-        };
-        let base = if let Some(kind) = self.info_dialog {
-            base.child(self.render_info_dialog_overlay(&theme, kind, cx))
-        } else if let Some(dialog) = self.render_code_run_dialog_overlay(&theme, cx) {
-            base.child(dialog)
-        } else if self.show_drop_replace_dialog {
-            base.child(self.render_drop_replace_overlay(&theme, cx))
-        } else if self.show_unsaved_changes_dialog {
-            base.child(self.render_unsaved_changes_overlay(&theme, cx))
-        } else if let Some(qfo) = self.render_quick_file_open_overlay(&theme, &strings, cx) {
-            base.child(qfo)
-        } else {
-            base
-        };
+        let base = self.render_overlay_stack(base, &theme, &strings, window, cx);
         if self.table_column_resize_drag.is_some() {
             let drag_editor = cx.entity().downgrade();
             base.child(

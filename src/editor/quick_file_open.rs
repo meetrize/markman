@@ -16,6 +16,7 @@ use super::single_line_input_element::SingleLineInputElement;
 use crate::components::QuickFileOpen;
 use crate::config::read_recent_files;
 use crate::i18n::I18nStrings;
+use crate::input::single_line_field::SingleLineFieldState;
 use crate::theme::Theme;
 
 /// State for the quick-file-open modal overlay.
@@ -23,8 +24,8 @@ use crate::theme::Theme;
 pub(super) struct QuickFileOpenState {
     /// Whether the overlay is currently shown.
     pub(super) open: bool,
-    /// Current search query entered by the user.
-    pub(super) query: String,
+    /// Search input state.
+    pub(super) input: SingleLineFieldState,
     /// All files in the workspace root (collected once on opening).
     pub(super) all_files: Vec<PathBuf>,
     /// Files filtered and ranked by the current query.
@@ -51,7 +52,7 @@ impl QuickFileOpenState {
     pub(super) fn new(cx: &mut Context<Editor>) -> Self {
         Self {
             open: false,
-            query: String::new(),
+            input: SingleLineFieldState::new(),
             all_files: Vec::new(),
             results: Vec::new(),
             selection: 0,
@@ -127,7 +128,7 @@ impl Editor {
 
         let state = &mut self.quick_file_open;
         state.open = true;
-        state.query.clear();
+        state.input.clear();
         state.all_files = all_files;
         state.results = recent_quick_file_open_results(root.as_deref());
         state.selection = 0;
@@ -143,19 +144,19 @@ impl Editor {
 
     /// Whether the search query is currently empty.
     pub(super) fn quick_file_open_query_is_empty(&self) -> bool {
-        self.quick_file_open.query.is_empty()
+        self.quick_file_open.input.is_empty()
     }
 
     pub(super) fn quick_file_open_cursor_offset(&self) -> usize {
-        self.quick_file_open.query.len()
+        self.quick_file_open.input.text_len()
     }
 
     /// Returns the display text for the input element.
     pub(super) fn quick_file_open_display_text(&self, placeholder: &str) -> SharedString {
-        if self.quick_file_open.query.is_empty() {
+        if self.quick_file_open.input.is_empty() {
             SharedString::from(placeholder.to_string())
         } else {
-            SharedString::from(self.quick_file_open.query.clone())
+            SharedString::from(self.quick_file_open.input.query.clone())
         }
     }
 
@@ -167,9 +168,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let state = &mut self.quick_file_open;
-        let end = range.end.min(state.query.len());
-        let start = range.start.min(end);
-        state.query.replace_range(start..end, new_text);
+        state.input.replace_text(range, new_text);
         self.refresh_quick_file_open_results(cx);
     }
     /// Closes the quick-file-open overlay.
@@ -181,7 +180,7 @@ impl Editor {
             return;
         }
         self.quick_file_open.open = false;
-        self.quick_file_open.query.clear();
+        self.quick_file_open.input.clear();
         self.quick_file_open.results.clear();
         self.quick_file_open.all_files.clear();
         self.pending_focus = self.first_focusable_entity_id(cx);
@@ -198,7 +197,7 @@ impl Editor {
         if !self.quick_file_open_input_active(window) {
             return false;
         }
-        let len = self.quick_file_open.query.len();
+        let len = self.quick_file_open.input.text_len();
         let range = range_utf16
             .map(|r| r.start.min(len)..r.end.min(len))
             .unwrap_or(len..len);
@@ -209,7 +208,7 @@ impl Editor {
     /// Runs the fuzzy search and updates the result list.
     fn refresh_quick_file_open_results(&mut self, cx: &mut Context<Self>) {
         // Take a copy of the query before borrowing self.quick_file_open mutably.
-        let query = self.quick_file_open.query.trim().to_string();
+        let query = self.quick_file_open.input.query.trim().to_string();
         let all_files = self.quick_file_open.all_files.clone();
         let root = self.effective_workspace_root();
 
@@ -361,7 +360,7 @@ impl Editor {
                 .filter(|c: &char| !c.is_control() || *c == ' ')
                 .collect();
             if !text.is_empty() {
-                let end = self.quick_file_open.query.len();
+                let end = self.quick_file_open.input.text_len();
                 self.replace_quick_file_open_text(end..end, &text, cx);
             }
         }
@@ -369,8 +368,7 @@ impl Editor {
 
     fn quick_file_open_delete_backward(&mut self, cx: &mut Context<Self>) {
         let state = &mut self.quick_file_open;
-        if !state.query.is_empty() {
-            state.query.pop();
+        if state.input.delete_backward() {
             self.refresh_quick_file_open_results(cx);
         }
     }
@@ -464,7 +462,7 @@ impl Editor {
         let scroll_offset = state.scroll_top as f32 * (result_row_height + results_py);
 
         // Placeholder text.
-        let placeholder: &str = if state.query.is_empty() {
+        let placeholder: &str = if state.input.is_empty() {
             &strings.quick_file_open_placeholder
         } else if state.results.is_empty() {
             &strings.workspace_search_no_results

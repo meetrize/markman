@@ -5,10 +5,12 @@ use std::path::Path;
 
 use base64::{Engine as _, engine::general_purpose};
 use gpui::{Hsla, Rgba};
-use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, html};
+use pulldown_cmark::{CowStr, Event, Tag, html};
 
 use crate::components::{
-    inline_math_font_size, is_mermaid_closing_fence, parse_display_math_source,
+    collect_columns_block_region, escape_html_text, gfm_parser, inline_math_font_size,
+    is_closing_fence_marker, is_columns_block_start, is_mermaid_closing_fence,
+    opening_fence_marker, parse_columns_content, parse_display_math_source,
     parse_html_image_block, parse_mermaid_fence_source, parse_mermaid_fence_start,
     render_latex_to_svg, render_mermaid_to_svg, sanitize_html_for_export,
 };
@@ -64,20 +66,10 @@ fn render_html_document(
     format!(
         "<!doctype html>\n<html lang=\"{}\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{}</title>\n<style>\n{}\n</style>\n</head>\n<body>\n<main class=\"vlt-document\">\n{}</main>\n</body>\n</html>\n",
         document_lang,
-        escape_html(title),
+        escape_html_text(title),
         css,
         body,
     )
-}
-
-fn markdown_options() -> Options {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_FOOTNOTES);
-    options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_GFM);
-    options
 }
 
 fn render_browser_html_body(markdown: &str, theme: &Theme, base_dir: Option<&Path>) -> String {
@@ -91,8 +83,7 @@ fn render_markdown_fragment(markdown: &str, theme: &Theme, base_dir: Option<&Pat
     let rewritten = rewrite_inline_math(&rewritten, theme);
     let rewritten = rewrite_mermaid_blocks(&rewritten);
     let rewritten = rewrite_columns_blocks(&rewritten, theme, base_dir);
-    let parser = Parser::new_ext(&rewritten, markdown_options())
-        .map(|event| rewrite_local_image_event(event, base_dir));
+    let parser = gfm_parser(&rewritten).map(|event| rewrite_local_image_event(event, base_dir));
     let mut body = String::new();
     html::push_html(&mut body, parser);
     body
@@ -108,14 +99,14 @@ fn rewrite_visible_comment_blocks(markdown: &str) -> String {
         let line = lines[index];
         if let Some((marker, run_len)) = active_fence {
             rewritten.push(line.to_string());
-            if is_closing_fence(line, marker, run_len) {
+            if is_closing_fence_marker(line, marker, run_len) {
                 active_fence = None;
             }
             index += 1;
             continue;
         }
 
-        if let Some(fence) = opening_fence(line) {
+        if let Some(fence) = opening_fence_marker(line) {
             active_fence = Some(fence);
             rewritten.push(line.to_string());
             index += 1;
@@ -143,7 +134,7 @@ fn rewrite_visible_comment_blocks(markdown: &str) -> String {
         let raw_comment = lines[start..=end].join("\n");
         rewritten.push(format!(
             "<pre class=\"vlt-comment\">{}</pre>",
-            escape_html(&raw_comment)
+            escape_html_text(&raw_comment)
         ));
         index = end + 1;
     }
@@ -157,13 +148,13 @@ fn rewrite_inline_math(markdown: &str, theme: &Theme) -> String {
     for line in markdown.split('\n') {
         if let Some((marker, run_len)) = active_fence {
             rewritten.push(line.to_string());
-            if is_closing_fence(line, marker, run_len) {
+            if is_closing_fence_marker(line, marker, run_len) {
                 active_fence = None;
             }
             continue;
         }
 
-        if let Some(fence) = opening_fence(line) {
+        if let Some(fence) = opening_fence_marker(line) {
             active_fence = Some(fence);
             rewritten.push(line.to_string());
             continue;
@@ -202,14 +193,14 @@ fn rewrite_inline_math_line(line: &str, theme: &Theme) -> String {
                 Ok(svg) => {
                     output.push_str(&format!("<span class=\"vlt-inline-math\">{svg}</span>"))
                 }
-                Err(_) => output.push_str(&escape_html(&line[index..end])),
+                Err(_) => output.push_str(&escape_html_text(&line[index..end])),
             }
             index = end;
             continue;
         }
 
         if let Some((end, body, tag)) = locate_inline_script_source(line, index) {
-            output.push_str(&format!("<{tag}>{}</{tag}>", escape_html(&body)));
+            output.push_str(&format!("<{tag}>{}</{tag}>", escape_html_text(&body)));
             index = end;
             continue;
         }
@@ -366,14 +357,14 @@ fn rewrite_unsafe_html_blocks(markdown: &str, base_dir: Option<&Path>) -> String
         let line = lines[index];
         if let Some((marker, run_len)) = active_fence {
             rewritten.push(line.to_string());
-            if is_closing_fence(line, marker, run_len) {
+            if is_closing_fence_marker(line, marker, run_len) {
                 active_fence = None;
             }
             index += 1;
             continue;
         }
 
-        if let Some(fence) = opening_fence(line) {
+        if let Some(fence) = opening_fence_marker(line) {
             active_fence = Some(fence);
             rewritten.push(line.to_string());
             index += 1;
@@ -411,14 +402,14 @@ fn rewrite_display_math_blocks(markdown: &str, theme: &Theme) -> String {
         let line = lines[index];
         if let Some((marker, run_len)) = active_fence {
             rewritten.push(line.to_string());
-            if is_closing_fence(line, marker, run_len) {
+            if is_closing_fence_marker(line, marker, run_len) {
                 active_fence = None;
             }
             index += 1;
             continue;
         }
 
-        if let Some(fence) = opening_fence(line) {
+        if let Some(fence) = opening_fence_marker(line) {
             active_fence = Some(fence);
             rewritten.push(line.to_string());
             index += 1;
@@ -442,7 +433,7 @@ fn rewrite_display_math_blocks(markdown: &str, theme: &Theme) -> String {
                 Ok(svg) => rewritten.push(format!("<div class=\"vlt-math\">{svg}</div>")),
                 Err(_) => rewritten.push(format!(
                     "<pre class=\"vlt-math-error\">{}</pre>",
-                    escape_html(&raw)
+                    escape_html_text(&raw)
                 )),
             }
         } else {
@@ -488,7 +479,7 @@ fn rewrite_mermaid_blocks(markdown: &str) -> String {
                 }
                 Err(_) => rewritten.push(format!(
                     "<pre class=\"vlt-mermaid-error\">{}</pre>",
-                    escape_html(&raw)
+                    escape_html_text(&raw)
                 )),
             }
         } else {
@@ -519,7 +510,7 @@ fn rewrite_columns_blocks(markdown: &str, theme: &Theme, base_dir: Option<&Path>
             continue;
         };
 
-        let columns = parse_columns_region(&lines[index + 1..end - 1]);
+        let columns = parse_columns_content(&lines[index + 1..end - 1]);
         if columns.is_empty() {
             rewritten.extend(lines[index..end].iter().map(|line| (*line).to_string()));
         } else {
@@ -528,7 +519,7 @@ fn rewrite_columns_blocks(markdown: &str, theme: &Theme, base_dir: Option<&Path>
                 let width_attr = column
                     .width
                     .as_deref()
-                    .map(|width| format!(" style=\"flex-basis: {};\"", escape_html(width)))
+                    .map(|width| format!(" style=\"flex-basis: {};\"", escape_html_text(width)))
                     .unwrap_or_default();
                 html.push_str(&format!("<div class=\"vlt-column\"{width_attr}>\n"));
                 html.push_str(&render_markdown_fragment(&column.markdown, theme, base_dir));
@@ -542,153 +533,6 @@ fn rewrite_columns_blocks(markdown: &str, theme: &Theme, base_dir: Option<&Path>
     }
 
     rewritten.join("\n")
-}
-
-#[derive(Debug)]
-struct ParsedColumn {
-    width: Option<String>,
-    markdown: String,
-}
-
-fn parse_columns_region(lines: &[&str]) -> Vec<ParsedColumn> {
-    let mut columns = Vec::new();
-    let mut current_width = None;
-    let mut current_lines = Vec::new();
-    let mut seen_column = false;
-    let mut active_fence: Option<(char, usize)> = None;
-
-    for line in lines {
-        if let Some((marker, run_len)) = active_fence {
-            current_lines.push((*line).to_string());
-            if is_closing_fence(line, marker, run_len) {
-                active_fence = None;
-            }
-            continue;
-        }
-
-        if let Some(fence) = opening_fence(line) {
-            current_lines.push((*line).to_string());
-            active_fence = Some(fence);
-            continue;
-        }
-
-        if let Some(width) = parse_column_marker(line) {
-            if seen_column {
-                columns.push(ParsedColumn {
-                    width: current_width.take(),
-                    markdown: trim_blank_edges(&current_lines).join("\n"),
-                });
-                current_lines.clear();
-            }
-            current_width = width;
-            seen_column = true;
-            continue;
-        }
-
-        if seen_column {
-            current_lines.push((*line).to_string());
-        } else if !line.trim().is_empty() {
-            return Vec::new();
-        }
-    }
-
-    if seen_column {
-        columns.push(ParsedColumn {
-            width: current_width,
-            markdown: trim_blank_edges(&current_lines).join("\n"),
-        });
-    }
-
-    columns
-}
-
-fn trim_blank_edges(lines: &[String]) -> Vec<String> {
-    let mut start = 0usize;
-    let mut end = lines.len();
-    while start < end && lines[start].trim().is_empty() {
-        start += 1;
-    }
-    while end > start && lines[end - 1].trim().is_empty() {
-        end -= 1;
-    }
-    lines[start..end].to_vec()
-}
-
-fn parse_column_marker(line: &str) -> Option<Option<String>> {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-    let rest = trimmed.strip_prefix("--- column")?;
-    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
-        return None;
-    }
-
-    let mut width = None;
-    for part in rest.split_whitespace() {
-        if let Some(value) = part.strip_prefix("width=")
-            && is_safe_column_width(value)
-        {
-            width = Some(value.to_string());
-        }
-    }
-    Some(width)
-}
-
-fn is_safe_column_width(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 32
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '%' | '-' | '_'))
-}
-
-fn is_columns_block_start(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-    let Some(rest) = trimmed.strip_prefix("::: columns") else {
-        return false;
-    };
-    rest.is_empty() || rest.starts_with(char::is_whitespace)
-}
-
-fn is_columns_block_end(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    line.len() - trimmed.len() <= 3 && trimmed.trim_end() == ":::"
-}
-
-fn collect_columns_block_region(lines: &[&str], start: usize) -> Option<usize> {
-    if !is_columns_block_start(lines[start]) {
-        return None;
-    }
-
-    let mut index = start + 1;
-    let mut active_fence: Option<(char, usize)> = None;
-    while index < lines.len() {
-        let line = lines[index];
-        if let Some((marker, run_len)) = active_fence {
-            if is_closing_fence(line, marker, run_len) {
-                active_fence = None;
-            }
-            index += 1;
-            continue;
-        }
-
-        if let Some(fence) = opening_fence(line) {
-            active_fence = Some(fence);
-            index += 1;
-            continue;
-        }
-
-        if is_columns_block_end(line) {
-            return Some(index + 1);
-        }
-        index += 1;
-    }
-
-    None
 }
 
 fn rewrite_local_image_event<'a>(event: Event<'a>, base_dir: Option<&Path>) -> Event<'a> {
@@ -814,31 +658,6 @@ fn collect_export_html_region(lines: &[&str], start: usize, html: &ExportHtmlSta
     }
 
     lines.len()
-}
-
-fn opening_fence(line: &str) -> Option<(char, usize)> {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-
-    let marker = trimmed.chars().next()?;
-    if marker != '`' && marker != '~' {
-        return None;
-    }
-
-    let run_len = trimmed.chars().take_while(|ch| *ch == marker).count();
-    (run_len >= 3).then_some((marker, run_len))
-}
-
-fn is_closing_fence(line: &str, marker: char, opening_run_len: usize) -> bool {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-
-    let run_len = trimmed.chars().take_while(|ch| *ch == marker).count();
-    run_len >= opening_run_len && trimmed[marker.len_utf8() * run_len..].trim().is_empty()
 }
 
 fn is_root_comment_start(line: &str) -> bool {
@@ -1253,21 +1072,6 @@ fn css_font_weight(weight: &FontWeightDef) -> u16 {
         FontWeightDef::Extrabold => 800,
         FontWeightDef::Black => 900,
     }
-}
-
-fn escape_html(input: &str) -> String {
-    let mut escaped = String::with_capacity(input.len());
-    for ch in input.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 #[cfg(test)]

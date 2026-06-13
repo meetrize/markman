@@ -13,9 +13,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::{
-    VelotypeConfigDirs, merge_non_empty_json_values, object_without_empty_values,
+    VelotypeConfigDirs, catalog, merge_non_empty_json_values, object_without_empty_values,
     prune_empty_json_values, read_json_or_jsonc, sanitize_config_file_stem,
 };
+use crate::config::catalog::ConfigCatalog;
 
 /// Serializable font weight that maps to GPUI's [`FontWeight`] constants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1490,6 +1491,14 @@ fn builtin_theme_catalog() -> Vec<ThemeCatalogEntry> {
     ]
 }
 
+struct ThemeCatalog;
+
+impl ConfigCatalog for ThemeCatalog {
+    fn builtin_ids() -> &'static [&'static str] {
+        &[BUILTIN_THEME_VELOTYPE_ID, BUILTIN_THEME_VELOTYPE_LIGHT_ID]
+    }
+}
+
 #[derive(Debug, Clone)]
 struct CustomThemeEntry {
     id: String,
@@ -1639,12 +1648,7 @@ impl ThemeManager {
             sanitize_config_file_stem(&entry.name),
             sanitize_config_file_stem(&entry.creator)
         );
-        let themes_dir = dirs.themes_dir();
-        std::fs::create_dir_all(&themes_dir)?;
-        std::fs::write(
-            themes_dir.join(file_name),
-            serde_json::to_string_pretty(&normalized)?,
-        )?;
+        catalog::persist_normalized_json_config(&dirs.themes_dir(), &file_name, &normalized)?;
         let imported_id = entry.id.clone();
         self.upsert_custom_theme(entry);
         self.set_theme_by_id(&imported_id);
@@ -1652,25 +1656,9 @@ impl ThemeManager {
     }
 
     fn load_custom_themes_from_dirs(&mut self, dirs: &VelotypeConfigDirs) -> anyhow::Result<()> {
-        let themes_dir = dirs.themes_dir();
-        if !themes_dir.exists() {
-            return Ok(());
-        }
-
-        let mut loaded = Vec::new();
-        for entry in std::fs::read_dir(&themes_dir)? {
-            let path = entry?.path();
-            if path.is_file() {
-                match read_json_or_jsonc(&path)
-                    .and_then(|value| custom_theme_from_value(value).map(|(entry, _)| entry))
-                {
-                    Ok(entry) => loaded.push(entry),
-                    Err(err) => {
-                        eprintln!("skipping custom theme config '{}': {err}", path.display())
-                    }
-                }
-            }
-        }
+        let mut loaded = catalog::scan_json_config_dir(&dirs.themes_dir(), "theme", |_path, value| {
+            custom_theme_from_value(value).map(|(entry, _)| entry)
+        })?;
         loaded.sort_by(|left, right| {
             left.name
                 .cmp(&right.name)
@@ -1683,15 +1671,7 @@ impl ThemeManager {
     }
 
     fn upsert_custom_theme(&mut self, entry: CustomThemeEntry) {
-        if let Some(existing) = self
-            .custom_themes
-            .iter_mut()
-            .find(|existing| existing.id == entry.id)
-        {
-            *existing = entry;
-        } else {
-            self.custom_themes.push(entry);
-        }
+        catalog::upsert_by_id(&mut self.custom_themes, entry, |entry| entry.id.as_str());
         self.rebuild_theme_catalog();
     }
 
@@ -1821,7 +1801,7 @@ fn resolved_custom_theme_base_id<'a>(
 }
 
 fn is_builtin_theme_id(theme_id: &str) -> bool {
-    theme_id == BUILTIN_THEME_VELOTYPE_ID || theme_id == BUILTIN_THEME_VELOTYPE_LIGHT_ID
+    catalog::is_builtin_id(theme_id, ThemeCatalog::builtin_ids())
 }
 
 fn custom_theme_base_theme(theme_id: &str) -> Theme {

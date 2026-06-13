@@ -17,8 +17,8 @@ impl Editor {
     pub(super) fn single_line_input_is_visible(&self, target: SingleLineInputTarget) -> bool {
         match target {
             SingleLineInputTarget::WorkspaceSearch => self.workspace_search_is_open(),
-            SingleLineInputTarget::DocumentSearch => self.document_search.open,
-            SingleLineInputTarget::WorkspaceName => self.workspace_name_dialog.is_some(),
+            SingleLineInputTarget::DocumentSearch => self.search.state.open,
+            SingleLineInputTarget::WorkspaceName => self.workspace.name_dialog.is_some(),
             SingleLineInputTarget::QuickFileOpen => self.quick_file_open.open,
         }
     }
@@ -26,9 +26,11 @@ impl Editor {
     fn single_line_input_has_selection(&self, target: SingleLineInputTarget) -> bool {
         match target {
             SingleLineInputTarget::WorkspaceSearch => self.workspace_search_has_selection(),
-            SingleLineInputTarget::DocumentSearch => !self.document_search.selected_range.is_empty(),
+            SingleLineInputTarget::DocumentSearch => {
+                !self.search.state.input.selected_range.is_empty()
+            }
             SingleLineInputTarget::WorkspaceName => self
-                .workspace_name_dialog
+                .workspace.name_dialog
                 .as_ref()
                 .is_some_and(|dialog| !dialog.selected_range.is_empty()),
             SingleLineInputTarget::QuickFileOpen => false,
