@@ -9,6 +9,11 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use serde::Serialize;
 
+use super::ai_toolbar::{
+    AiSelectionToolbarButton, AiSelectionToolbarButtonFile, AiSelectionToolbarBuiltin,
+    AI_TOOLBAR_ICON_OPTIONS, ai_selection_toolbar_buttons_from_toml,
+    default_ai_selection_toolbar_buttons, normalize_ai_selection_toolbar_buttons,
+};
 use super::{VelotypeConfigDirs, read_recent_files};
 use crate::components::{
     CloseWindow, QuitApplication, ShortcutCategory, ShortcutCommand, ShortcutDefinition,
@@ -73,6 +78,7 @@ pub(crate) struct AiPreferences {
     pub(crate) allow_full_document_context: bool,
     pub(crate) allow_workspace_context: bool,
     pub(crate) allow_command_context: bool,
+    pub(crate) selection_toolbar: Vec<AiSelectionToolbarButton>,
 }
 
 impl Default for AiPreferences {
@@ -85,6 +91,7 @@ impl Default for AiPreferences {
             allow_full_document_context: false,
             allow_workspace_context: false,
             allow_command_context: false,
+            selection_toolbar: default_ai_selection_toolbar_buttons(),
         }
     }
 }
@@ -145,6 +152,7 @@ struct AiPreferencesFile {
     allow_full_document_context: bool,
     allow_workspace_context: bool,
     allow_command_context: bool,
+    selection_toolbar: Vec<AiSelectionToolbarButtonFile>,
 }
 
 impl From<&AppPreferences> for PreferencesFile {
@@ -173,6 +181,12 @@ impl From<&AppPreferences> for PreferencesFile {
                 allow_full_document_context: value.ai.allow_full_document_context,
                 allow_workspace_context: value.ai.allow_workspace_context,
                 allow_command_context: value.ai.allow_command_context,
+                selection_toolbar: value
+                    .ai
+                    .selection_toolbar
+                    .iter()
+                    .map(AiSelectionToolbarButtonFile::from)
+                    .collect(),
             },
         }
     }
@@ -311,6 +325,7 @@ fn ai_preferences_from_toml_value(value: &toml::Value) -> AiPreferences {
             .and_then(|section| section.get("allow_command_context"))
             .and_then(|value| value.as_bool())
             .unwrap_or(defaults.allow_command_context),
+        selection_toolbar: ai_selection_toolbar_buttons_from_toml(section),
     }
 }
 
@@ -475,6 +490,8 @@ fn save_preferences_from_window_with_dirs(
     preferences.allow_code_execution = allow_code_execution;
     preferences.inline_code_run_in_system_terminal = inline_code_run_in_system_terminal;
     preferences.ai = ai;
+    preferences.ai.selection_toolbar =
+        normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
     save_app_preferences_with_dirs(&preferences, dirs)?;
     Ok(preferences)
 }
@@ -502,6 +519,8 @@ enum AiPreferenceField {
     BaseUrl,
     Model,
     ApiKeyEnv,
+    ToolbarLabel(usize),
+    ToolbarInstruction(usize),
 }
 
 #[derive(Debug)]
@@ -553,12 +572,14 @@ pub(crate) struct PreferencesWindow {
     recording_shortcut: Option<ShortcutCommand>,
     shortcut_error: Option<String>,
     ai_input: AiPreferenceInputState,
+    toolbar_icon_dropdown_open: Option<usize>,
 }
 
 impl PreferencesWindow {
     fn new(
         preferences: AppPreferences,
         theme_options: Vec<ThemeCatalogEntry>,
+        initial_nav: PreferencesNav,
         cx: &mut Context<Self>,
     ) -> Self {
         let selected_theme_id = if theme_options
@@ -575,7 +596,7 @@ impl PreferencesWindow {
         let ai = preferences.ai;
         let keybindings = preferences.keybindings;
         Self {
-            nav: PreferencesNav::File,
+            nav: initial_nav,
             startup_open,
             allow_code_execution,
             inline_code_run_in_system_terminal,
@@ -595,6 +616,7 @@ impl PreferencesWindow {
             recording_shortcut: None,
             shortcut_error: None,
             ai_input: AiPreferenceInputState::new(cx),
+            toolbar_icon_dropdown_open: None,
         }
     }
 
@@ -668,6 +690,18 @@ impl PreferencesWindow {
             AiPreferenceField::BaseUrl => &self.ai.base_url,
             AiPreferenceField::Model => &self.ai.model,
             AiPreferenceField::ApiKeyEnv => &self.ai.api_key_env,
+            AiPreferenceField::ToolbarLabel(index) => self
+                .ai
+                .selection_toolbar
+                .get(index)
+                .map(|button| button.label.as_str())
+                .unwrap_or(""),
+            AiPreferenceField::ToolbarInstruction(index) => self
+                .ai
+                .selection_toolbar
+                .get(index)
+                .and_then(|button| button.instruction.as_deref())
+                .unwrap_or(""),
         }
     }
 
@@ -677,6 +711,32 @@ impl PreferencesWindow {
             AiPreferenceField::BaseUrl => &mut self.ai.base_url,
             AiPreferenceField::Model => &mut self.ai.model,
             AiPreferenceField::ApiKeyEnv => &mut self.ai.api_key_env,
+            AiPreferenceField::ToolbarLabel(index) => {
+                if self.ai.selection_toolbar.len() <= index {
+                    self.ai
+                        .selection_toolbar
+                        .resize(index + 1, AiSelectionToolbarButton::new_custom(
+                            "新按钮".into(),
+                            "Describe what this button should do.".into(),
+                        ));
+                }
+                &mut self.ai.selection_toolbar[index].label
+            }
+            AiPreferenceField::ToolbarInstruction(index) => {
+                if self.ai.selection_toolbar.len() <= index {
+                    self.ai
+                        .selection_toolbar
+                        .resize(index + 1, AiSelectionToolbarButton::new_custom(
+                            "新按钮".into(),
+                            String::new(),
+                        ));
+                }
+                let button = &mut self.ai.selection_toolbar[index];
+                if button.instruction.is_none() {
+                    button.instruction = Some(String::new());
+                }
+                button.instruction.as_mut().expect("instruction initialized")
+            }
         }
     }
 
@@ -1286,17 +1346,17 @@ impl PreferencesWindow {
 
     fn render_ai_text_field(
         &self,
-        id: &'static str,
+        id: impl Into<ElementId>,
         field: AiPreferenceField,
         placeholder: &'static str,
         theme: &Theme,
         cx: &mut Context<Self>,
+        full_width: bool,
     ) -> impl IntoElement {
         let c = &theme.colors;
         let d = &theme.dimensions;
-        div()
-            .w(px(280.0))
-            .min_h(px(36.0))
+        let mut field_container = div()
+            .min_h(px(if full_width { 30.0 } else { 36.0 }))
             .px(px(12.0))
             .flex()
             .items_center()
@@ -1306,8 +1366,13 @@ impl PreferencesWindow {
             .bg(c.dialog_secondary_button_bg)
             .overflow_hidden()
             .id(id)
-            .track_focus(&self.ai_input.focus_handle)
-            .child(
+            .track_focus(&self.ai_input.focus_handle);
+        field_container = if full_width {
+            field_container.w_full()
+        } else {
+            field_container.w(px(280.0))
+        };
+        field_container.child(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
@@ -1342,6 +1407,7 @@ impl PreferencesWindow {
                     "openai-compatible",
                     theme,
                     cx,
+                    false,
                 ),
                 theme,
             ))
@@ -1353,6 +1419,7 @@ impl PreferencesWindow {
                     "https://api.openai.com/v1",
                     theme,
                     cx,
+                    false,
                 ),
                 theme,
             ))
@@ -1364,6 +1431,7 @@ impl PreferencesWindow {
                     "gpt-4o-mini",
                     theme,
                     cx,
+                    false,
                 ),
                 theme,
             ))
@@ -1375,6 +1443,7 @@ impl PreferencesWindow {
                     "OPENAI_API_KEY",
                     theme,
                     cx,
+                    false,
                 ),
                 theme,
             ))
@@ -1421,6 +1490,392 @@ impl PreferencesWindow {
                 ),
                 theme,
             ))
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.0))
+                    .child(
+                        div()
+                            .text_size(px(14.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.colors.dialog_title)
+                            .child("选区工具栏"),
+                    )
+                    .child(self.render_ai_toolbar_config(theme, cx))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.0))
+                            .child(
+                                div()
+                                    .id("preferences-ai-toolbar-add")
+                                    .h(px(30.0))
+                                    .px(px(12.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(theme.dimensions.menu_item_radius))
+                                    .border(px(theme.dimensions.dialog_border_width))
+                                    .border_color(theme.colors.dialog_border)
+                                    .bg(theme.colors.dialog_secondary_button_bg)
+                                    .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
+                                    .cursor_pointer()
+                                    .text_size(px(12.0))
+                                    .text_color(theme.colors.dialog_secondary_button_text)
+                                    .child("添加按钮")
+                                    .on_click(cx.listener(Self::add_ai_toolbar_button)),
+                            )
+                            .child(
+                                div()
+                                    .id("preferences-ai-toolbar-reset")
+                                    .h(px(30.0))
+                                    .px(px(12.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(theme.dimensions.menu_item_radius))
+                                    .border(px(theme.dimensions.dialog_border_width))
+                                    .border_color(theme.colors.dialog_border)
+                                    .bg(theme.colors.dialog_secondary_button_bg)
+                                    .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
+                                    .cursor_pointer()
+                                    .text_size(px(12.0))
+                                    .text_color(theme.colors.dialog_secondary_button_text)
+                                    .child("恢复默认")
+                                    .on_click(cx.listener(Self::reset_ai_toolbar_buttons)),
+                            ),
+                    ),
+            )
+    }
+
+    fn render_ai_toolbar_config(&self, theme: &Theme, cx: &mut Context<Self>) -> Div {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let mut rows = div().flex().flex_col().gap(px(8.0)).w_full();
+        let button_count = self.ai.selection_toolbar.len();
+        for index in 0..button_count {
+            let button = self.ai.selection_toolbar[index].clone();
+            let enabled_label = if button.enabled {
+                "启用".to_string()
+            } else {
+                "禁用".to_string()
+            };
+            let button_icon = button.resolved_icon().to_string();
+            let show_instruction = button.action != AiSelectionToolbarBuiltin::CustomPrompt.id()
+                && (button.is_custom_action()
+                    || button.instruction.is_some()
+                    || AiSelectionToolbarBuiltin::from_id(&button.action).is_some());
+            let icon_dropdown_open = self.toolbar_icon_dropdown_open == Some(index);
+
+            let mut row = div()
+                .id(("preferences-ai-toolbar-item", index))
+                .w_full()
+                .p(px(10.0))
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .rounded(px(d.menu_item_radius))
+                .border(px(d.dialog_border_width))
+                .border_color(c.dialog_border)
+                .bg(c.dialog_secondary_button_bg)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(
+                            div()
+                                .id(("preferences-ai-toolbar-up", index))
+                                .size(px(26.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(d.menu_item_radius))
+                                .when(index > 0, |this| {
+                                    this.bg(c.dialog_surface)
+                                        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                        .cursor_pointer()
+                                        .on_click({
+                                            let index = index;
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.move_ai_toolbar_button(index, -1, cx);
+                                            })
+                                        })
+                                })
+                                .when(index == 0, |this| this.opacity(0.35))
+                                .child(
+                                    svg()
+                                        .path("icon/toolbar/chevron-up.svg")
+                                        .size(px(14.0))
+                                        .text_color(c.dialog_secondary_button_text),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(("preferences-ai-toolbar-down", index))
+                                .size(px(26.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(d.menu_item_radius))
+                                .when(index + 1 < button_count, |this| {
+                                    this.bg(c.dialog_surface)
+                                        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                        .cursor_pointer()
+                                        .on_click({
+                                            let index = index;
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.move_ai_toolbar_button(index, 1, cx);
+                                            })
+                                        })
+                                })
+                                .when(index + 1 >= button_count, |this| this.opacity(0.35))
+                                .child(
+                                    svg()
+                                        .path("icon/toolbar/chevron-down.svg")
+                                        .size(px(14.0))
+                                        .text_color(c.dialog_secondary_button_text),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(("preferences-ai-toolbar-enabled", index))
+                                .h(px(26.0))
+                                .px(px(8.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(d.menu_item_radius))
+                                .bg(c.dialog_surface)
+                                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                .cursor_pointer()
+                                .text_size(px(12.0))
+                                .text_color(c.dialog_secondary_button_text)
+                                .child(enabled_label)
+                                .on_click({
+                                    let index = index;
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.toggle_ai_toolbar_button_enabled(index, cx);
+                                    })
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id(("preferences-ai-toolbar-icon", index))
+                                .size(px(26.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(d.menu_item_radius))
+                                .bg(c.dialog_surface)
+                                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                .cursor_pointer()
+                                .child(
+                                    svg()
+                                        .path(SharedString::from(button_icon.clone()))
+                                        .size(px(14.0))
+                                        .text_color(c.dialog_secondary_button_text),
+                                )
+                                .on_click({
+                                    let index = index;
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.toggle_ai_toolbar_icon_dropdown(index, cx);
+                                    })
+                                }),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .child(self.render_ai_text_field(
+                                    ("preferences-ai-toolbar-label", index),
+                                    AiPreferenceField::ToolbarLabel(index),
+                                    "按钮名称",
+                                    theme,
+                                    cx,
+                                    true,
+                                )),
+                        )
+                        .when(button.is_removable(), |this| {
+                            this.child(
+                                div()
+                                    .id(("preferences-ai-toolbar-remove", index))
+                                    .size(px(26.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(d.menu_item_radius))
+                                    .bg(c.dialog_surface)
+                                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                    .cursor_pointer()
+                                    .child(
+                                        svg()
+                                            .path("icon/toolbar/x.svg")
+                                            .size(px(14.0))
+                                            .text_color(c.dialog_secondary_button_text),
+                                    )
+                                    .on_click({
+                                        let index = index;
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.remove_ai_toolbar_button(index, cx);
+                                        })
+                                    }),
+                            )
+                        }),
+                );
+
+            if icon_dropdown_open {
+                row = row.child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.0))
+                        .children(AI_TOOLBAR_ICON_OPTIONS.iter().enumerate().map(
+                            |(icon_index, icon_path)| {
+                                let selected = button.icon == *icon_path;
+                                div()
+                                    .id(("ai-toolbar-icon-option", index * 100 + icon_index))
+                                    .size(px(28.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(d.menu_item_radius))
+                                    .bg(if selected {
+                                        c.selection.opacity(0.35)
+                                    } else {
+                                        c.dialog_surface
+                                    })
+                                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                    .cursor_pointer()
+                                    .child(
+                                        svg()
+                                            .path(*icon_path)
+                                            .size(px(14.0))
+                                            .text_color(c.dialog_secondary_button_text),
+                                    )
+                                    .on_click({
+                                        let index = index;
+                                        let icon_path = (*icon_path).to_string();
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.select_ai_toolbar_icon(index, icon_path.clone(), cx);
+                                        })
+                                    })
+                            },
+                        )),
+                );
+            }
+
+            if show_instruction {
+                row = row.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(c.dialog_muted)
+                                .child(if button.is_custom_action() {
+                                    "AI 指令"
+                                } else {
+                                    "指令覆盖（可选）"
+                                }),
+                        )
+                        .child(self.render_ai_text_field(
+                            ("preferences-ai-toolbar-instruction", index),
+                            AiPreferenceField::ToolbarInstruction(index),
+                            if button.is_custom_action() {
+                                "例如：将选中文本翻译为英文"
+                            } else {
+                                "留空则使用内置指令"
+                            },
+                            theme,
+                            cx,
+                            true,
+                        )),
+                );
+            }
+
+            rows = rows.child(row);
+        }
+        rows
+    }
+
+    fn move_ai_toolbar_button(&mut self, index: usize, delta: isize, cx: &mut Context<Self>) {
+        let target = index as isize + delta;
+        if target < 0 || target as usize >= self.ai.selection_toolbar.len() {
+            return;
+        }
+        self.ai
+            .selection_toolbar
+            .swap(index, target as usize);
+        self.toolbar_icon_dropdown_open = None;
+        cx.notify();
+    }
+
+    fn toggle_ai_toolbar_button_enabled(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(button) = self.ai.selection_toolbar.get_mut(index) {
+            button.enabled = !button.enabled;
+            cx.notify();
+        }
+    }
+
+    fn toggle_ai_toolbar_icon_dropdown(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.toolbar_icon_dropdown_open = if self.toolbar_icon_dropdown_open == Some(index) {
+            None
+        } else {
+            Some(index)
+        };
+        cx.notify();
+    }
+
+    fn select_ai_toolbar_icon(&mut self, index: usize, icon: String, cx: &mut Context<Self>) {
+        if let Some(button) = self.ai.selection_toolbar.get_mut(index) {
+            button.icon = icon;
+        }
+        self.toolbar_icon_dropdown_open = None;
+        cx.notify();
+    }
+
+    fn remove_ai_toolbar_button(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.ai.selection_toolbar.len() {
+            return;
+        }
+        if !self.ai.selection_toolbar[index].is_removable() {
+            return;
+        }
+        self.ai.selection_toolbar.remove(index);
+        self.toolbar_icon_dropdown_open = None;
+        self.clear_ai_input_state();
+        cx.notify();
+    }
+
+    fn add_ai_toolbar_button(
+        &mut self,
+        _: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai.selection_toolbar.push(AiSelectionToolbarButton::new_custom(
+            "新按钮".into(),
+            "Describe what this button should do with the selected Markdown.".into(),
+        ));
+        self.toolbar_icon_dropdown_open = None;
+        cx.notify();
+    }
+
+    fn reset_ai_toolbar_buttons(
+        &mut self,
+        _: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai.selection_toolbar = default_ai_selection_toolbar_buttons();
+        self.toolbar_icon_dropdown_open = None;
+        self.clear_ai_input_state();
+        cx.notify();
     }
 
     fn shortcut_category_label(
@@ -2548,6 +3003,7 @@ fn open_preferences_window_with_state(
     preferences: AppPreferences,
     theme_options: Vec<ThemeCatalogEntry>,
     title: String,
+    initial_nav: PreferencesNav,
 ) -> WindowHandle<PreferencesWindow> {
     let bounds = Bounds::centered(None, size(px(720.0), px(480.0)), cx);
     let window_title = SharedString::from(app_window_title(Some(title.as_str())));
@@ -2555,7 +3011,9 @@ fn open_preferences_window_with_state(
         .open_window(
             velotype_window_options(window_title, bounds),
             move |_window, cx| {
-                cx.new(move |cx| PreferencesWindow::new(preferences, theme_options, cx))
+                cx.new(move |cx| {
+                    PreferencesWindow::new(preferences, theme_options, initial_nav, cx)
+                })
             },
         )
         .expect("preferences window should open");
@@ -2584,13 +3042,42 @@ pub(crate) fn open_preferences_window(cx: &mut App) -> WindowHandle<PreferencesW
         .strings()
         .preferences_window_title
         .clone();
-    open_preferences_window_with_state(cx, preferences, theme_options, title)
+    open_preferences_window_with_state(
+        cx,
+        preferences,
+        theme_options,
+        title,
+        PreferencesNav::File,
+    )
+}
+
+pub(crate) fn open_preferences_window_to_ai(cx: &mut App) -> WindowHandle<PreferencesWindow> {
+    let preferences = match read_app_preferences() {
+        Ok(preferences) => preferences,
+        Err(err) => {
+            eprintln!("failed to read app preferences: {err}");
+            AppPreferences::default()
+        }
+    };
+    let theme_options = cx.global::<ThemeManager>().available_themes().to_vec();
+    let title = cx
+        .global::<I18nManager>()
+        .strings()
+        .preferences_window_title
+        .clone();
+    open_preferences_window_with_state(
+        cx,
+        preferences,
+        theme_options,
+        title,
+        PreferencesNav::Ai,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AiPreferences, AppPreferences, StartupOpenPreference,
+        AiPreferences, AppPreferences, PreferencesNav, StartupOpenPreference,
         load_or_create_app_preferences_with_dirs_and_locales, open_preferences_window_with_state,
         read_app_preferences_with_dirs, save_app_preferences_with_dirs,
         save_preferences_from_window_with_dirs,
@@ -2831,6 +3318,7 @@ mod tests {
                 AppPreferences::default(),
                 default_theme_options(),
                 "Preferences".into(),
+                PreferencesNav::File,
             )
         });
         cx.run_until_parked();
@@ -2862,6 +3350,7 @@ mod tests {
                 AppPreferences::default(),
                 default_theme_options(),
                 "Preferences".into(),
+                PreferencesNav::File,
             )
         });
         cx.run_until_parked();
@@ -2892,6 +3381,7 @@ mod tests {
                 AppPreferences::default(),
                 default_theme_options(),
                 "Preferences".into(),
+                PreferencesNav::File,
             )
         });
         cx.run_until_parked();

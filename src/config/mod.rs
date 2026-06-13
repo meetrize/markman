@@ -6,13 +6,14 @@ use anyhow::{Context as _, bail};
 use directories::ProjectDirs;
 use serde_json::{Map, Value};
 
+pub(crate) mod ai_toolbar;
 pub(crate) mod preferences;
 
 pub(crate) use preferences::{
     AiPreferences, StartupOpenPreference, apply_configured_language, apply_configured_theme,
     first_existing_recent_markdown_file, import_language_config_and_select,
     import_theme_config_and_select, load_or_create_app_preferences, open_preferences_window,
-    read_app_preferences, set_code_execution_confirm_shown,
+    open_preferences_window_to_ai, read_app_preferences, set_code_execution_confirm_shown,
 };
 
 pub(crate) const RECENT_FILES_LIMIT: usize = 20;

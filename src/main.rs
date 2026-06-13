@@ -180,6 +180,9 @@ impl AssetSource for VelotypeAssets {
             "icon/toolbar/list-checks.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/list-checks.svg"
             )))),
+            "icon/toolbar/settings-2.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/settings-2.svg"
+            )))),
             "icon/toolbar/sparkles.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/sparkles.svg"
             )))),

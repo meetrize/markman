@@ -20,19 +20,15 @@ use crate::components::{
     AiTasksSelection, AskAi, Copy, Cut, Delete, DeleteBack, End, Home, MoveLeft, MoveRight, Paste,
     SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, BlockKind, UndoCaptureKind,
 };
-use crate::config::read_app_preferences;
+use crate::config::ai_toolbar::{AiSelectionToolbarBuiltin, AiSelectionToolbarButton};
+use crate::config::{open_preferences_window_to_ai, read_app_preferences};
 use crate::net::ai::{self as ai_client, AiCompletionRequest};
 use crate::theme::Theme;
 
 const WORKSPACE_CONTEXT_FILE_LIMIT: usize = 8;
 const WORKSPACE_CONTEXT_BYTES_PER_FILE: usize = 1200;
 
-const ICON_AI_CUSTOM: &str = "icon/toolbar/sparkles.svg";
-const ICON_AI_IMPROVE: &str = "icon/toolbar/wand-sparkles.svg";
-const ICON_AI_SUMMARIZE: &str = "icon/toolbar/list-collapse.svg";
-const ICON_AI_EXPAND: &str = "icon/toolbar/maximize-2.svg";
-const ICON_AI_EXPLAIN: &str = "icon/toolbar/circle-help.svg";
-const ICON_AI_TASKS: &str = "icon/toolbar/list-checks.svg";
+const ICON_AI_TOOLBAR_CONFIG: &str = "icon/toolbar/settings-2.svg";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum AiOperation {
@@ -1033,6 +1029,16 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.request_ai_operation_with_instruction(operation, None, window, cx);
+    }
+
+    fn request_ai_operation_with_instruction(
+        &mut self,
+        operation: AiOperation,
+        instruction_override: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.ai.in_flight {
             return;
         }
@@ -1073,10 +1079,13 @@ impl Editor {
         let target = context.target;
         let (tx, rx) = oneshot::channel();
         let worker_operation = operation.clone();
+        let instruction = instruction_override
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| worker_operation.instruction().to_string());
         std::thread::spawn(move || {
             let result = ai_client::complete_markdown(AiCompletionRequest {
                 preferences: preferences.ai,
-                instruction: worker_operation.instruction().to_string(),
+                instruction,
                 context_markdown,
             });
             let _ = tx.send(result);
@@ -1322,112 +1331,148 @@ impl Editor {
             return None;
         }
         let position = self.ai_selection_toolbar_position(window, cx)?;
+        let preferences = read_app_preferences().ok()?;
         let c = &theme.colors;
         let d = &theme.dimensions;
         let editor = cx.entity().downgrade();
+        let mut toolbar = div()
+            .id("ai-selection-toolbar")
+            .absolute()
+            .left(position.x)
+            .top(position.y)
+            .h(px(34.0))
+            .px(px(6.0))
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .occlude()
+            .rounded(px(d.menu_panel_radius))
+            .bg(c.dialog_surface)
+            .border(px(d.dialog_border_width))
+            .border_color(c.dialog_border)
+            .shadow_lg();
+
+        for (index, button) in preferences
+            .ai
+            .selection_toolbar
+            .iter()
+            .filter(|button| button.enabled)
+            .enumerate()
+        {
+            if let Some(element) = self.render_ai_selection_toolbar_button(
+                index,
+                button,
+                theme,
+                editor.clone(),
+            ) {
+                toolbar = toolbar.child(element);
+            }
+        }
+
         Some(
-            div()
-                .id("ai-selection-toolbar")
-                .absolute()
-                .left(position.x)
-                .top(position.y)
-                .h(px(34.0))
-                .px(px(6.0))
-                .flex()
-                .items_center()
-                .gap(px(4.0))
-                .occlude()
-                .rounded(px(d.menu_panel_radius))
-                .bg(c.dialog_surface)
-                .border(px(d.dialog_border_width))
-                .border_color(c.dialog_border)
-                .shadow_lg()
+            toolbar
+                .child(
+                    div()
+                        .id("ai-floating-toolbar-separator")
+                        .w(px(1.0))
+                        .h(px(18.0))
+                        .mx(px(2.0))
+                        .flex_shrink_0()
+                        .bg(c.dialog_border.opacity(0.45)),
+                )
                 .child(ai_toolbar_action_button(
-                    "ai-floating-custom",
-                    ICON_AI_CUSTOM,
+                    "ai-floating-toolbar-config",
+                    ICON_AI_TOOLBAR_CONFIG.to_string(),
                     "自定义",
                     theme,
-                    {
-                        let editor = editor.clone();
-                        move |window, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                editor.open_ai_prompt_dialog(window, cx);
-                            });
-                        }
-                    },
-                ))
-                .child(ai_toolbar_action_button(
-                    "ai-floating-improve",
-                    ICON_AI_IMPROVE,
-                    "润色",
-                    theme,
-                    {
-                        let editor = editor.clone();
-                        move |window, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                editor.on_ai_improve_selection(&AiImproveSelection, window, cx);
-                            });
-                        }
-                    },
-                ))
-                .child(ai_toolbar_action_button(
-                    "ai-floating-summarize",
-                    ICON_AI_SUMMARIZE,
-                    "总结",
-                    theme,
-                    {
-                        let editor = editor.clone();
-                        move |window, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                editor.on_ai_summarize_selection(&AiSummarizeSelection, window, cx);
-                            });
-                        }
-                    },
-                ))
-                .child(ai_toolbar_action_button(
-                    "ai-floating-expand",
-                    ICON_AI_EXPAND,
-                    "扩写",
-                    theme,
-                    {
-                        let editor = editor.clone();
-                        move |window, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                editor.on_ai_expand_selection(&AiExpandSelection, window, cx);
-                            });
-                        }
-                    },
-                ))
-                .child(ai_toolbar_action_button(
-                    "ai-floating-explain",
-                    ICON_AI_EXPLAIN,
-                    "解释",
-                    theme,
-                    {
-                        let editor = editor.clone();
-                        move |window, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                editor.on_ai_explain_selection(&AiExplainSelection, window, cx);
-                            });
-                        }
-                    },
-                ))
-                .child(ai_toolbar_action_button(
-                    "ai-floating-tasks",
-                    ICON_AI_TASKS,
-                    "任务",
-                    theme,
-                    {
-                        let editor = editor.clone();
-                        move |window, cx| {
-                            let _ = editor.update(cx, |editor, cx| {
-                                editor.on_ai_tasks_selection(&AiTasksSelection, window, cx);
-                            });
-                        }
+                    move |_, cx| {
+                        open_preferences_window_to_ai(cx);
                     },
                 ))
                 .into_any_element(),
         )
+    }
+
+    fn render_ai_selection_toolbar_button(
+        &self,
+        index: usize,
+        button: &AiSelectionToolbarButton,
+        theme: &Theme,
+        editor: WeakEntity<Self>,
+    ) -> Option<AnyElement> {
+        let label = SharedString::from(button.label.clone());
+        let icon = button.resolved_icon().to_string();
+        let instruction = button.instruction.clone();
+        let action = button.action.clone();
+        let button_id = SharedString::from(format!("ai-floating-{index}"));
+        Some(match AiSelectionToolbarBuiltin::from_id(&action) {
+            Some(AiSelectionToolbarBuiltin::CustomPrompt) => ai_toolbar_action_button(
+                button_id,
+                icon,
+                label,
+                theme,
+                move |window, cx| {
+                    let _ = editor.update(cx, |editor, cx| {
+                        editor.open_ai_prompt_dialog(window, cx);
+                    });
+                },
+            )
+            .into_any_element(),
+            Some(builtin) => {
+                let operation = match builtin {
+                    AiSelectionToolbarBuiltin::Improve => AiOperation::Improve,
+                    AiSelectionToolbarBuiltin::Summarize => AiOperation::Summarize,
+                    AiSelectionToolbarBuiltin::Expand => AiOperation::Expand,
+                    AiSelectionToolbarBuiltin::Explain => AiOperation::Explain,
+                    AiSelectionToolbarBuiltin::Tasks => AiOperation::Tasks,
+                    AiSelectionToolbarBuiltin::CustomPrompt => unreachable!(),
+                };
+                ai_toolbar_action_button(
+                    button_id,
+                    icon,
+                    label,
+                    theme,
+                    move |window, cx| {
+                        let _ = editor.update(cx, |editor, cx| {
+                            editor.request_ai_operation_with_instruction(
+                                operation.clone(),
+                                instruction.clone(),
+                                window,
+                                cx,
+                            );
+                        });
+                    },
+                )
+                .into_any_element()
+            }
+            None if action == "prompt" => {
+                let prompt = instruction.unwrap_or_default();
+                ai_toolbar_action_button(
+                    button_id,
+                    icon,
+                    label,
+                    theme,
+                    move |window, cx| {
+                        let _ = editor.update(cx, |editor, cx| {
+                            if prompt.trim().is_empty() {
+                                editor.ai.error =
+                                    Some("该自定义按钮尚未配置 AI 指令。".into());
+                                cx.notify();
+                                return;
+                            }
+                            editor.request_custom_ai_prompt(
+                                prompt.clone(),
+                                AiPromptContextMode::Selection,
+                                window,
+                                cx,
+                            );
+                        });
+                    },
+                )
+                .into_any_element()
+            }
+            None => return None,
+        })
     }
 
     pub(super) fn render_ai_prompt_dialog_overlay(
@@ -1797,12 +1842,13 @@ impl Editor {
 }
 
 fn ai_toolbar_action_button(
-    id: &'static str,
-    icon_path: &'static str,
-    label: &'static str,
+    id: impl Into<ElementId>,
+    icon_path: String,
+    label: impl Into<SharedString>,
     theme: &Theme,
     action: impl Fn(&mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
+    let label = label.into();
     let c = &theme.colors;
     let d = &theme.dimensions;
     div()
@@ -1819,7 +1865,12 @@ fn ai_toolbar_action_button(
         .cursor_pointer()
         .text_size(px(12.0))
         .text_color(c.dialog_secondary_button_text)
-        .child(svg().path(icon_path).size(px(14.0)).text_color(c.dialog_secondary_button_text))
+        .child(
+            svg()
+                .path(SharedString::from(icon_path))
+                .size(px(14.0))
+                .text_color(c.dialog_secondary_button_text),
+        )
         .child(label)
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             cx.stop_propagation();
