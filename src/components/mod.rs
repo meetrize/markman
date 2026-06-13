@@ -5,9 +5,6 @@ mod block;
 pub(crate) mod latex;
 pub(crate) mod markdown;
 pub(crate) mod mermaid;
-pub(crate) mod toolbar_button;
-
-pub use toolbar_button::{toolbar_icon_button, toolbar_icon_label_button};
 
 #[cfg(test)]
 pub use crate::editor::Editor;

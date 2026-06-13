@@ -9,6 +9,7 @@ use std::sync::mpsc;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
+use super::super::toolbar_button::ai_toolbar_action_button;
 use super::super::{CrossBlockSelection, Editor};
 use super::super::single_line_input::{
     cursor_offset, handle_mouse_down, handle_mouse_move, handle_mouse_up, select_caret_to,
@@ -18,7 +19,7 @@ use crate::components::{
     AiExpandSelection, AiExplainSelection, AiImproveSelection, AiSummarizeSelection,
     AiTasksSelection, AiTranslateSelection, AskAi, Copy, Cut, Delete, DeleteBack, End, Home,
     MoveLeft, MoveRight, Paste, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight,
-    BlockKind, UndoCaptureKind, toolbar_icon_label_button,
+    BlockKind, UndoCaptureKind,
 };
 use crate::config::ai_toolbar::{AiSelectionToolbarBuiltin, AiSelectionToolbarButton};
 use crate::app_menu::dispatch_menu_action;
@@ -2257,20 +2258,6 @@ impl Editor {
                 .into_any_element(),
         )
     }
-}
-
-fn ai_toolbar_action_button(
-    id: impl Into<ElementId>,
-    icon_path: String,
-    label: impl Into<SharedString>,
-    theme: &Theme,
-    action: impl Fn(&mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    toolbar_icon_label_button(id, icon_path, label, theme, "")
-        .on_click(move |_, window, cx| {
-            cx.stop_propagation();
-            action(window, cx);
-        })
 }
 
 fn ai_dialog_button(

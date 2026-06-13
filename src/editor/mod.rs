@@ -50,6 +50,7 @@ mod search_match;
 mod selection;
 mod source_mapping;
 mod table_edit;
+mod toolbar_button;
 #[cfg(test)]
 mod tests;
 mod tree;

@@ -12,12 +12,13 @@ use super::single_line_input::{
 };
 use super::single_line_input_element::SingleLineInputElement;
 use super::search_match::find_case_insensitive_ranges;
+use super::toolbar_button::toolbar_icon_button;
 use super::Editor;
 use super::ViewMode;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, FindNextInDocument, FindPreviousInDocument, Home,
     MoveLeft, MoveRight, Paste, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight,
-    ToggleDocumentSearch, toolbar_icon_button,
+    ToggleDocumentSearch,
 };
 use crate::i18n::I18nManager;
 use crate::input::single_line_field::SingleLineFieldState;

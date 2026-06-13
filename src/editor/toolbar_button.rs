@@ -5,7 +5,7 @@ use gpui::*;
 use crate::theme::Theme;
 
 /// Square toolbar icon button styled like format-toolbar history controls.
-pub fn toolbar_icon_button(
+pub(in crate::editor) fn toolbar_icon_button(
     id: impl Into<ElementId>,
     theme: &Theme,
     icon_path: impl Into<SharedString>,
@@ -64,22 +64,68 @@ pub fn toolbar_icon_button(
     button
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(in crate::editor) struct ToolbarIconLabelStyle {
+    pub height: f32,
+    pub horizontal_padding: f32,
+    pub icon_size: f32,
+    pub bold_label: bool,
+}
+
+impl ToolbarIconLabelStyle {
+    pub(in crate::editor) fn floating_toolbar() -> Self {
+        Self {
+            height: 26.0,
+            horizontal_padding: 8.0,
+            icon_size: 14.0,
+            bold_label: false,
+        }
+    }
+
+    pub(in crate::editor) fn format_toolbar(theme: &Theme) -> Self {
+        Self {
+            height: theme.dimensions.format_toolbar_button_height,
+            horizontal_padding: 10.0,
+            icon_size: theme.dimensions.format_toolbar_icon_size,
+            bold_label: true,
+        }
+    }
+}
+
 /// Compact icon+label button for floating AI selection toolbars.
-pub fn toolbar_icon_label_button(
+pub(in crate::editor) fn toolbar_icon_label_button(
     id: impl Into<ElementId>,
     icon_path: impl Into<SharedString>,
     label: impl Into<SharedString>,
     theme: &Theme,
     tooltip: impl Into<SharedString>,
 ) -> Stateful<Div> {
+    toolbar_icon_label_button_styled(
+        id,
+        icon_path,
+        label,
+        theme,
+        tooltip,
+        ToolbarIconLabelStyle::floating_toolbar(),
+    )
+}
+
+pub(in crate::editor) fn toolbar_icon_label_button_styled(
+    id: impl Into<ElementId>,
+    icon_path: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    theme: &Theme,
+    tooltip: impl Into<SharedString>,
+    style: ToolbarIconLabelStyle,
+) -> Stateful<Div> {
     let _tooltip = tooltip.into();
     let label = label.into();
     let c = &theme.colors;
     let d = &theme.dimensions;
-    div()
+    let mut button = div()
         .id(id)
-        .h(px(26.0))
-        .px(px(8.0))
+        .h(px(style.height))
+        .px(px(style.horizontal_padding))
         .flex()
         .items_center()
         .gap(px(4.0))
@@ -93,8 +139,26 @@ pub fn toolbar_icon_label_button(
         .child(
             svg()
                 .path(icon_path.into())
-                .size(px(14.0))
+                .size(px(style.icon_size))
                 .text_color(c.dialog_secondary_button_text),
         )
-        .child(label)
+        .child(label);
+    if style.bold_label {
+        button = button.font_weight(FontWeight::BOLD);
+    }
+    button
+}
+
+pub(in crate::editor) fn ai_toolbar_action_button(
+    id: impl Into<ElementId>,
+    icon_path: String,
+    label: impl Into<SharedString>,
+    theme: &Theme,
+    action: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    toolbar_icon_label_button(id, icon_path, label, theme, "")
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            action(window, cx);
+        })
 }

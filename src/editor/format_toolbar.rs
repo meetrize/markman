@@ -4,10 +4,13 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use crate::components::markdown::source_format::{MarkdownToolbarAction, apply_markdown_toolbar_action};
-use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind, toolbar_icon_button};
+use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, UndoCaptureKind};
 use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::Theme;
 
+use super::toolbar_button::{
+    toolbar_icon_button, toolbar_icon_label_button_styled, ToolbarIconLabelStyle,
+};
 use super::Editor;
 use super::ViewMode;
 
@@ -280,8 +283,6 @@ impl Editor {
     ) -> impl IntoElement {
         let c = &theme.colors;
         let d = &theme.dimensions;
-        let icon_color = c.dialog_secondary_button_text;
-        let icon_size = px(d.format_toolbar_icon_size);
         let editor = cx.entity().downgrade();
 
         let items = [
@@ -374,32 +375,22 @@ impl Editor {
                             FormatToolbarItem::Action(action) => {
                                 let icon_path = format_toolbar_icon_path(action);
                                 let button_editor = editor.clone();
-                                div()
-                                    .id(("markdown-format-button", index))
-                                    .w(px(d.format_toolbar_button_height))
-                                    .h(px(d.format_toolbar_button_height))
-                                    .flex()
-                                    .flex_shrink_0()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(d.format_toolbar_button_radius))
-                                    .bg(c.dialog_surface)
-                                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                                    .active(|this| this.opacity(0.92))
-                                    .cursor_pointer()
-                                    .child(
-                                        svg()
-                                            .path(icon_path)
-                                            .size(icon_size)
-                                            .text_color(icon_color),
-                                    )
-                                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                        cx.stop_propagation();
-                                        let _ = button_editor.update(cx, |editor, cx| {
-                                            editor.apply_markdown_toolbar_format(action, window, cx);
-                                        });
-                                    })
-                                    .into_any_element()
+                                toolbar_icon_button(
+                                    ("markdown-format-button", index),
+                                    theme,
+                                    icon_path,
+                                    false,
+                                    false,
+                                    "",
+                                    false,
+                                )
+                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                    cx.stop_propagation();
+                                    let _ = button_editor.update(cx, |editor, cx| {
+                                        editor.apply_markdown_toolbar_format(action, window, cx);
+                                    });
+                                })
+                                .into_any_element()
                             }
                         }
                     }))
@@ -416,36 +407,20 @@ impl Editor {
                     .gap(px(d.format_toolbar_gap))
                     .child({
                         let button_editor = editor.clone();
-                        div()
-                            .id("ai-toolbar-button")
-                            .h(px(d.format_toolbar_button_height))
-                            .px(px(10.0))
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .gap(px(4.0))
-                            .rounded(px(d.format_toolbar_button_radius))
-                            .bg(c.dialog_surface)
-                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                            .active(|this| this.opacity(0.92))
-                            .cursor_pointer()
-                            .text_size(px(12.0))
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .text_color(icon_color)
-                            .child(
-                                svg()
-                                    .path(ICON_AI_CUSTOM)
-                                    .size(px(d.format_toolbar_icon_size))
-                                    .text_color(icon_color),
-                            )
-                            .child("AI")
-                            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                cx.stop_propagation();
-                                let _ = button_editor.update(cx, |editor, cx| {
-                                    editor.on_ask_ai(&AskAi, window, cx);
-                                });
-                            })
+                        toolbar_icon_label_button_styled(
+                            "ai-toolbar-button",
+                            ICON_AI_CUSTOM,
+                            "AI",
+                            theme,
+                            "",
+                            ToolbarIconLabelStyle::format_toolbar(theme),
+                        )
+                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                            cx.stop_propagation();
+                            let _ = button_editor.update(cx, |editor, cx| {
+                                editor.on_ask_ai(&AskAi, window, cx);
+                            });
+                        })
                     })
                     .child({
                         let _button_editor = editor.clone();
