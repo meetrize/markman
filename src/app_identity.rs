@@ -3,10 +3,6 @@
 /// Reverse-DNS application id used by GPUI, desktop launchers, and bundles.
 pub(crate) const MARKMAN_APP_ID: &str = "com.manyougz.Markman";
 
-/// Legacy bundle id from releases before the Markman config migration.
-#[allow(dead_code)]
-pub(crate) const LEGACY_APP_ID: &str = "com.manyougz.Velotype";
-
 /// `ProjectDirs` qualifier for Markman config, cache, and data directories.
 pub(crate) const MARKMAN_PROJECT_QUALIFIER: &str = "Markman";
 
