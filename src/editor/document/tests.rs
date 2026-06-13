@@ -1452,10 +1452,10 @@ use crate::components::{parse_opening_fence, BlockKind, CalloutVariant, Editor, 
 
             let first = visible[0].entity.read(cx);
             let span_start = "Anaconda的安装需要留意".len();
-            assert_eq!(first.inline_link_at(span_start), None);
+            assert_eq!(first.current_cache().link_at(span_start), None);
             assert!(matches!(
                 first
-                    .inline_html_style_at(span_start)
+                    .current_cache().html_style_at(span_start)
                     .and_then(|style| style.color),
                 Some(HtmlCssColor::Rgba(color))
                     if color.red == 0 && color.green == 0 && color.blue == 255
@@ -1467,9 +1467,9 @@ use crate::components::{parse_opening_fence, BlockKind, CalloutVariant, Editor, 
 
             let third = visible[2].entity.read(cx);
             let code_start = "GPU版本的 Pytorch v1.5.0安装需要留意本机英伟达驱动".len();
-            assert!(third.inline_style_at(code_start).code);
-            assert_eq!(third.inline_link_at(code_start), None);
-            assert!(third.inline_html_style_at(code_start).is_some());
+            assert!(third.current_cache().style_at(code_start).code);
+            assert_eq!(third.current_cache().link_at(code_start), None);
+            assert!(third.current_cache().html_style_at(code_start).is_some());
         });
     }
 
@@ -1798,8 +1798,8 @@ use crate::components::{parse_opening_fence, BlockKind, CalloutVariant, Editor, 
                 .map(|span| span.range.clone())
                 .collect::<Vec<_>>();
             assert_eq!(actual_code_ranges, expected_code_ranges);
-            assert!(!backtick_sample.inline_style_at(backtick_prefix + 2).code);
-            assert!(!backtick_sample.inline_style_at(backtick_prefix + 9).code);
+            assert!(!backtick_sample.current_cache().style_at(backtick_prefix + 2).code);
+            assert!(!backtick_sample.current_cache().style_at(backtick_prefix + 9).code);
 
             assert!(visible.iter().any(|block| {
                 let block = block.entity.read(cx);

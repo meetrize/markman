@@ -1671,7 +1671,7 @@ async fn reference_style_link_in_root_paragraph_resolves_document_wide(cx: &mut 
         let block = editor.document.first_root().expect("root block").clone();
         assert_eq!(block.read(cx).display_text(), "reference link");
         assert_eq!(
-            block.read(cx).inline_link_at(0),
+            block.read(cx).current_cache().link_at(0),
             Some("https://example.com")
         );
     });
@@ -1698,7 +1698,7 @@ async fn reference_style_link_in_table_cell_resolves_document_wide(cx: &mut Test
             .expect("table runtime");
         let cell = runtime.rows[0][0].clone();
         assert_eq!(cell.read(cx).display_text(), "reference link");
-        assert_eq!(cell.read(cx).inline_link_at(0), Some("https://example.com"));
+        assert_eq!(cell.read(cx).current_cache().link_at(0), Some("https://example.com"));
     });
 }
 
@@ -1896,7 +1896,7 @@ async fn unresolved_footnote_reference_stays_literal_and_unlinked(cx: &mut TestA
         assert!(
             block
                 .read(cx)
-                .inline_footnote_hit_at("Missing footnote".len())
+                .current_cache().footnote_hit_at("Missing footnote".len())
                 .is_none()
         );
         assert!(editor.footnote_registry.binding("missing").is_none());

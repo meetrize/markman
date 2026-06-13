@@ -705,7 +705,7 @@ impl ExpandedInlineProjection {
         })
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(super) fn pointer_target_offset(&self, offset: usize) -> usize {
         for segment in &self.segments {
             match segment.kind {

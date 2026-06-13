@@ -1379,7 +1379,7 @@ async fn reference_style_link_resolves_and_expands_preserving_raw_syntax(cx: &mu
         "reference link"
     );
     assert_eq!(
-        block.read_with(cx, |block, _cx| block.inline_link_at(0).map(str::to_string)),
+        block.read_with(cx, |block, _cx| block.current_cache().link_at(0).map(str::to_string)),
         Some("https://example.com".to_string())
     );
 
@@ -1422,7 +1422,7 @@ async fn reference_style_link_hit_exposes_raw_prompt_and_resolved_open_target(
     });
 
     assert_eq!(
-        block.read_with(cx, |block, _cx| block.inline_link_hit_at(0).cloned()),
+        block.read_with(cx, |block, _cx| block.current_cache().link_hit_at(0).cloned()),
         Some(InlineLinkHit {
             prompt_target: "ref-links".to_string(),
             open_target: "https://example.com".to_string(),
@@ -1444,7 +1444,7 @@ async fn inline_link_with_title_expands_title_but_opens_destination(cx: &mut Tes
     });
 
     assert_eq!(
-        block.read_with(cx, |block, _cx| block.inline_link_hit_at(0).cloned()),
+        block.read_with(cx, |block, _cx| block.current_cache().link_hit_at(0).cloned()),
         Some(InlineLinkHit {
             prompt_target: "https://abc.com".to_string(),
             open_target: "https://abc.com".to_string(),
@@ -1526,7 +1526,8 @@ async fn projected_reference_target_stays_link_hit_testable(cx: &mut TestAppCont
 
     assert_eq!(
         block.read_with(cx, |block, _cx| block
-            .inline_link_hit_at(target_offset)
+            .current_cache()
+            .link_hit_at(target_offset)
             .cloned()),
         Some(InlineLinkHit {
             prompt_target: "ref-link".to_string(),
@@ -1603,7 +1604,7 @@ async fn editing_link_destination_inside_projection_preserves_link(cx: &mut Test
         "a [link](https://docs.example.com) b"
     );
     assert_eq!(
-        block.read_with(cx, |block, _cx| block.inline_link_at(3).map(str::to_string)),
+        block.read_with(cx, |block, _cx| block.current_cache().link_at(3).map(str::to_string)),
         Some("https://docs.example.com".to_string())
     );
 }
@@ -1762,7 +1763,11 @@ async fn link_middle_delimiter_click_snaps_to_destination_start(cx: &mut TestApp
         let destination_offset = expanded
             .find("https://")
             .expect("expanded link should expose destination start");
-        let click_target = block.pointer_target_offset(middle + 1);
+        let click_target = block
+            .projection
+            .as_ref()
+            .expect("projection")
+            .pointer_target_offset(middle + 1);
         block.move_to_with_preferred_x(click_target, None, cx);
         block.sync_inline_projection_for_focus(true);
         destination_offset
