@@ -156,12 +156,30 @@ fn is_safe_column_width(value: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '%' | '-' | '_'))
 }
 
+/// Parses `width=40%` style attributes into a layout fraction for preview rendering.
+pub(crate) fn parse_column_width_fraction(value: &str) -> Option<f32> {
+    let percent = value.strip_suffix('%')?.parse::<f32>().ok()?;
+    percent.is_finite().then_some((percent / 100.0).clamp(0.05, 1.0))
+}
+
+pub(crate) fn trim_column_markdown_lines(lines: &[String]) -> Vec<String> {
+    trim_blank_edges(lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         collect_columns_block_region, is_columns_block_end, is_columns_block_start,
-        parse_columns_content,
+        parse_column_width_fraction, parse_columns_content,
     };
+
+    #[test]
+    fn parse_column_width_fraction_clamps_percent_values() {
+        assert_eq!(parse_column_width_fraction("40%"), Some(0.4));
+        assert_eq!(parse_column_width_fraction("5%"), Some(0.05));
+        assert_eq!(parse_column_width_fraction("150%"), Some(1.0));
+        assert!(parse_column_width_fraction("wide").is_none());
+    }
 
     #[test]
     fn columns_block_start_and_end_detection() {

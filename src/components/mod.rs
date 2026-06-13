@@ -21,6 +21,7 @@ pub(crate) use markdown::{
     is_columns_block_start, parse_columns_content, FenceInfo, is_closing_fence,
     is_closing_fence_marker, opening_fence_marker, parse_opening_fence, strip_fence_indent,
 };
+pub(crate) use markdown::columns::{parse_column_width_fraction, trim_column_markdown_lines};
 pub(crate) use block::{
     ColumnMarkdownSegment, parse_columns_markdown, split_column_markdown_segments,
     update_columns_host_table_markdown,

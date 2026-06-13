@@ -6,12 +6,15 @@ use super::super::Block;
 use super::shared::{column_mermaid_available_width, mermaid_available_height};
 use super::html_block::html_document_block_gap;
 use crate::components::{
-    TableData, collect_table_candidate_region, is_table_candidate_line, is_mermaid_closing_fence,
-    parse_html_document, parse_mermaid_fence_start, parse_table_region, serialize_table_markdown_lines,
+    TableData, collect_columns_block_region, collect_table_candidate_region,
+    is_closing_fence_marker, is_columns_block_start, is_mermaid_closing_fence,
+    is_table_candidate_line, opening_fence_marker, parse_columns_content,
+    parse_column_width_fraction, parse_html_document, parse_mermaid_fence_start,
+    parse_table_region, serialize_table_markdown_lines, trim_column_markdown_lines,
 };
-use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
 use crate::components::gfm_parser_options;
 use crate::theme::Theme;
+use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
 
 #[derive(Debug)]
 pub(crate) struct RenderColumn {
@@ -36,7 +39,7 @@ pub(crate) fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdo
         let line = lines[index];
         if let Some((marker, run_len)) = active_fence {
             current_lines.push(line.to_string());
-            if is_closing_fence(line, marker, run_len) {
+            if is_closing_fence_marker(line, marker, run_len) {
                 active_fence = None;
             }
             index += 1;
@@ -44,7 +47,7 @@ pub(crate) fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdo
         }
 
         if is_table_candidate_line(line) {
-            let trimmed = trim_blank_edges(&current_lines).join("\n");
+            let trimmed = trim_column_markdown_lines(&current_lines).join("\n");
             if !trimmed.is_empty() {
                 segments.push(ColumnMarkdownSegment::Markdown(trimmed));
             }
@@ -62,9 +65,9 @@ pub(crate) fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdo
             continue;
         }
 
-        if let Some(fence) = opening_fence(line) {
+        if let Some(fence) = opening_fence_marker(line) {
             if let Some(mermaid_fence) = parse_mermaid_fence_start(line) {
-                let trimmed = trim_blank_edges(&current_lines).join("\n");
+                let trimmed = trim_column_markdown_lines(&current_lines).join("\n");
                 if !trimmed.is_empty() {
                     segments.push(ColumnMarkdownSegment::Markdown(trimmed));
                 }
@@ -91,7 +94,7 @@ pub(crate) fn split_column_markdown_segments(markdown: &str) -> Vec<ColumnMarkdo
         index += 1;
     }
 
-    let trimmed = trim_blank_edges(&current_lines).join("\n");
+    let trimmed = trim_column_markdown_lines(&current_lines).join("\n");
     if !trimmed.is_empty() {
         segments.push(ColumnMarkdownSegment::Markdown(trimmed));
     }
@@ -169,170 +172,19 @@ pub(crate) fn parse_columns_markdown(markdown: &str) -> Option<Vec<RenderColumn>
     if !columns_block_has_only_trailing_blank_lines(&lines, end) {
         return None;
     }
-    let columns = parse_columns_region(&lines[1..end - 1]);
+    let columns = parse_columns_content(&lines[1..end - 1])
+        .into_iter()
+        .map(|column| RenderColumn {
+            width_fraction: column
+                .width
+                .as_deref()
+                .and_then(parse_column_width_fraction),
+            markdown: column.markdown,
+        })
+        .collect::<Vec<_>>();
     (!columns.is_empty()).then_some(columns)
 }
 
-fn parse_columns_region(lines: &[&str]) -> Vec<RenderColumn> {
-    let mut columns = Vec::new();
-    let mut current_width = None;
-    let mut current_lines = Vec::new();
-    let mut seen_column = false;
-    let mut active_fence: Option<(char, usize)> = None;
-
-    for line in lines {
-        if let Some((marker, run_len)) = active_fence {
-            current_lines.push((*line).to_string());
-            if is_closing_fence(line, marker, run_len) {
-                active_fence = None;
-            }
-            continue;
-        }
-
-        if let Some(fence) = opening_fence(line) {
-            current_lines.push((*line).to_string());
-            active_fence = Some(fence);
-            continue;
-        }
-
-        if let Some(width_fraction) = parse_column_marker(line) {
-            if seen_column {
-                columns.push(RenderColumn {
-                    width_fraction: current_width.take(),
-                    markdown: trim_blank_edges(&current_lines).join("\n"),
-                });
-                current_lines.clear();
-            }
-            current_width = width_fraction;
-            seen_column = true;
-            continue;
-        }
-
-        if seen_column {
-            current_lines.push((*line).to_string());
-        } else if !line.trim().is_empty() {
-            return Vec::new();
-        }
-    }
-
-    if seen_column {
-        columns.push(RenderColumn {
-            width_fraction: current_width,
-            markdown: trim_blank_edges(&current_lines).join("\n"),
-        });
-    }
-
-    columns
-}
-
-fn trim_blank_edges(lines: &[String]) -> Vec<String> {
-    let mut start = 0usize;
-    let mut end = lines.len();
-    while start < end && lines[start].trim().is_empty() {
-        start += 1;
-    }
-    while end > start && lines[end - 1].trim().is_empty() {
-        end -= 1;
-    }
-    lines[start..end].to_vec()
-}
-
-fn parse_column_marker(line: &str) -> Option<Option<f32>> {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-    let rest = trimmed.strip_prefix("--- column")?;
-    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
-        return None;
-    }
-
-    let mut width_fraction = None;
-    for part in rest.split_whitespace() {
-        if let Some(value) = part.strip_prefix("width=") {
-            width_fraction = parse_column_width_fraction(value);
-        }
-    }
-    Some(width_fraction)
-}
-
-fn parse_column_width_fraction(value: &str) -> Option<f32> {
-    let percent = value.strip_suffix('%')?.parse::<f32>().ok()?;
-    percent.is_finite().then_some((percent / 100.0).clamp(0.05, 1.0))
-}
-
-fn is_columns_block_start(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-    let Some(rest) = trimmed.strip_prefix("::: columns") else {
-        return false;
-    };
-    rest.is_empty() || rest.starts_with(char::is_whitespace)
-}
-
-fn is_columns_block_end(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    line.len() - trimmed.len() <= 3 && trimmed.trim_end() == ":::"
-}
-
-fn opening_fence(line: &str) -> Option<(char, usize)> {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-
-    let marker = trimmed.chars().next()?;
-    if marker != '`' && marker != '~' {
-        return None;
-    }
-
-    let run_len = trimmed.chars().take_while(|ch| *ch == marker).count();
-    (run_len >= 3).then_some((marker, run_len))
-}
-
-fn is_closing_fence(line: &str, marker: char, opening_run_len: usize) -> bool {
-    let trimmed = line.trim_start();
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-
-    let run_len = trimmed.chars().take_while(|ch| *ch == marker).count();
-    run_len >= opening_run_len && trimmed[marker.len_utf8() * run_len..].trim().is_empty()
-}
-
-fn collect_columns_block_region(lines: &[&str], start: usize) -> Option<usize> {
-    if !is_columns_block_start(lines[start]) {
-        return None;
-    }
-
-    let mut index = start + 1;
-    let mut active_fence: Option<(char, usize)> = None;
-    while index < lines.len() {
-        let line = lines[index];
-        if let Some((marker, run_len)) = active_fence {
-            if is_closing_fence(line, marker, run_len) {
-                active_fence = None;
-            }
-            index += 1;
-            continue;
-        }
-
-        if let Some(fence) = opening_fence(line) {
-            active_fence = Some(fence);
-            index += 1;
-            continue;
-        }
-
-        if is_columns_block_end(line) {
-            return Some(index + 1);
-        }
-        index += 1;
-    }
-
-    None
-}
 impl Block {
     pub(super) fn render_column_markdown_content(
         &self,
@@ -461,5 +313,4 @@ impl Block {
             }))
             .into_any_element()
     }
-
 }
