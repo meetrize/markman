@@ -470,6 +470,15 @@ impl LayoutSimulation {
 
         GraphLayout { positions, bounds }
     }
+
+    /// Update existing layout positions in place without rebuilding the map.
+    pub(crate) fn sync_positions_to_layout(&self, layout: &mut GraphLayout) {
+        for (index, node_id) in self.node_ids.iter().enumerate() {
+            if let Some(position) = layout.positions.get_mut(node_id) {
+                *position = self.positions[index];
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

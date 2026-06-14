@@ -27,8 +27,9 @@ use crate::components::markdown::inline::normalize_tag_name;
 use crate::theme::chrome_ui_font;
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
-    Copy, Cut, Delete, DeleteBack, End, FenceInfo, Home, MoveLeft, MoveRight, Paste, SelectAll,
-    SelectEnd, SelectHome, SelectLeft, SelectRight, is_closing_fence, parse_opening_fence,
+    BlockEvent, Copy, Cut, Delete, DeleteBack, End, FenceInfo, Home, MoveLeft, MoveRight, Paste,
+    SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, UndoCaptureKind, is_closing_fence,
+    parse_opening_fence,
 };
 use crate::i18n::I18nStrings;
 use crate::input::single_line_field::SingleLineFieldState;
@@ -54,6 +55,7 @@ const HEADING_1_ICON: &str = "icon/toolbar/heading-1.svg";
 const HEADING_2_ICON: &str = "icon/toolbar/heading-2.svg";
 const HEADING_3_ICON: &str = "icon/toolbar/heading-3.svg";
 const OUTLINE_HEADING_ICON: &str = "icon/toolbar/table-of-contents.svg";
+const TAG_INSERT_ICON: &str = "icon/toolbar/list-plus.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
 const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
 const WORKSPACE_PANEL_MAX_WIDTH: f32 = 360.0;
@@ -1396,6 +1398,53 @@ impl Editor {
         cx.notify();
     }
 
+    fn insert_workspace_tag_at_cursor(
+        &mut self,
+        tag: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block) = self.focused_edit_target(window, cx) else {
+            return;
+        };
+
+        let insertion = format!("#{tag}");
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        block.update(cx, |block, cx| {
+            let selection = block.selected_range.clone();
+            let text = block.display_text();
+            let text_to_insert = if selection.start > 0 {
+                let prev_char = text[..selection.start].chars().last();
+                if prev_char.is_some_and(|ch| !ch.is_whitespace()) {
+                    format!(" {insertion}")
+                } else {
+                    insertion
+                }
+            } else {
+                insertion
+            };
+            let cursor = selection.start + text_to_insert.len();
+            block.replace_text_in_visible_range(
+                selection,
+                &text_to_insert,
+                Some(cursor..cursor),
+                false,
+                cx,
+            );
+            block.selection_reversed = false;
+            block.marked_range = None;
+            block.cursor_blink_epoch = std::time::Instant::now();
+            cx.emit(BlockEvent::Changed);
+            cx.notify();
+        });
+        self.mark_dirty(cx);
+        self.finalize_pending_undo_capture(cx);
+        self.sync_workspace_tag_index_for_active_file(cx);
+        window.focus(&block.read(cx).focus_handle);
+        window.activate_window();
+        cx.notify();
+    }
+
     fn open_workspace_search_result(
         &mut self,
         path: PathBuf,
@@ -2163,6 +2212,8 @@ impl Editor {
             let active = selected_tag.as_deref() == Some(tag.as_str());
             let select_tag = tag.clone();
             let select_editor = editor.clone();
+            let insert_tag = tag.clone();
+            let insert_editor = editor.clone();
             tag_rows.push(
                 div()
                     .id(("workspace-tag", index))
@@ -2172,7 +2223,7 @@ impl Editor {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap(px(8.0))
+                    .gap(px(4.0))
                     .rounded(px(4.0))
                     .bg(if active {
                         c.selection
@@ -2198,8 +2249,22 @@ impl Editor {
                             .child(format!("#{tag}")),
                     )
                     .child(
+                        workspace_tag_insert_button(index, theme)
+                            .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                                cx.stop_propagation();
+                            })
+                            .on_click(move |_event, window, cx| {
+                                cx.stop_propagation();
+                                let tag = insert_tag.clone();
+                                let _ = insert_editor.update(cx, |editor, cx| {
+                                    editor.insert_workspace_tag_at_cursor(tag, window, cx);
+                                });
+                            }),
+                    )
+                    .child(
                         div()
                             .flex_shrink_0()
+                            .min_w(px(16.0))
                             .text_size(px(t.text_size * 0.78))
                             .text_color(c.dialog_muted)
                             .child(count.to_string()),
@@ -3122,6 +3187,27 @@ fn outline_heading_style(level: u8, theme: &Theme, selected: bool) -> (&'static 
     } else {
         (icon, color, weight)
     }
+}
+
+fn workspace_tag_insert_button(index: usize, theme: &Theme) -> Stateful<Div> {
+    let c = &theme.colors;
+    div()
+        .id(("workspace-tag-insert", index))
+        .size(px(WORKSPACE_ROOT_ACTION_ICON_SIZE + 4.0))
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .rounded(px(3.0))
+        .occlude()
+        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+        .cursor_pointer()
+        .child(
+            svg()
+                .path(TAG_INSERT_ICON)
+                .size(px(WORKSPACE_ROOT_ACTION_ICON_SIZE))
+                .text_color(c.dialog_muted),
+        )
 }
 
 fn workspace_root_action_button(

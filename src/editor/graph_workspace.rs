@@ -7,7 +7,7 @@ use gpui::prelude::FluentBuilder;
 
 use super::graph_layout::{LayoutConfig, LayoutSimulation, uncross_graph_layout};
 use super::graph_physics::{
-    clear_graph_physics_velocities, step_graph_physics, viewport_physics_bounds,
+    clear_graph_physics_velocities, physics_frame_ms, step_graph_physics, viewport_physics_bounds,
     GraphPhysicsConfig, GraphPhysicsDragState, GRAPH_PHYSICS_DT, GRAPH_PHYSICS_FRAME_MS,
 };
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
@@ -178,13 +178,6 @@ impl Editor {
         }
         self.workspace.state.graph_revision = Some(revision);
         self.start_knowledge_graph_animation(cx);
-        if self
-            .knowledge_graph_view
-            .as_ref()
-            .is_some_and(|state| state.physics_collisions)
-        {
-            self.ensure_knowledge_graph_physics_loop(cx);
-        }
         cx.notify();
     }
 
@@ -246,6 +239,10 @@ impl Editor {
                             && state.last_bounds.size.height > px(0.0)
                         {
                             state.reset_viewport_fit(state.last_bounds.size);
+                            if state.physics_collisions {
+                                state.invalidate_viewport_bounds_clamp();
+                                state.try_clamp_to_viewport_bounds();
+                            }
                         } else {
                             state.viewport = GraphViewport::default();
                         }
@@ -382,6 +379,10 @@ impl Editor {
             state.physics_collisions
         };
         if enabled {
+            if let Some(state) = self.knowledge_graph_view.as_mut() {
+                state.invalidate_viewport_bounds_clamp();
+                state.try_clamp_to_viewport_bounds();
+            }
             self.ensure_knowledge_graph_physics_loop(cx);
         } else {
             self.stop_knowledge_graph_physics_loop();
@@ -401,7 +402,7 @@ impl Editor {
         let Some(state) = self.knowledge_graph_view.as_mut() else {
             return false;
         };
-        if !state.physics_collisions {
+        if !state.physics_collisions || state.viewport.scale <= 0.0 {
             return false;
         }
         let Some(simulation) = state.simulation.as_mut() else {
@@ -414,7 +415,7 @@ impl Editor {
             return false;
         }
 
-        let config = GraphPhysicsConfig::default();
+        let config = GraphPhysicsConfig::for_node_count(simulation.positions.len());
         let bounds = viewport_physics_bounds(
             &state.viewport,
             panel_width,
@@ -428,7 +429,7 @@ impl Editor {
             drag,
             GRAPH_PHYSICS_DT,
         );
-        state.layout = simulation.to_layout();
+        simulation.sync_positions_to_layout(&mut state.layout);
         if still_moving {
             cx.notify();
         }
@@ -459,22 +460,37 @@ impl Editor {
         if !state.physics_collisions {
             return;
         }
+        if state.viewport.scale <= 0.0 {
+            return;
+        }
+        if state.drag.active() {
+            return;
+        }
 
         let editor = cx.entity().downgrade();
         self.graph_physics_task = Some(cx.spawn(
             async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 loop {
+                    let frame_ms = editor
+                        .read_with(cx, |editor, _| {
+                            editor
+                                .knowledge_graph_view
+                                .as_ref()
+                                .map(|state| physics_frame_ms(state.graph.nodes.len()))
+                                .unwrap_or(GRAPH_PHYSICS_FRAME_MS)
+                        })
+                        .unwrap_or(GRAPH_PHYSICS_FRAME_MS);
+
                     cx.background_executor()
-                        .timer(std::time::Duration::from_millis(GRAPH_PHYSICS_FRAME_MS))
+                        .timer(std::time::Duration::from_millis(frame_ms))
                         .await;
 
                     let keep_going = editor
                         .update(cx, |editor, cx| {
-                            if !editor
-                                .knowledge_graph_view
-                                .as_ref()
-                                .is_some_and(|state| state.physics_collisions)
-                            {
+                            let Some(state) = editor.knowledge_graph_view.as_ref() else {
+                                return false;
+                            };
+                            if !state.physics_collisions || state.drag.active() {
                                 return false;
                             }
                             editor.run_knowledge_graph_physics_step(cx)
@@ -608,7 +624,7 @@ impl Editor {
             .knowledge_graph_view
             .as_ref()
             .map(|state| state.physics_collisions)
-            .unwrap_or(false);
+            .unwrap_or(true);
         let filter_all_editor = editor.clone();
         let filter_connected_editor = editor.clone();
 

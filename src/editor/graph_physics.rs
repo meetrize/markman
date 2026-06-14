@@ -8,6 +8,10 @@ pub(crate) const GRAPH_PHYSICS_DT: f32 = 1.0 / 60.0;
 const GRAPH_PHYSICS_VELOCITY_THRESHOLD: f32 = 0.35;
 const GRAPH_PHYSICS_VELOCITY_THRESHOLD_SQ: f32 =
     GRAPH_PHYSICS_VELOCITY_THRESHOLD * GRAPH_PHYSICS_VELOCITY_THRESHOLD;
+const SPATIAL_GRID_THRESHOLD: usize = 16;
+const SPATIAL_GRID_CELL_SCALE: f32 = 2.5;
+const SPATIAL_GRID_MIN_CELL: f32 = 28.0;
+const SPATIAL_GRID_MAX_DIM: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct GraphPhysicsBounds {
@@ -44,12 +48,47 @@ impl Default for GraphPhysicsConfig {
     }
 }
 
+impl GraphPhysicsConfig {
+    pub(crate) fn for_node_count(node_count: usize) -> Self {
+        let mut config = Self::default();
+        if node_count > 20 {
+            config.solver_iterations = 4;
+        }
+        if node_count > 40 {
+            config.solver_iterations = 3;
+        }
+        if node_count > 80 {
+            config.solver_iterations = 2;
+        }
+        config
+    }
+}
+
+pub(crate) fn physics_frame_ms(node_count: usize) -> u64 {
+    if node_count > 50 {
+        33
+    } else if node_count > 25 {
+        24
+    } else {
+        GRAPH_PHYSICS_FRAME_MS
+    }
+}
+
 pub(crate) fn viewport_physics_bounds(
     viewport: &GraphViewport,
     panel_width: f32,
     panel_height: f32,
     padding: f32,
 ) -> GraphPhysicsBounds {
+    if viewport.scale <= 0.0 || !viewport.scale.is_finite() {
+        return GraphPhysicsBounds {
+            min_x: -512.0,
+            min_y: -512.0,
+            max_x: 512.0,
+            max_y: 512.0,
+        };
+    }
+
     let top_left = viewport.screen_to_world(LayoutPoint { x: 0.0, y: 0.0 });
     let bottom_right = viewport.screen_to_world(LayoutPoint {
         x: panel_width,
@@ -99,12 +138,14 @@ pub(crate) fn step_graph_physics(
         simulation.positions[index].y += simulation.velocities[index].y * dt;
         simulation.velocities[index].x *= config.linear_damping;
         simulation.velocities[index].y *= config.linear_damping;
-        sanitize_node_state(simulation, index);
     }
 
     for _ in 0..config.solver_iterations {
         resolve_node_collisions(simulation, drag, config.restitution);
         resolve_boundary_collisions(simulation, bounds, config.boundary_restitution);
+        for index in 0..node_count {
+            sanitize_node_state(simulation, index);
+        }
     }
 
     graph_physics_has_motion(simulation)
@@ -119,15 +160,189 @@ fn sanitize_node_state(simulation: &mut LayoutSimulation, index: usize) {
     }
 }
 
+fn node_has_motion(velocity: LayoutPoint) -> bool {
+    velocity.x * velocity.x + velocity.y * velocity.y > GRAPH_PHYSICS_VELOCITY_THRESHOLD_SQ
+}
+
+fn pair_needs_collision_check(
+    simulation: &LayoutSimulation,
+    left: usize,
+    right: usize,
+    drag: Option<GraphPhysicsDragState>,
+) -> bool {
+    if simulation.pinned[left]
+        || simulation.pinned[right]
+        || drag.is_some_and(|state| state.node_index == left || state.node_index == right)
+        || node_has_motion(simulation.velocities[left])
+        || node_has_motion(simulation.velocities[right])
+    {
+        return true;
+    }
+
+    let delta = point_delta(simulation.positions[left], simulation.positions[right]);
+    let distance_sq = delta.x * delta.x + delta.y * delta.y;
+    let min_distance = simulation.sizes[left] + simulation.sizes[right];
+    distance_sq < min_distance * min_distance
+}
+
 fn resolve_node_collisions(
     simulation: &mut LayoutSimulation,
     drag: Option<GraphPhysicsDragState>,
     restitution: f32,
 ) {
     let node_count = simulation.positions.len();
-    for left in 0..node_count {
-        for right in left + 1..node_count {
-            resolve_collision_pair(simulation, left, right, drag, restitution);
+    if node_count <= 1 {
+        return;
+    }
+
+    if node_count <= SPATIAL_GRID_THRESHOLD {
+        for left in 0..node_count {
+            for right in left + 1..node_count {
+                if pair_needs_collision_check(simulation, left, right, drag) {
+                    resolve_collision_pair(simulation, left, right, drag, restitution);
+                }
+            }
+        }
+        return;
+    }
+
+    resolve_node_collisions_spatial(simulation, drag, restitution);
+}
+
+fn resolve_node_collisions_spatial(
+    simulation: &mut LayoutSimulation,
+    drag: Option<GraphPhysicsDragState>,
+    restitution: f32,
+) {
+    let node_count = simulation.positions.len();
+    let max_radius = simulation
+        .sizes
+        .iter()
+        .copied()
+        .fold(0.0f32, f32::max);
+    let cell_size = (max_radius * SPATIAL_GRID_CELL_SCALE).max(SPATIAL_GRID_MIN_CELL);
+
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for (index, position) in simulation.positions.iter().enumerate() {
+        let radius = simulation.sizes[index];
+        min_x = min_x.min(position.x - radius);
+        min_y = min_y.min(position.y - radius);
+        max_x = max_x.max(position.x + radius);
+        max_y = max_y.max(position.y + radius);
+    }
+
+    let cols = ((max_x - min_x) / cell_size).ceil() as usize + 1;
+    let rows = ((max_y - min_y) / cell_size).ceil() as usize + 1;
+    if cols > SPATIAL_GRID_MAX_DIM
+        || rows > SPATIAL_GRID_MAX_DIM
+        || !min_x.is_finite()
+        || !min_y.is_finite()
+        || !max_x.is_finite()
+        || !max_y.is_finite()
+    {
+        for left in 0..node_count {
+            for right in left + 1..node_count {
+                if pair_needs_collision_check(simulation, left, right, drag) {
+                    resolve_collision_pair(simulation, left, right, drag, restitution);
+                }
+            }
+        }
+        return;
+    }
+
+    let mut grid = vec![Vec::<usize>::new(); cols.max(1) * rows.max(1)];
+
+    for index in 0..node_count {
+        let position = simulation.positions[index];
+        let col = ((position.x - min_x) / cell_size).floor() as usize;
+        let row = ((position.y - min_y) / cell_size).floor() as usize;
+        let col = col.min(cols.saturating_sub(1));
+        let row = row.min(rows.saturating_sub(1));
+        grid[row * cols + col].push(index);
+    }
+
+    for row in 0..rows {
+        for col in 0..cols {
+            let cell = row * cols + col;
+            let cell_nodes = &grid[cell];
+            if cell_nodes.is_empty() {
+                continue;
+            }
+
+            for left_index in 0..cell_nodes.len() {
+                for right_index in left_index + 1..cell_nodes.len() {
+                    let left = cell_nodes[left_index];
+                    let right = cell_nodes[right_index];
+                    if pair_needs_collision_check(simulation, left, right, drag) {
+                        resolve_collision_pair(simulation, left, right, drag, restitution);
+                    }
+                }
+            }
+
+            if col + 1 < cols {
+                resolve_cell_pairs(
+                    simulation,
+                    cell_nodes,
+                    &grid[cell + 1],
+                    drag,
+                    restitution,
+                );
+            }
+            if row + 1 < rows {
+                resolve_cell_pairs(
+                    simulation,
+                    cell_nodes,
+                    &grid[(row + 1) * cols + col],
+                    drag,
+                    restitution,
+                );
+            }
+            if col + 1 < cols && row + 1 < rows {
+                resolve_cell_pairs(
+                    simulation,
+                    cell_nodes,
+                    &grid[(row + 1) * cols + col + 1],
+                    drag,
+                    restitution,
+                );
+            }
+            if col > 0 && row + 1 < rows {
+                resolve_cell_pairs(
+                    simulation,
+                    cell_nodes,
+                    &grid[(row + 1) * cols + col - 1],
+                    drag,
+                    restitution,
+                );
+            }
+        }
+    }
+}
+
+fn resolve_cell_pairs(
+    simulation: &mut LayoutSimulation,
+    left_nodes: &[usize],
+    right_nodes: &[usize],
+    drag: Option<GraphPhysicsDragState>,
+    restitution: f32,
+) {
+    for &left in left_nodes {
+        for &right in right_nodes {
+            if left == right {
+                continue;
+            }
+            let (left, right) = if left < right {
+                (left, right)
+            } else {
+                (right, left)
+            };
+            if pair_needs_collision_check(simulation, left, right, drag) {
+                resolve_collision_pair(simulation, left, right, drag, restitution);
+            }
         }
     }
 }
@@ -140,12 +355,14 @@ fn resolve_collision_pair(
     restitution: f32,
 ) {
     let delta = point_delta(simulation.positions[left], simulation.positions[right]);
-    let distance = delta.length().max(MIN_DISTANCE);
+    let distance_sq = delta.x * delta.x + delta.y * delta.y;
     let min_distance = simulation.sizes[left] + simulation.sizes[right];
-    if distance >= min_distance {
+    let min_distance_sq = min_distance * min_distance;
+    if distance_sq >= min_distance_sq {
         return;
     }
 
+    let distance = distance_sq.sqrt().max(MIN_DISTANCE);
     let nx = delta.x / distance;
     let ny = delta.y / distance;
     let overlap = min_distance - distance;
@@ -197,9 +414,6 @@ fn resolve_collision_pair(
             simulation.velocities[right].y += ny * impulse;
         }
     }
-
-    sanitize_node_state(simulation, left);
-    sanitize_node_state(simulation, right);
 }
 
 fn kinematic_velocity(
@@ -230,6 +444,54 @@ fn apply_kinematic_impulse(
     let impulse = relative_normal * (1.0 + restitution);
     target_velocity.x += nx * impulse;
     target_velocity.y += ny * impulse;
+}
+
+pub(crate) fn settle_graph_within_viewport_bounds(
+    simulation: &mut LayoutSimulation,
+    viewport: &GraphViewport,
+    panel_width: f32,
+    panel_height: f32,
+    padding: f32,
+) {
+    if viewport.scale <= 0.0 || panel_width <= 0.0 || panel_height <= 0.0 {
+        return;
+    }
+
+    clear_graph_physics_velocities(simulation);
+    let bounds = viewport_physics_bounds(viewport, panel_width, panel_height, padding);
+    let config = GraphPhysicsConfig::for_node_count(simulation.positions.len());
+    let iterations = config.solver_iterations * 4;
+
+    for _ in 0..iterations {
+        resolve_node_collisions(simulation, None, 0.0);
+        clamp_boundary_positions(simulation, bounds);
+        for index in 0..simulation.positions.len() {
+            sanitize_node_state(simulation, index);
+        }
+    }
+}
+
+fn clamp_boundary_positions(simulation: &mut LayoutSimulation, bounds: GraphPhysicsBounds) {
+    for index in 0..simulation.positions.len() {
+        if simulation.pinned[index] {
+            continue;
+        }
+
+        let radius = simulation.sizes[index];
+        let position = &mut simulation.positions[index];
+
+        if position.x - radius < bounds.min_x {
+            position.x = bounds.min_x + radius;
+        } else if position.x + radius > bounds.max_x {
+            position.x = bounds.max_x - radius;
+        }
+
+        if position.y - radius < bounds.min_y {
+            position.y = bounds.min_y + radius;
+        } else if position.y + radius > bounds.max_y {
+            position.y = bounds.max_y - radius;
+        }
+    }
 }
 
 fn resolve_boundary_collisions(
@@ -264,7 +526,6 @@ fn resolve_boundary_collisions(
 
         simulation.positions[index] = position;
         simulation.velocities[index] = velocity;
-        sanitize_node_state(simulation, index);
     }
 }
 
@@ -272,12 +533,6 @@ fn resolve_boundary_collisions(
 struct PointDelta {
     x: f32,
     y: f32,
-}
-
-impl PointDelta {
-    fn length(self) -> f32 {
-        (self.x * self.x + self.y * self.y).sqrt()
-    }
 }
 
 fn point_delta(from: LayoutPoint, to: LayoutPoint) -> PointDelta {
@@ -397,5 +652,11 @@ mod tests {
 
         assert!(simulation.positions[1].x >= bounds.min_x + simulation.sizes[1] - 0.01);
         assert!(simulation.velocities[1].x > 0.0);
+    }
+
+    #[test]
+    fn adaptive_config_reduces_iterations_for_large_graphs() {
+        let config = GraphPhysicsConfig::for_node_count(50);
+        assert!(config.solver_iterations < GraphPhysicsConfig::default().solver_iterations);
     }
 }

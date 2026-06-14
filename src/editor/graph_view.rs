@@ -9,6 +9,7 @@ use super::graph_layout::{
     node_display_label, node_layout_radius, settle_graph_layout, smallest_node_layout_radius,
     GraphLayout, LayoutBounds, LayoutConfig, LayoutPoint, LayoutSimulation,
 };
+use super::graph_physics::{settle_graph_within_viewport_bounds, GraphPhysicsConfig};
 use super::graph_model::{
     apply_graph_filter, GraphEdge, GraphEdgeKind, GraphFilter, GraphNode, GraphNodeId,
     GraphNodeKind, KnowledgeGraph,
@@ -68,7 +69,7 @@ impl Default for GraphInteractionDrag {
 }
 
 impl GraphInteractionDrag {
-    fn active(&self) -> bool {
+    pub(crate) fn active(&self) -> bool {
         !matches!(self.mode, GraphDragMode::None)
     }
 
@@ -96,6 +97,7 @@ pub(crate) struct KnowledgeGraphViewState {
     pub last_bounds: Bounds<Pixels>,
     pub mutual_repulsion: bool,
     pub physics_collisions: bool,
+    pub viewport_bounds_clamped: bool,
 }
 
 impl KnowledgeGraphViewState {
@@ -120,7 +122,39 @@ impl KnowledgeGraphViewState {
             last_bounds: Bounds::default(),
             mutual_repulsion: false,
             physics_collisions: true,
+            viewport_bounds_clamped: false,
         }
+    }
+
+    pub(crate) fn invalidate_viewport_bounds_clamp(&mut self) {
+        self.viewport_bounds_clamped = false;
+    }
+
+    pub(crate) fn try_clamp_to_viewport_bounds(&mut self) {
+        if !self.physics_collisions || self.viewport_bounds_clamped {
+            return;
+        }
+        if self.viewport.scale <= 0.0 {
+            return;
+        }
+        let panel_width = f32::from(self.last_bounds.size.width);
+        let panel_height = f32::from(self.last_bounds.size.height);
+        if panel_width <= 0.0 || panel_height <= 0.0 {
+            return;
+        }
+        let Some(simulation) = self.simulation.as_mut() else {
+            return;
+        };
+        let padding = GraphPhysicsConfig::default().boundary_padding;
+        settle_graph_within_viewport_bounds(
+            simulation,
+            &self.viewport,
+            panel_width,
+            panel_height,
+            padding,
+        );
+        simulation.sync_positions_to_layout(&mut self.layout);
+        self.viewport_bounds_clamped = true;
     }
 
     pub(crate) fn apply_mutual_repulsion(&mut self, anchor: Option<&GraphNodeId>) {
@@ -145,6 +179,7 @@ impl KnowledgeGraphViewState {
         self.simulation = Some(simulation);
         self.animating = true;
         self.animation_progress = 0.0;
+        self.viewport_bounds_clamped = false;
     }
 
     pub(crate) fn reset_layout_from_simulation(&mut self) {
@@ -157,6 +192,7 @@ impl KnowledgeGraphViewState {
         self.viewport = GraphViewport::default();
         self.pinned.clear();
         self.drag = GraphInteractionDrag::default();
+        self.viewport_bounds_clamped = false;
     }
 
     pub(crate) fn sync_layout_from_simulation(&mut self) {
@@ -753,40 +789,49 @@ impl Element for KnowledgeGraphElement {
             .editor
             .update(cx, |editor, cx| {
                 editor.ensure_knowledge_graph_active_node_pulse(cx);
-                editor.ensure_knowledge_graph_physics_loop(cx);
-                (
-                    editor.knowledge_graph_view.clone(),
-                    editor.active_knowledge_graph_document_node_id(),
-                )
-            })
-            .unwrap_or((None, None));
+                let active_id = editor.active_knowledge_graph_document_node_id();
+                let Some(state) = editor.knowledge_graph_view.as_mut() else {
+                    return (None, active_id);
+                };
 
-        if let Some(state) = snapshot.as_mut() {
-            if state.viewport.scale <= 0.0 {
-                state.viewport.fit_to_bounds(
-                    &state.layout.bounds,
-                    bounds.size,
-                    &state.graph,
-                );
-            } else {
+                let needs_initial_fit = state.viewport.scale <= 0.0;
                 let panel_resized = state.last_bounds.size.width != bounds.size.width
                     || state.last_bounds.size.height != bounds.size.height;
-                if panel_resized && !state.drag.active() {
+
+                if needs_initial_fit {
                     state.viewport.fit_to_bounds(
                         &state.layout.bounds,
                         bounds.size,
                         &state.graph,
                     );
+                    if state.physics_collisions {
+                        state.invalidate_viewport_bounds_clamp();
+                    }
+                } else if panel_resized && !state.drag.active() {
+                    state.viewport.fit_to_bounds(
+                        &state.layout.bounds,
+                        bounds.size,
+                        &state.graph,
+                    );
+                    if state.physics_collisions {
+                        state.invalidate_viewport_bounds_clamp();
+                    }
                 }
-            }
-            state.last_bounds = bounds;
-            let viewport = state.viewport;
-            let _ = self.editor.update(cx, |editor, _| {
-                if let Some(live) = editor.knowledge_graph_view.as_mut() {
-                    live.viewport = viewport;
-                    live.last_bounds = bounds;
+
+                state.last_bounds = bounds;
+                if state.physics_collisions {
+                    let clamped_before = state.viewport_bounds_clamped;
+                    state.try_clamp_to_viewport_bounds();
+                    if state.viewport_bounds_clamped && !clamped_before {
+                        cx.notify();
+                    }
                 }
-            });
+
+                (editor.knowledge_graph_view.clone(), active_id)
+            })
+            .unwrap_or((None, None));
+
+        if let Some(state) = snapshot.as_mut() {
             prepaint_graph(
                 bounds,
                 state,
@@ -991,7 +1036,6 @@ impl Editor {
                 if use_physics {
                     let _ = state;
                     self.run_knowledge_graph_physics_step(cx);
-                    self.ensure_knowledge_graph_physics_loop(cx);
                     cx.notify();
                     return;
                 }
