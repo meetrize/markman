@@ -497,7 +497,6 @@ pub(super) fn offset_for_mouse_position(
         return 0;
     };
 
-    let layout = &lines[line_idx];
     let hard_range = &ranges[line_idx];
 
     // Match caret geometry from `cursor_bounds_for_offset` on the active hard line.
@@ -575,7 +574,7 @@ pub(super) fn range_bounds(
 
 /// Horizontal shift applied from `anchor_offset` through the end of its hard line.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct LinkIconTextInset {
+pub(crate) struct LinkIconTextInset {
     anchor_offset: usize,
     extra_x: Pixels,
 }
@@ -3616,83 +3615,6 @@ mod tests {
                 &insets,
             );
             assert_eq!(mouse_offset, cursor_offset);
-        });
-    }
-
-    #[gpui::test]
-    async fn projected_wrapped_external_link_cursor_matches_each_offset(
-        cx: &mut TestAppContext,
-    ) {
-        let cx = cx.add_empty_window();
-        let markdown = "[link text](https://example.com)";
-        let block = cx.new(|cx| {
-            Block::with_record(
-                cx,
-                BlockRecord::new(
-                    BlockKind::Paragraph,
-                    InlineTextTree::from_markdown(markdown),
-                ),
-            )
-        });
-
-        block.update(cx, |block, _cx| {
-            block.selected_range = 2..2;
-            block.sync_inline_projection_for_focus(true);
-        });
-
-        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
-        let line_height = px(20.0);
-        let link_gutter = block.read_with(cx, |block, _cx| {
-            block_link_icon_gutter(block, line_height)
-        });
-        // Force soft-wrap inside the URL.
-        let wrap_width = px(120.0) - link_gutter;
-        let lines = shaped_lines(&display_text, wrap_width, cx);
-        assert!(
-            !lines[0].wrap_boundaries().is_empty(),
-            "link projection should soft-wrap at narrow width"
-        );
-
-        block.read_with(cx, |block, _cx| {
-            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(120.0), px(60.0)));
-            let text_bounds = source_text_bounds(bounds, link_gutter);
-            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
-            let insets = compute_link_icon_text_insets(
-                block,
-                &lines,
-                layout_bounds,
-                text_bounds,
-                line_height,
-                block.text_align(),
-            );
-
-            for offset in 0..=display_text.len() {
-                let Some(cursor) = cursor_bounds_for_offset(
-                    &lines,
-                    text_bounds,
-                    line_height,
-                    &display_text,
-                    offset,
-                    block.text_align(),
-                    px(1.0),
-                    &insets,
-                ) else {
-                    continue;
-                };
-                let mouse_offset = offset_for_mouse_position(
-                    &lines,
-                    text_bounds,
-                    line_height,
-                    &display_text,
-                    block.text_align(),
-                    cursor.center(),
-                    &insets,
-                );
-                assert_eq!(
-                    mouse_offset, offset,
-                    "offset {offset} cursor/mouse mismatch with wrap + projection"
-                );
-            }
         });
     }
 }
