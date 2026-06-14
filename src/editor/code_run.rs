@@ -821,6 +821,12 @@ impl Editor {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if !read_app_preferences()
+            .unwrap_or_default()
+            .allow_code_execution
+        {
+            return None;
+        }
         if !matches!(self.view_mode, ViewMode::Rendered) {
             return None;
         }

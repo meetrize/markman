@@ -208,6 +208,12 @@ impl Editor {
     }
 
     pub(super) fn inline_code_run_button_active(&self, window: &Window, cx: &App) -> bool {
+        if !crate::config::read_app_preferences()
+            .unwrap_or_default()
+            .allow_code_execution
+        {
+            return false;
+        }
         if !matches!(self.view_mode, ViewMode::Rendered) {
             return false;
         }

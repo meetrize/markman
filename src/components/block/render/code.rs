@@ -8,6 +8,7 @@ use super::super::element::BlockTextElement;
 use super::super::{Block, code_highlight_color};
 use crate::components::markdown::code_highlight::CodeHighlightSpan;
 use crate::components::{HtmlNode, attr_value, highlight_code_block};
+use crate::config::read_app_preferences;
 use crate::code_runner::{CodeRunStatus, code_run_output_line_count, CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES};
 use crate::i18n::I18nStrings;
 use crate::theme::Theme;
@@ -644,60 +645,74 @@ impl Block {
                     );
                 }
 
-                let run_lane_width = px(badge_height + 6.0);
+                let allow_code_execution = read_app_preferences()
+                    .unwrap_or_default()
+                    .allow_code_execution;
+                let run_lane_width = if allow_code_execution {
+                    px(badge_height + 6.0)
+                } else {
+                    px(0.0)
+                };
                 let run_icon_top = px(8.0);
                 let run_icon_size = px((t.code_size + 3.0).max(14.0));
                 let run_snapshot = self.code_run_snapshot.clone();
                 let running = run_snapshot.status == CodeRunStatus::Running;
 
-                let code_row = div()
-                    .relative()
-                    .w_full()
-                    .flex()
-                    .flex_row()
-                    .child(
-                        div()
-                            .flex_none()
-                            .flex_shrink_0()
-                            .w(run_lane_width)
-                            .relative()
-                            .bg(c.code_language_input_bg)
-                            .border_r(px(1.0))
-                            .border_color(c.code_language_input_border.opacity(0.35))
-                            .child(
-                                div()
-                                    .id("code-block-run")
-                                    .absolute()
-                                    .top(run_icon_top)
-                                    .left_0()
-                                    .right_0()
-                                    .h(px(badge_height))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .opacity(if running { 1.0 } else { 0.72 })
-                                    .hover(|this| this.opacity(1.0))
-                                    .cursor_pointer()
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(Self::on_code_block_run_mouse_down),
-                                    )
-                                    .child(
-                                        svg()
-                                            .path(ICON_CODE_BLOCK_RUN)
-                                            .size(run_icon_size)
-                                            .text_color(c.code_language_input_text),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex_grow()
-                            .min_w(px(0.0))
-                            .py(px(d.code_block_padding_y))
-                            .pr(px(d.code_block_padding_x))
-                            .child(code_content),
-                    );
+                let code_content_lane = div()
+                    .flex_grow()
+                    .min_w(px(0.0))
+                    .py(px(d.code_block_padding_y))
+                    .pr(px(d.code_block_padding_x))
+                    .child(code_content);
+
+                let code_row = if allow_code_execution {
+                    div()
+                        .relative()
+                        .w_full()
+                        .flex()
+                        .flex_row()
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex_shrink_0()
+                                .w(run_lane_width)
+                                .relative()
+                                .bg(c.code_language_input_bg)
+                                .border_r(px(1.0))
+                                .border_color(c.code_language_input_border.opacity(0.35))
+                                .child(
+                                    div()
+                                        .id("code-block-run")
+                                        .absolute()
+                                        .top(run_icon_top)
+                                        .left_0()
+                                        .right_0()
+                                        .h(px(badge_height))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .opacity(if running { 1.0 } else { 0.72 })
+                                        .hover(|this| this.opacity(1.0))
+                                        .cursor_pointer()
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(Self::on_code_block_run_mouse_down),
+                                        )
+                                        .child(
+                                            svg()
+                                                .path(ICON_CODE_BLOCK_RUN)
+                                                .size(run_icon_size)
+                                                .text_color(c.code_language_input_text),
+                                        ),
+                                ),
+                        )
+                        .child(code_content_lane)
+                } else {
+                    div()
+                        .relative()
+                        .w_full()
+                        .child(code_content_lane)
+                };
 
                 let mut code_shell = div().w_full().flex().flex_col().child(code_row);
                 if run_snapshot.shows_output_panel() {
