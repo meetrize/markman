@@ -259,10 +259,25 @@ fn relative_markdown_path(workspace_root: &Path, absolute: &Path) -> Option<Stri
 }
 
 fn document_label(relative_path: &str) -> String {
-    Path::new(relative_path)
+    let name = Path::new(relative_path)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| relative_path.to_string())
+        .unwrap_or_else(|| relative_path.to_string());
+    strip_md_suffix(&name)
+}
+
+fn strip_md_suffix(filename: &str) -> String {
+    let path = Path::new(filename);
+    if path
+        .extension()
+        .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("md"))
+    {
+        path.file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| filename.to_string())
+    } else {
+        filename.to_string()
+    }
 }
 
 fn resolve_wiki_target(workspace_root: &Path, target_path: &str) -> Option<PathBuf> {
@@ -324,6 +339,16 @@ mod tests {
         );
 
         let graph = build_knowledge_graph(&root, &tag_index, &link_index);
+
+        let doc_a = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == GraphNodeId::document("a.md"))
+            .expect("doc a");
+        assert!(matches!(
+            &doc_a.kind,
+            GraphNodeKind::Document { label, .. } if label == "a"
+        ));
 
         assert_eq!(graph.nodes.len(), 3);
         assert_eq!(graph.edges.len(), 3);
