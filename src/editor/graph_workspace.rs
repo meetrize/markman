@@ -5,6 +5,10 @@ use std::path::Path;
 use gpui::*;
 
 use super::graph_layout::{LayoutConfig, LayoutSimulation, uncross_graph_layout};
+use super::graph_physics::{
+    clear_graph_physics_velocities, step_graph_physics, viewport_physics_bounds,
+    GraphPhysicsConfig, GraphPhysicsDragState, GRAPH_PHYSICS_DT, GRAPH_PHYSICS_FRAME_MS,
+};
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
 use super::graph_view::{
     render_knowledge_graph_panel, GraphViewport, KnowledgeGraphViewState,
@@ -20,6 +24,7 @@ use crate::i18n::I18nStrings;
 use crate::theme::{Theme, ThemeColors, ThemeTypography};
 
 const GRAPH_REPEL_ICON: &str = "icon/workspace/graph-repel.svg";
+const GRAPH_PHYSICS_ICON: &str = "icon/workspace/graph-physics.svg";
 const GRAPH_UNCROSS_ICON: &str = "icon/workspace/graph-uncross.svg";
 const GRAPH_FIT_ICON: &str = "icon/workspace/graph-fit.svg";
 const GRAPH_RESET_ICON: &str = "icon/workspace/graph-reset.svg";
@@ -41,6 +46,7 @@ impl Editor {
         self.workspace.state.graph_busy = false;
         self.graph_animation_task = None;
         self.graph_active_node_pulse_task = None;
+        self.graph_physics_task = None;
         self.knowledge_graph_view = None;
     }
 
@@ -152,9 +158,15 @@ impl Editor {
             .as_ref()
             .map(|state| state.mutual_repulsion)
             .unwrap_or(false);
+        let physics_collisions = self
+            .knowledge_graph_view
+            .as_ref()
+            .map(|state| state.physics_collisions)
+            .unwrap_or(false);
         self.knowledge_graph_view = Some(KnowledgeGraphViewState::new(raw_graph, filter));
         if let Some(state) = self.knowledge_graph_view.as_mut() {
             state.mutual_repulsion = mutual_repulsion;
+            state.physics_collisions = physics_collisions;
             if state.mutual_repulsion {
                 state.apply_mutual_repulsion(None);
             }
@@ -349,6 +361,130 @@ impl Editor {
         cx.notify();
     }
 
+    pub(super) fn toggle_knowledge_graph_physics_collisions(&mut self, cx: &mut Context<Self>) {
+        let enabled = {
+            let Some(state) = self.knowledge_graph_view.as_mut() else {
+                return;
+            };
+            state.physics_collisions = !state.physics_collisions;
+            state.physics_collisions
+        };
+        if enabled {
+            self.ensure_knowledge_graph_physics_loop(cx);
+        } else {
+            self.stop_knowledge_graph_physics_loop();
+            if let Some(simulation) = self
+                .knowledge_graph_view
+                .as_mut()
+                .and_then(|state| state.simulation.as_mut())
+            {
+                clear_graph_physics_velocities(simulation);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn run_knowledge_graph_physics_step(&mut self, cx: &mut Context<Self>) -> bool {
+        let drag = self.knowledge_graph_physics_drag_state();
+        let Some(state) = self.knowledge_graph_view.as_mut() else {
+            return false;
+        };
+        if !state.physics_collisions {
+            return false;
+        }
+        let Some(simulation) = state.simulation.as_mut() else {
+            return false;
+        };
+
+        let panel_width = f32::from(state.last_bounds.size.width);
+        let panel_height = f32::from(state.last_bounds.size.height);
+        if panel_width <= 0.0 || panel_height <= 0.0 {
+            return false;
+        }
+
+        let config = GraphPhysicsConfig::default();
+        let bounds = viewport_physics_bounds(
+            &state.viewport,
+            panel_width,
+            panel_height,
+            config.boundary_padding,
+        );
+        let still_moving = step_graph_physics(
+            simulation,
+            bounds,
+            &config,
+            drag,
+            GRAPH_PHYSICS_DT,
+        );
+        state.layout = simulation.to_layout();
+        if still_moving {
+            cx.notify();
+        }
+        still_moving
+    }
+
+    fn knowledge_graph_physics_drag_state(&self) -> Option<GraphPhysicsDragState> {
+        let state = self.knowledge_graph_view.as_ref()?;
+        if !matches!(state.drag.mode, super::graph_view::GraphDragMode::Node) {
+            return None;
+        }
+        let node_id = state.drag.node_id.as_ref()?;
+        let simulation = state.simulation.as_ref()?;
+        let node_index = simulation.node_index(node_id)?;
+        Some(GraphPhysicsDragState {
+            node_index,
+            velocity: state.drag.drag_velocity,
+        })
+    }
+
+    pub(super) fn ensure_knowledge_graph_physics_loop(&mut self, cx: &mut Context<Self>) {
+        if self.graph_physics_task.is_some() {
+            return;
+        }
+        let Some(state) = self.knowledge_graph_view.as_ref() else {
+            return;
+        };
+        if !state.physics_collisions {
+            return;
+        }
+
+        let editor = cx.entity().downgrade();
+        self.graph_physics_task = Some(cx.spawn(
+            async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(GRAPH_PHYSICS_FRAME_MS))
+                        .await;
+
+                    let keep_going = editor
+                        .update(cx, |editor, cx| {
+                            if !editor
+                                .knowledge_graph_view
+                                .as_ref()
+                                .is_some_and(|state| state.physics_collisions)
+                            {
+                                return false;
+                            }
+                            editor.run_knowledge_graph_physics_step(cx)
+                        })
+                        .unwrap_or(false);
+
+                    if !keep_going {
+                        break;
+                    }
+                }
+
+                let _ = editor.update(cx, |editor, _| {
+                    editor.graph_physics_task = None;
+                });
+            },
+        ));
+    }
+
+    pub(super) fn stop_knowledge_graph_physics_loop(&mut self) {
+        self.graph_physics_task = None;
+    }
+
     pub(super) fn uncross_knowledge_graph_layout(&mut self, cx: &mut Context<Self>) {
         let Some(state) = self.knowledge_graph_view.as_mut() else {
             return;
@@ -406,6 +542,7 @@ impl Editor {
         let fit_editor = editor.clone();
         let reset_editor = editor.clone();
         let repulsion_editor = editor.clone();
+        let physics_editor = editor.clone();
         let uncross_editor = editor.clone();
         let filter = self
             .knowledge_graph_view
@@ -416,6 +553,11 @@ impl Editor {
             .knowledge_graph_view
             .as_ref()
             .map(|state| state.mutual_repulsion)
+            .unwrap_or(false);
+        let physics_collisions = self
+            .knowledge_graph_view
+            .as_ref()
+            .map(|state| state.physics_collisions)
             .unwrap_or(false);
         let filter_all_editor = editor.clone();
         let filter_connected_editor = editor.clone();
@@ -475,6 +617,16 @@ impl Editor {
                                 strings.workspace_graph_mutual_repulsion.clone(),
                                 repulsion_editor,
                                 |editor, cx| editor.toggle_knowledge_graph_mutual_repulsion(cx),
+                            ))
+                            .child(graph_toggle_button(
+                                "workspace-graph-physics-collisions",
+                                GRAPH_PHYSICS_ICON,
+                                physics_collisions,
+                                tooltip_colors.clone(),
+                                tooltip_typography.clone(),
+                                strings.workspace_graph_physics_collisions.clone(),
+                                physics_editor,
+                                |editor, cx| editor.toggle_knowledge_graph_physics_collisions(cx),
                             ))
                             .child(graph_toolbar_button(
                                 "workspace-graph-uncross-edges",

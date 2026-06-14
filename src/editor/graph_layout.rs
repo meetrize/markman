@@ -15,7 +15,7 @@ const LABEL_CHAR_RADIUS: f32 = 3.0;
 const LABEL_RADIUS_PADDING: f32 = 10.0;
 const CENTER_GRAVITY: f32 = 0.035;
 const IDEAL_EDGE_LENGTH_SCALE: f32 = 2.5;
-const MIN_DISTANCE: f32 = 0.01;
+pub(crate) const MIN_DISTANCE: f32 = 0.01;
 const COLLISION_RESOLVE_ITERATIONS: usize = 16;
 const UNCROSS_MAX_ITERATIONS: usize = 48;
 const UNCROSS_COSMETIC_TICKS: usize = 10;
@@ -100,10 +100,10 @@ impl Default for LayoutConfig {
 pub(crate) struct LayoutSimulation {
     node_ids: Vec<GraphNodeId>,
     edges: Vec<(usize, usize, GraphEdgeKind)>,
-    sizes: Vec<f32>,
-    positions: Vec<LayoutPoint>,
-    velocities: Vec<LayoutPoint>,
-    pinned: Vec<bool>,
+    pub(crate) sizes: Vec<f32>,
+    pub(crate) positions: Vec<LayoutPoint>,
+    pub(crate) velocities: Vec<LayoutPoint>,
+    pub(crate) pinned: Vec<bool>,
     config: LayoutConfig,
 }
 
@@ -390,6 +390,19 @@ impl LayoutSimulation {
             velocities: vec![LayoutPoint { x: 0.0, y: 0.0 }; node_count],
             pinned: vec![false; node_count],
             config,
+        }
+    }
+
+    pub(crate) fn node_index(&self, node_id: &GraphNodeId) -> Option<usize> {
+        self.node_ids.iter().position(|id| id == node_id)
+    }
+
+    pub(crate) fn set_node_velocity(&mut self, node_id: &GraphNodeId, velocity: LayoutPoint) {
+        if !velocity.is_finite() {
+            return;
+        }
+        if let Some(index) = self.node_index(node_id) {
+            self.velocities[index] = velocity;
         }
     }
 

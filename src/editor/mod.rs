@@ -45,6 +45,7 @@ mod tag_index;
 mod link_index;
 mod graph_model;
 mod graph_layout;
+mod graph_physics;
 mod graph_view;
 mod graph_workspace;
 mod quick_file_open;
@@ -176,6 +177,7 @@ pub struct Editor {
     knowledge_graph_view: Option<graph_view::KnowledgeGraphViewState>,
     graph_animation_task: Option<Task<()>>,
     graph_active_node_pulse_task: Option<Task<()>>,
+    graph_physics_task: Option<Task<()>>,
     ai: controllers::AiController,
 }
 
@@ -385,6 +387,7 @@ impl Editor {
             knowledge_graph_view: None,
             graph_animation_task: None,
             graph_active_node_pulse_task: None,
+            graph_physics_task: None,
             ai: controllers::AiController::new(cx),
         };
         editor.rebuild_table_runtimes(cx);

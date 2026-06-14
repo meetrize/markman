@@ -52,6 +52,7 @@ pub(crate) struct GraphInteractionDrag {
     pub node_id: Option<GraphNodeId>,
     pub start_screen: LayoutPoint,
     pub last_screen: LayoutPoint,
+    pub drag_velocity: LayoutPoint,
 }
 
 impl Default for GraphInteractionDrag {
@@ -61,6 +62,7 @@ impl Default for GraphInteractionDrag {
             node_id: None,
             start_screen: LayoutPoint { x: 0.0, y: 0.0 },
             last_screen: LayoutPoint { x: 0.0, y: 0.0 },
+            drag_velocity: LayoutPoint { x: 0.0, y: 0.0 },
         }
     }
 }
@@ -93,6 +95,7 @@ pub(crate) struct KnowledgeGraphViewState {
     pub drag: GraphInteractionDrag,
     pub last_bounds: Bounds<Pixels>,
     pub mutual_repulsion: bool,
+    pub physics_collisions: bool,
 }
 
 impl KnowledgeGraphViewState {
@@ -116,6 +119,7 @@ impl KnowledgeGraphViewState {
             drag: GraphInteractionDrag::default(),
             last_bounds: Bounds::default(),
             mutual_repulsion: false,
+            physics_collisions: false,
         }
     }
 
@@ -946,9 +950,11 @@ impl Editor {
             }
             GraphDragMode::Node => {
                 let Some(node_id) = state.drag.node_id.clone() else {
+                    cx.notify();
                     return;
                 };
                 if state.viewport.scale <= 0.0 {
+                    cx.notify();
                     return;
                 }
                 let world_delta = LayoutPoint {
@@ -956,12 +962,18 @@ impl Editor {
                     y: delta.y / state.viewport.scale,
                 };
                 if !world_delta.is_finite() {
+                    cx.notify();
                     return;
                 }
+                state.drag.drag_velocity = LayoutPoint {
+                    x: world_delta.x / super::graph_physics::GRAPH_PHYSICS_DT,
+                    y: world_delta.y / super::graph_physics::GRAPH_PHYSICS_DT,
+                };
                 if let Some(position) = state.layout.positions.get_mut(&node_id) {
                     position.x += world_delta.x;
                     position.y += world_delta.y;
                     if !position.is_finite() {
+                        cx.notify();
                         return;
                     }
                 }
@@ -970,8 +982,17 @@ impl Editor {
                         simulation.set_node_position(&node_id, *position);
                     }
                 }
-                if state.mutual_repulsion {
+                let use_physics = state.physics_collisions;
+                let use_repulsion = state.mutual_repulsion && !use_physics;
+                if use_repulsion {
                     state.apply_mutual_repulsion(Some(&node_id));
+                }
+                if use_physics {
+                    let _ = state;
+                    self.run_knowledge_graph_physics_step(cx);
+                    self.ensure_knowledge_graph_physics_loop(cx);
+                    cx.notify();
+                    return;
                 }
             }
             GraphDragMode::None => {}
@@ -1003,6 +1024,12 @@ impl Editor {
 
         if matches!(state.drag.mode, GraphDragMode::Node) {
             if let Some(node_id) = state.drag.node_id.clone() {
+                if state.physics_collisions {
+                    let release_velocity = state.drag.drag_velocity;
+                    if let Some(simulation) = state.simulation.as_mut() {
+                        simulation.set_node_velocity(&node_id, release_velocity);
+                    }
+                }
                 state.pinned.remove(&node_id);
                 if let Some(simulation) = state.simulation.as_mut() {
                     simulation.unpin_node(&node_id);
@@ -1010,8 +1037,13 @@ impl Editor {
             }
         }
 
+        let start_physics_loop = state.physics_collisions;
         state.drag = GraphInteractionDrag::default();
         cx.notify();
+
+        if start_physics_loop {
+            self.ensure_knowledge_graph_physics_loop(cx);
+        }
 
         let Some(node_id) = clicked_node else {
             return;
