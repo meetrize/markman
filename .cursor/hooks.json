@@ -5,6 +5,10 @@
       {
         "command": ".cursor/hooks/refactor-queue-next.sh",
         "loop_limit": 25
+      },
+      {
+        "command": ".cursor/hooks/hashtag-queue-next.sh",
+        "loop_limit": 8
       }
     ]
   }
