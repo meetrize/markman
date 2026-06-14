@@ -13,6 +13,11 @@ use super::ai_toolbar::{
     ai_selection_toolbar_buttons_from_toml, default_ai_selection_toolbar_buttons,
     normalize_ai_selection_toolbar_buttons,
 };
+use super::format_toolbar::{
+    FormatToolbarButtonConfig, FormatToolbarButtonConfigFile,
+    default_format_toolbar_button_configs, format_toolbar_buttons_from_toml,
+    normalize_format_toolbar_button_configs,
+};
 use super::{MarkmanConfigDirs, read_recent_files};
 use crate::components::normalize_shortcut_config;
 use crate::i18n::language_id_for_locale_preferences;
@@ -58,6 +63,7 @@ pub(crate) struct AppPreferences {
     /// When true, inline code runs open in the system terminal instead of the in-app popover runner.
     pub(crate) inline_code_run_in_system_terminal: bool,
     pub(crate) ai: AiPreferences,
+    pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,6 +104,7 @@ impl Default for AppPreferences {
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
             ai: AiPreferences::default(),
+            format_toolbar: default_format_toolbar_button_configs(),
         }
     }
 }
@@ -110,6 +117,7 @@ struct PreferencesFile {
     keybindings: BTreeMap<String, Vec<String>>,
     code_execution: CodeExecutionPreferencesFile,
     ai: AiPreferencesFile,
+    format_toolbar: Vec<FormatToolbarButtonConfigFile>,
 }
 
 #[derive(Serialize)]
@@ -179,6 +187,11 @@ impl From<&AppPreferences> for PreferencesFile {
                     .map(AiSelectionToolbarButtonFile::from)
                     .collect(),
             },
+            format_toolbar: value
+                .format_toolbar
+                .iter()
+                .map(FormatToolbarButtonConfigFile::from)
+                .collect(),
         }
     }
 }
@@ -274,6 +287,7 @@ fn app_preferences_from_toml_value(
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
     let ai = ai_preferences_from_toml_value(value);
+    let format_toolbar = format_toolbar_buttons_from_toml(Some(value));
 
     AppPreferences {
         startup_open,
@@ -284,6 +298,7 @@ fn app_preferences_from_toml_value(
         code_execution_confirm_shown,
         inline_code_run_in_system_terminal,
         ai,
+        format_toolbar,
     }
 }
 
@@ -428,6 +443,8 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preferences.ai = ai;
     preferences.ai.selection_toolbar =
         normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
+    preferences.format_toolbar =
+        normalize_format_toolbar_button_configs(preferences.format_toolbar);
     save_app_preferences_with_dirs(&preferences, dirs)?;
     Ok(preferences)
 }
@@ -437,6 +454,8 @@ pub(crate) fn update_app_preferences(
 ) -> anyhow::Result<AppPreferences> {
     let mut preferences = load_or_create_app_preferences()?;
     update(&mut preferences);
+    preferences.format_toolbar =
+        normalize_format_toolbar_button_configs(preferences.format_toolbar);
     save_app_preferences(&preferences)?;
     Ok(preferences)
 }
@@ -448,6 +467,7 @@ mod tests {
         load_or_create_app_preferences_with_dirs_and_locales, read_app_preferences_with_dirs,
         save_app_preferences_with_dirs, save_preferences_from_window_with_dirs,
     };
+    use crate::config::format_toolbar::default_format_toolbar_button_configs;
     use crate::config::MarkmanConfigDirs;
     use std::collections::BTreeMap;
 
@@ -525,6 +545,7 @@ mod tests {
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
             ai: AiPreferences::default(),
+            format_toolbar: default_format_toolbar_button_configs(),
         };
 
         save_app_preferences_with_dirs(&preferences, &dirs)
@@ -608,6 +629,7 @@ mod tests {
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
             ai: AiPreferences::default(),
+            format_toolbar: default_format_toolbar_button_configs(),
         };
         save_app_preferences_with_dirs(&preferences, &dirs)
             .expect("preferences should save to config.toml");

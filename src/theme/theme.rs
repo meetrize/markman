@@ -17,6 +17,8 @@ use crate::config::{
     prune_empty_json_values, read_json_or_jsonc, sanitize_config_file_stem,
 };
 
+use super::DocumentZoom;
+
 /// Serializable font weight that maps to GPUI's [`FontWeight`] constants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1611,6 +1613,7 @@ impl ThemeManager {
         let theme_id = normalize_builtin_theme_id(theme_id);
         let _ = manager.set_theme_by_id(&theme_id);
         cx.set_global(manager);
+        cx.set_global(DocumentZoom::default());
     }
 
     /// Returns the currently active theme.

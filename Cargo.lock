@@ -3558,6 +3558,7 @@ dependencies = [
  "global-hotkey",
  "gpui",
  "mermaid-rs-renderer",
+ "objc",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

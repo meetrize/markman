@@ -309,6 +309,9 @@ impl Editor {
         let had_menu = self.context_menu.take().is_some();
         let had_dialog = self.table_insert_dialog.take().is_some();
         let had_mermaid_menu = self.mermaid_template_menu_position.take().is_some();
+        let had_toolbar_overflow_menu = self.format_toolbar_overflow_menu_position.take().is_some();
+        let had_toolbar_context_menu = self.format_toolbar_context_menu.take().is_some();
+        let had_toolbar_customize_dialog = self.format_toolbar_customize_dialog.take().is_some();
         let had_submenu_close = self.context_menu_submenu_close_task.take().is_some();
         let had_file_menu = self.workspace.file_context_menu.take().is_some();
         let had_name_dialog = self.workspace.name_dialog.take().is_some();
@@ -326,6 +329,9 @@ impl Editor {
             || had_menu
             || had_dialog
             || had_mermaid_menu
+            || had_toolbar_overflow_menu
+            || had_toolbar_context_menu
+            || had_toolbar_customize_dialog
             || had_submenu_close
             || had_file_menu
             || had_name_dialog

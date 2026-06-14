@@ -1826,7 +1826,7 @@ impl Element for BlockTextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let theme = cx.global::<ThemeManager>().current_arc();
+        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
         let input = self.input.read(cx);
         let shared_text = input.shared_display_text();
         let is_placeholder = self.is_placeholder;
@@ -1958,7 +1958,7 @@ impl Element for BlockTextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let theme = cx.global::<ThemeManager>().current_arc();
+        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
         let input = self.input.read(cx);
         let show_selection_highlight = input.shows_text_selection_highlight();
         let editor_selection_range = input
@@ -2357,7 +2357,7 @@ impl Element for BlockTextElement {
             }
         });
 
-        let theme = cx.global::<ThemeManager>().current_arc();
+        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
         let input = self.input.read(cx);
         if input.show_code_block_line_number_gutter()
             && prepaint.source_line_number_gutter_width > px(0.0)
@@ -2641,7 +2641,7 @@ impl Element for InlineTreePreviewTextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let theme = cx.global::<ThemeManager>().current_arc();
+        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
         let cache = self.tree.render_cache();
         let display_text = SharedString::from(cache.visible_text().to_string());
         let style = window.text_style();

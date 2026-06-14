@@ -1421,6 +1421,9 @@ impl Render for Editor {
         self.sync_scroll_viewport(viewport_size, cx);
 
         let theme = cx.global::<ThemeManager>().current_arc();
+        cx.set_global(crate::theme::DocumentZoom::new(self.document_zoom));
+        let document_theme = cx.global::<ThemeManager>().document_theme_arc(cx);
+        let doc_d = &document_theme.dimensions;
         let strings = cx.global::<I18nManager>().strings_arc();
         self.sync_window_title(window, &strings);
         self.sync_code_run_visuals(cx);
@@ -1437,7 +1440,7 @@ impl Render for Editor {
         let titlebar_height = custom_titlebar_height(window, d);
         let menu_bar_height =
             in_window_menu_bar_height_for_target_os(std::env::consts::OS, has_menus, d);
-        let scroll_trigger_padding = (d.block_min_height * 0.75).max(16.0);
+        let scroll_trigger_padding = (doc_d.block_min_height * 0.75).max(16.0);
         let max_scroll_y = f32::from(self.scroll_handle.max_offset().height.max(px(0.0)));
         let viewport_height = f32::from(viewport_bounds.size.height.max(px(1.0)));
         let has_overflow = max_scroll_y > 0.5;
@@ -1469,7 +1472,7 @@ impl Render for Editor {
         while index < visible_blocks.len() {
             let first_visible = visible_blocks[index].clone();
             let first_spacing = spacing_for(index);
-            let top_gap = rendered_row_top_gap(previous_row_spacing, first_spacing, d.block_gap);
+            let top_gap = rendered_row_top_gap(previous_row_spacing, first_spacing, doc_d.block_gap);
 
             if let (Some(callout_anchor), Some(callout_variant)) =
                 (first_spacing.callout_anchor, first_spacing.callout_variant)
@@ -1494,7 +1497,7 @@ impl Render for Editor {
                             let row = div()
                                 .w_full()
                                 .flex_shrink_0()
-                                .mt(px(footnote_row_top_gap(previous_footnote_row, d.block_gap)))
+                                .mt(px(footnote_row_top_gap(previous_footnote_row, doc_d.block_gap)))
                                 .child(entity.clone());
                             let row = {
                                 let row_editor = editor.clone();
@@ -1519,9 +1522,9 @@ impl Render for Editor {
                                 .mt(px(callout_row_top_gap(
                                     previous_callout_row,
                                     row_spacing,
-                                    d,
+                                    doc_d,
                                 )))
-                                .child(footnote_group_shell(footnote_children, &theme, d))
+                                .child(footnote_group_shell(footnote_children, &document_theme, doc_d))
                                 .into_any_element(),
                         );
                         previous_callout_row = Some(spacing_for(footnote_end - 1));
@@ -1536,7 +1539,7 @@ impl Render for Editor {
                         .mt(px(callout_row_top_gap(
                             previous_callout_row,
                             row_spacing,
-                            d,
+                            doc_d,
                         )))
                         .child(entity.clone());
                     let row = {
@@ -1554,7 +1557,7 @@ impl Render for Editor {
                     group_end += 1;
                 }
 
-                let (accent, background) = callout_colors(callout_variant, &theme);
+                let (accent, background) = callout_colors(callout_variant, &document_theme);
                 block_rows.push(
                     div()
                         .w_full()
@@ -1589,7 +1592,7 @@ impl Render for Editor {
                     let row = div()
                         .w_full()
                         .flex_shrink_0()
-                        .mt(px(footnote_row_top_gap(previous_footnote_row, d.block_gap)))
+                        .mt(px(footnote_row_top_gap(previous_footnote_row, doc_d.block_gap)))
                         .child(entity.clone());
                     let row = {
                         let row_editor = editor.clone();
@@ -1611,7 +1614,7 @@ impl Render for Editor {
                         .w_full()
                         .flex_shrink_0()
                         .mt(px(top_gap))
-                        .child(footnote_group_shell(group_children, &theme, d))
+                        .child(footnote_group_shell(group_children, &document_theme, doc_d))
                         .into_any_element(),
                 );
                 previous_row_spacing = Some(spacing_for(group_end - 1));
@@ -1656,8 +1659,8 @@ impl Render for Editor {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_editor_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_editor_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_editor_scroll_wheel))
-            .p(px(d.editor_padding))
-            .pb(px(d.editor_padding + scroll_trigger_padding))
+            .p(px(doc_d.editor_padding))
+            .pb(px(doc_d.editor_padding + scroll_trigger_padding))
             .children(block_rows);
         let scroll_content = scroll_content.on_mouse_down(
             MouseButton::Right,

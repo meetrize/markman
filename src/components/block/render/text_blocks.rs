@@ -107,7 +107,7 @@ impl Block {
         let is_placeholder =
             focused && self.display_text().is_empty() && self.marked_range.is_none();
 
-        let theme = cx.global::<ThemeManager>().current_arc();
+        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
         let strings = cx.global::<I18nManager>().strings_arc();
         let c = &theme.colors;
         let d = &theme.dimensions;

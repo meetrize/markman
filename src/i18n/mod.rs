@@ -386,6 +386,38 @@ pub struct I18nStrings {
     pub format_toolbar_image: String,
     /// Markdown toolbar button label for table-of-contents insertion.
     pub format_toolbar_table_of_contents: String,
+    /// Format toolbar customize context menu item.
+    pub format_toolbar_customize_menu: String,
+    /// Format toolbar customize dialog title.
+    pub format_toolbar_customize_title: String,
+    /// Format toolbar customize dialog: enabled toggle label.
+    pub format_toolbar_customize_enabled: String,
+    /// Format toolbar customize dialog: disabled toggle label.
+    pub format_toolbar_customize_disabled: String,
+    /// Format toolbar customize dialog: reset button label.
+    pub format_toolbar_customize_reset: String,
+    /// Markdown toolbar button label for heading level 1.
+    pub format_toolbar_heading1: String,
+    /// Markdown toolbar button label for heading level 2.
+    pub format_toolbar_heading2: String,
+    /// Markdown toolbar button label for heading level 3.
+    pub format_toolbar_heading3: String,
+    /// Markdown toolbar button label for fenced code blocks.
+    pub format_toolbar_code_block: String,
+    /// Markdown toolbar button label for Mermaid templates.
+    pub format_toolbar_mermaid: String,
+    /// Markdown toolbar button label for AI actions.
+    pub format_toolbar_ai: String,
+    /// Markdown toolbar button label for document search.
+    pub format_toolbar_document_search: String,
+    /// Markdown toolbar button label for auto-save toggle.
+    pub format_toolbar_auto_save: String,
+    /// Markdown toolbar button label for zoom out.
+    pub format_toolbar_zoom_out: String,
+    /// Markdown toolbar button label for zoom in.
+    pub format_toolbar_zoom_in: String,
+    /// Markdown toolbar button label for view mode toggle.
+    pub format_toolbar_view_mode: String,
     /// Mermaid template menu label for flowchart diagrams.
     pub mermaid_template_flowchart: String,
     /// Mermaid template menu label for mind-map diagrams.
@@ -722,6 +754,22 @@ struct I18nStringsDe {
     format_toolbar_horizontal_rule: Option<String>,
     format_toolbar_image: Option<String>,
     format_toolbar_table_of_contents: Option<String>,
+    format_toolbar_customize_menu: Option<String>,
+    format_toolbar_customize_title: Option<String>,
+    format_toolbar_customize_enabled: Option<String>,
+    format_toolbar_customize_disabled: Option<String>,
+    format_toolbar_customize_reset: Option<String>,
+    format_toolbar_heading1: Option<String>,
+    format_toolbar_heading2: Option<String>,
+    format_toolbar_heading3: Option<String>,
+    format_toolbar_code_block: Option<String>,
+    format_toolbar_mermaid: Option<String>,
+    format_toolbar_ai: Option<String>,
+    format_toolbar_document_search: Option<String>,
+    format_toolbar_auto_save: Option<String>,
+    format_toolbar_zoom_out: Option<String>,
+    format_toolbar_zoom_in: Option<String>,
+    format_toolbar_view_mode: Option<String>,
     mermaid_template_flowchart: Option<String>,
     mermaid_template_mind_map: Option<String>,
     mermaid_template_sequence: Option<String>,
@@ -997,6 +1045,22 @@ const I18N_STRING_KEYS: &[&str] = &[
     "format_toolbar_horizontal_rule",
     "format_toolbar_image",
     "format_toolbar_table_of_contents",
+    "format_toolbar_customize_menu",
+    "format_toolbar_customize_title",
+    "format_toolbar_customize_enabled",
+    "format_toolbar_customize_disabled",
+    "format_toolbar_customize_reset",
+    "format_toolbar_heading1",
+    "format_toolbar_heading2",
+    "format_toolbar_heading3",
+    "format_toolbar_code_block",
+    "format_toolbar_mermaid",
+    "format_toolbar_ai",
+    "format_toolbar_document_search",
+    "format_toolbar_auto_save",
+    "format_toolbar_zoom_out",
+    "format_toolbar_zoom_in",
+    "format_toolbar_view_mode",
     "mermaid_template_flowchart",
     "mermaid_template_mind_map",
     "mermaid_template_sequence",
@@ -1646,6 +1710,54 @@ impl I18nStringsDe {
             format_toolbar_table_of_contents: self
                 .format_toolbar_table_of_contents
                 .unwrap_or(defaults.format_toolbar_table_of_contents),
+            format_toolbar_customize_menu: self
+                .format_toolbar_customize_menu
+                .unwrap_or(defaults.format_toolbar_customize_menu),
+            format_toolbar_customize_title: self
+                .format_toolbar_customize_title
+                .unwrap_or(defaults.format_toolbar_customize_title),
+            format_toolbar_customize_enabled: self
+                .format_toolbar_customize_enabled
+                .unwrap_or(defaults.format_toolbar_customize_enabled),
+            format_toolbar_customize_disabled: self
+                .format_toolbar_customize_disabled
+                .unwrap_or(defaults.format_toolbar_customize_disabled),
+            format_toolbar_customize_reset: self
+                .format_toolbar_customize_reset
+                .unwrap_or(defaults.format_toolbar_customize_reset),
+            format_toolbar_heading1: self
+                .format_toolbar_heading1
+                .unwrap_or(defaults.format_toolbar_heading1),
+            format_toolbar_heading2: self
+                .format_toolbar_heading2
+                .unwrap_or(defaults.format_toolbar_heading2),
+            format_toolbar_heading3: self
+                .format_toolbar_heading3
+                .unwrap_or(defaults.format_toolbar_heading3),
+            format_toolbar_code_block: self
+                .format_toolbar_code_block
+                .unwrap_or(defaults.format_toolbar_code_block),
+            format_toolbar_mermaid: self
+                .format_toolbar_mermaid
+                .unwrap_or(defaults.format_toolbar_mermaid),
+            format_toolbar_ai: self
+                .format_toolbar_ai
+                .unwrap_or(defaults.format_toolbar_ai),
+            format_toolbar_document_search: self
+                .format_toolbar_document_search
+                .unwrap_or(defaults.format_toolbar_document_search),
+            format_toolbar_auto_save: self
+                .format_toolbar_auto_save
+                .unwrap_or(defaults.format_toolbar_auto_save),
+            format_toolbar_zoom_out: self
+                .format_toolbar_zoom_out
+                .unwrap_or(defaults.format_toolbar_zoom_out),
+            format_toolbar_zoom_in: self
+                .format_toolbar_zoom_in
+                .unwrap_or(defaults.format_toolbar_zoom_in),
+            format_toolbar_view_mode: self
+                .format_toolbar_view_mode
+                .unwrap_or(defaults.format_toolbar_view_mode),
             mermaid_template_flowchart: self
                 .mermaid_template_flowchart
                 .unwrap_or(defaults.mermaid_template_flowchart),
@@ -2055,6 +2167,22 @@ impl I18nStrings {
             format_toolbar_horizontal_rule: "分割线".into(),
             format_toolbar_image: "图片".into(),
             format_toolbar_table_of_contents: "目录".into(),
+            format_toolbar_customize_menu: "自定义工具栏…".into(),
+            format_toolbar_customize_title: "自定义工具栏".into(),
+            format_toolbar_customize_enabled: "显示".into(),
+            format_toolbar_customize_disabled: "隐藏".into(),
+            format_toolbar_customize_reset: "恢复默认".into(),
+            format_toolbar_heading1: "标题 1".into(),
+            format_toolbar_heading2: "标题 2".into(),
+            format_toolbar_heading3: "标题 3".into(),
+            format_toolbar_code_block: "代码块".into(),
+            format_toolbar_mermaid: "Mermaid".into(),
+            format_toolbar_ai: "AI".into(),
+            format_toolbar_document_search: "搜索".into(),
+            format_toolbar_auto_save: "自动保存".into(),
+            format_toolbar_zoom_out: "缩小".into(),
+            format_toolbar_zoom_in: "放大".into(),
+            format_toolbar_view_mode: "视图模式".into(),
             mermaid_template_flowchart: "流程图".into(),
             mermaid_template_mind_map: "思维导图".into(),
             mermaid_template_sequence: "时序图".into(),
@@ -2350,6 +2478,22 @@ impl I18nStrings {
             format_toolbar_horizontal_rule: "---".into(),
             format_toolbar_image: "Img".into(),
             format_toolbar_table_of_contents: "TOC".into(),
+            format_toolbar_customize_menu: "Customize Toolbar…".into(),
+            format_toolbar_customize_title: "Customize Toolbar".into(),
+            format_toolbar_customize_enabled: "Show".into(),
+            format_toolbar_customize_disabled: "Hide".into(),
+            format_toolbar_customize_reset: "Reset to Default".into(),
+            format_toolbar_heading1: "Heading 1".into(),
+            format_toolbar_heading2: "Heading 2".into(),
+            format_toolbar_heading3: "Heading 3".into(),
+            format_toolbar_code_block: "Code Block".into(),
+            format_toolbar_mermaid: "Mermaid".into(),
+            format_toolbar_ai: "AI".into(),
+            format_toolbar_document_search: "Search".into(),
+            format_toolbar_auto_save: "Auto Save".into(),
+            format_toolbar_zoom_out: "Zoom Out".into(),
+            format_toolbar_zoom_in: "Zoom In".into(),
+            format_toolbar_view_mode: "View Mode".into(),
             mermaid_template_flowchart: "Flowchart".into(),
             mermaid_template_mind_map: "Mind Map".into(),
             mermaid_template_sequence: "Sequence".into(),

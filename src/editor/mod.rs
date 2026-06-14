@@ -35,10 +35,13 @@ mod code_language_menu;
 mod code_run;
 mod context_menu;
 mod document;
+pub(crate) mod document_zoom;
 mod events;
 mod export;
 mod file_drop;
 mod format_toolbar;
+mod format_toolbar_customize;
+mod format_toolbar_overflow;
 mod history;
 mod overlays;
 mod persistence;
@@ -123,6 +126,8 @@ pub struct Editor {
     document_dirty: bool,
     file_path: Option<PathBuf>,
     scroll_handle: ScrollHandle,
+    /// Zoom multiplier for document content (typography and block layout).
+    document_zoom: f32,
     last_scroll_viewport_size: Option<Size<Pixels>>,
     close_guard_installed: bool,
     show_unsaved_changes_dialog: bool,
@@ -145,6 +150,10 @@ pub struct Editor {
     context_menu_selection_snapshot: Option<ai_context::AiContextSnapshot>,
     table_insert_dialog: Option<TableInsertDialogState>,
     mermaid_template_menu_position: Option<Point<Pixels>>,
+    format_toolbar_width: f32,
+    format_toolbar_overflow_menu_position: Option<Point<Pixels>>,
+    format_toolbar_context_menu: Option<Point<Pixels>>,
+    format_toolbar_customize_dialog: Option<Vec<crate::config::FormatToolbarButtonConfig>>,
     context_menu_submenu_close_task: Option<Task<()>>,
     table_axis_preview: Option<TableAxisSelection>,
     table_axis_selection: Option<TableAxisSelection>,
@@ -348,6 +357,7 @@ impl Editor {
             document_dirty: false,
             file_path,
             scroll_handle: ScrollHandle::new(),
+            document_zoom: 1.0,
             last_scroll_viewport_size: None,
             close_guard_installed: false,
             show_unsaved_changes_dialog: false,
@@ -365,6 +375,10 @@ impl Editor {
             context_menu_selection_snapshot: None,
             table_insert_dialog: None,
             mermaid_template_menu_position: None,
+            format_toolbar_width: f32::MAX,
+            format_toolbar_overflow_menu_position: None,
+            format_toolbar_context_menu: None,
+            format_toolbar_customize_dialog: None,
             context_menu_submenu_close_task: None,
             table_axis_preview: None,
             table_axis_selection: None,

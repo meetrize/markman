@@ -26,6 +26,7 @@ mod input;
 mod i18n;
 mod layout;
 mod net;
+mod platform;
 mod theme;
 mod window_chrome;
 
@@ -140,6 +141,12 @@ impl AssetSource for VelotypeAssets {
             )))),
             "icon/toolbar/view-rendered.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/view-rendered.svg"
+            )))),
+            "icon/toolbar/zoom-in.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/zoom-in.svg"
+            )))),
+            "icon/toolbar/zoom-out.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/toolbar/zoom-out.svg"
             )))),
             "icon/toolbar/auto-save.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/toolbar/auto-save.svg"
@@ -320,6 +327,7 @@ fn main() {
             I18nManager::init_with_language_id(cx, &preferences.default_language_id);
             ThemeManager::init_with_theme_id(cx, &preferences.default_theme_id);
             net::install_http_client(cx);
+            platform::init_document_gestures(cx);
             init_editor(cx, &preferences.keybindings);
             init_app_menu(cx);
             app_visibility::init(cx);

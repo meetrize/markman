@@ -102,6 +102,7 @@ tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-toml = { package = "adot-tree-sitter-toml", version = "0.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSImage", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder"] }

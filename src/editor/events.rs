@@ -385,10 +385,16 @@ impl Editor {
 
     pub(crate) fn on_editor_scroll_wheel(
         &mut self,
-        _event: &ScrollWheelEvent,
+        event: &ScrollWheelEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if Self::scroll_wheel_requests_document_zoom(event) {
+            self.apply_document_zoom_from_scroll_wheel(event, cx);
+            self.bump_scrollbar_visibility(cx);
+            cx.stop_propagation();
+            return;
+        }
         self.bump_scrollbar_visibility(cx);
     }
 

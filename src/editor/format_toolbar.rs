@@ -8,6 +8,9 @@ use crate::components::{AskAi, Block, BlockKind, BlockRecord, InlineTextTree, Un
 use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::Theme;
 
+use super::format_toolbar_overflow::{
+    FormatToolbarControl, compute_format_toolbar_layout,
+};
 use super::toolbar_button::{
     toolbar_icon_button, toolbar_icon_label_button_styled, ToolbarIconLabelStyle,
 };
@@ -34,11 +37,14 @@ const ICON_IMAGE: &str = "icon/toolbar/image.svg";
 const ICON_TABLE_OF_CONTENTS: &str = "icon/toolbar/table-of-contents.svg";
 const ICON_VIEW_SOURCE: &str = "icon/toolbar/view-source.svg";
 const ICON_VIEW_RENDERED: &str = "icon/toolbar/view-rendered.svg";
+const ICON_ZOOM_IN: &str = "icon/toolbar/zoom-in.svg";
+const ICON_ZOOM_OUT: &str = "icon/toolbar/zoom-out.svg";
 const ICON_SAVE: &str = "icon/toolbar/save.svg";
 const ICON_AUTO_SAVE: &str = "icon/toolbar/auto-save.svg";
 const ICON_SEARCH: &str = "icon/toolbar/search.svg";
 const ICON_AI_CUSTOM: &str = "icon/toolbar/sparkles.svg";
 const ICON_WORKFLOW: &str = "icon/toolbar/workflow.svg";
+const ICON_OVERFLOW: &str = "icon/toolbar/chevron-down.svg";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MermaidTemplate {
@@ -86,11 +92,6 @@ const MERMAID_TEMPLATES: [MermaidTemplate; 6] = [
     MermaidTemplate::State,
     MermaidTemplate::Class,
 ];
-
-enum FormatToolbarItem {
-    Action(MarkdownToolbarAction),
-    Separator,
-}
 
 impl Editor {
     pub(super) fn apply_markdown_toolbar_format(
@@ -193,12 +194,34 @@ impl Editor {
     }
 
     fn toggle_mermaid_template_menu_at(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        self.format_toolbar_overflow_menu_position = None;
         self.mermaid_template_menu_position = if self.mermaid_template_menu_position.is_some() {
             None
         } else {
             Some(position)
         };
         cx.notify();
+    }
+
+    fn toggle_format_toolbar_overflow_menu_at(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.mermaid_template_menu_position = None;
+        self.format_toolbar_overflow_menu_position =
+            if self.format_toolbar_overflow_menu_position.is_some() {
+                None
+            } else {
+                Some(position)
+            };
+        cx.notify();
+    }
+
+    pub(super) fn close_format_toolbar_overflow_menu(&mut self, cx: &mut Context<Self>) {
+        if self.format_toolbar_overflow_menu_position.take().is_some() {
+            cx.notify();
+        }
     }
 
     fn insert_mermaid_template(
@@ -284,190 +307,424 @@ impl Editor {
         let c = &theme.colors;
         let d = &theme.dimensions;
         let editor = cx.entity().downgrade();
-
-        let items = [
-            FormatToolbarItem::Action(MarkdownToolbarAction::Bold),
-            FormatToolbarItem::Action(MarkdownToolbarAction::Italic),
-            FormatToolbarItem::Separator,
-            FormatToolbarItem::Action(MarkdownToolbarAction::Heading1),
-            FormatToolbarItem::Action(MarkdownToolbarAction::Heading2),
-            FormatToolbarItem::Action(MarkdownToolbarAction::Heading3),
-            FormatToolbarItem::Separator,
-            FormatToolbarItem::Action(MarkdownToolbarAction::OrderedList),
-            FormatToolbarItem::Action(MarkdownToolbarAction::UnorderedList),
-            FormatToolbarItem::Separator,
-            FormatToolbarItem::Action(MarkdownToolbarAction::Code),
-            FormatToolbarItem::Action(MarkdownToolbarAction::CodeBlock),
-            FormatToolbarItem::Action(MarkdownToolbarAction::Link),
-            FormatToolbarItem::Action(MarkdownToolbarAction::Quote),
-            FormatToolbarItem::Separator,
-            FormatToolbarItem::Action(MarkdownToolbarAction::Todo),
-            FormatToolbarItem::Action(MarkdownToolbarAction::Image),
-            FormatToolbarItem::Separator,
-            FormatToolbarItem::Action(MarkdownToolbarAction::HorizontalRule),
-            FormatToolbarItem::Action(MarkdownToolbarAction::TableOfContents),
-            FormatToolbarItem::Separator,
-            FormatToolbarItem::Action(MarkdownToolbarAction::Table),
-        ];
-
+        let all_controls = self.resolved_format_toolbar_controls();
+        let layout = compute_format_toolbar_layout(&all_controls, self.format_toolbar_width, d);
         let view_mode_icon = match self.view_mode {
             ViewMode::Rendered => ICON_VIEW_SOURCE,
             ViewMode::Source => ICON_VIEW_RENDERED,
         };
-        let auto_save_enabled = self.auto_save_enabled;
-        let document_search_open = self.search.state.open;
-        let can_undo = self.can_undo();
-        let can_redo = self.can_redo();
-        let can_save = self.document_dirty;
+        let toolbar_state = FormatToolbarRenderState {
+            theme,
+            editor: editor.clone(),
+            view_mode_icon,
+            auto_save_enabled: self.auto_save_enabled,
+            document_search_open: self.search.state.open,
+            can_undo: self.can_undo(),
+            can_redo: self.can_redo(),
+            can_save: self.document_dirty,
+            mermaid_menu_open: self.mermaid_template_menu_position.is_some(),
+            overflow_menu_open: self.format_toolbar_overflow_menu_position.is_some(),
+        };
+        let mut overflow_button_rendered = false;
+        let mut toolbar_children = Vec::new();
 
+        for control in all_controls {
+            if layout.visible.contains(&control) {
+                toolbar_children.push(
+                    Self::render_format_toolbar_control(control, &toolbar_state, cx)
+                        .into_any_element(),
+                );
+            } else if layout.overflow.contains(&control) && !overflow_button_rendered {
+                toolbar_children.push(
+                    Self::render_format_toolbar_overflow_button(&toolbar_state).into_any_element(),
+                );
+                overflow_button_rendered = true;
+            }
+        }
+
+        if !overflow_button_rendered && !layout.overflow.is_empty() {
+            toolbar_children.push(
+                Self::render_format_toolbar_overflow_button(&toolbar_state).into_any_element(),
+            );
+        }
+
+        let width_probe_editor = editor;
         div()
             .id("markdown-format-toolbar")
             .w_full()
             .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_between()
+            .relative()
             .px(px(d.format_toolbar_padding_x))
             .py(px(d.format_toolbar_padding_y))
             .bg(c.dialog_surface)
             .border_b(px(d.format_toolbar_border_width))
             .border_color(c.dialog_border.opacity(0.65))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(Self::on_format_toolbar_context_menu_mouse_down),
+            )
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(d.format_toolbar_gap))
-                    .child(Self::render_history_toolbar_button(
-                        "undo-toolbar-button",
-                        ICON_UNDO,
-                        can_undo,
-                        theme,
-                        editor.clone(),
-                        Self::undo_document,
-                    ))
-                    .child(Self::render_history_toolbar_button(
-                        "redo-toolbar-button",
-                        ICON_REDO,
-                        can_redo,
-                        theme,
-                        editor.clone(),
-                        Self::redo_document,
-                    ))
-                    .child(
-                        div()
-                            .id("markdown-format-history-separator")
-                            .w(px(d.format_toolbar_separator_width))
-                            .h(px(d.format_toolbar_separator_height))
-                            .mx(px(d.format_toolbar_separator_margin_x))
-                            .flex_shrink_0()
-                            .bg(c.dialog_border.opacity(0.45)),
-                    )
-                    .children(items.into_iter().enumerate().map(|(index, item)| {
-                        match item {
-                            FormatToolbarItem::Separator => div()
-                                .id(("markdown-format-separator", index))
-                                .w(px(d.format_toolbar_separator_width))
-                                .h(px(d.format_toolbar_separator_height))
-                                .mx(px(d.format_toolbar_separator_margin_x))
-                                .flex_shrink_0()
-                                .bg(c.dialog_border.opacity(0.45))
-                                .into_any_element(),
-                            FormatToolbarItem::Action(action) => {
-                                let icon_path = format_toolbar_icon_path(action);
-                                let button_editor = editor.clone();
-                                toolbar_icon_button(
-                                    ("markdown-format-button", index),
-                                    theme,
-                                    icon_path,
-                                    false,
-                                    false,
-                                    "",
-                                    false,
-                                )
-                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                    cx.stop_propagation();
-                                    let _ = button_editor.update(cx, |editor, cx| {
-                                        editor.apply_markdown_toolbar_format(action, window, cx);
-                                    });
-                                })
-                                .into_any_element()
+                canvas(
+                    move |bounds, _, cx| {
+                        let width = f32::from(bounds.size.width);
+                        let _ = width_probe_editor.update(cx, |editor, cx| {
+                            if (editor.format_toolbar_width - width).abs() > 0.5 {
+                                editor.format_toolbar_width = width;
+                                cx.notify();
                             }
-                        }
-                    }))
-                    .child(Self::render_mermaid_template_button(
-                        theme,
-                        editor.clone(),
-                        self.mermaid_template_menu_position.is_some(),
-                    )),
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
             )
             .child(
                 div()
+                    .relative()
                     .flex()
                     .items_center()
                     .gap(px(d.format_toolbar_gap))
-                    .child({
-                        let button_editor = editor.clone();
-                        toolbar_icon_label_button_styled(
-                            "ai-toolbar-button",
-                            ICON_AI_CUSTOM,
-                            "AI",
-                            theme,
-                            "",
-                            ToolbarIconLabelStyle::format_toolbar(theme),
-                        )
-                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                            cx.stop_propagation();
-                            let _ = button_editor.update(cx, |editor, cx| {
-                                editor.on_ask_ai(&AskAi, window, cx);
-                            });
-                        })
-                    })
-                    .child({
-                        let _button_editor = editor.clone();
-                        toolbar_icon_button(
-                            "document-search-toggle",
-                            theme,
-                            ICON_SEARCH,
-                            document_search_open,
-                            false,
-                            "",
-                            false,
-                        )
-                        .on_click(cx.listener(Self::on_toggle_document_search_click))
-                    })
-                    .child(Self::render_history_toolbar_button(
-                        "save-toolbar-button",
-                        ICON_SAVE,
-                        can_save,
-                        theme,
-                        editor.clone(),
-                        Self::request_save_document,
-                    ))
-                    .child(
-                        toolbar_icon_button(
-                            "auto-save-toggle",
-                            theme,
-                            ICON_AUTO_SAVE,
-                            auto_save_enabled,
-                            false,
-                            "",
-                            false,
-                        )
-                        .on_click(cx.listener(Self::on_toggle_auto_save)),
-                    )
-                    .child(
-                        toolbar_icon_button(
-                            "view-mode-toggle",
-                            theme,
-                            view_mode_icon,
-                            false,
-                            false,
-                            "",
-                            false,
-                        )
-                        .on_click(cx.listener(Self::on_toggle_view_mode)),
-                    ),
+                    .overflow_hidden()
+                    .children(toolbar_children),
             )
+    }
+
+    fn render_format_toolbar_overflow_button(state: &FormatToolbarRenderState<'_>) -> impl IntoElement {
+        let d = &state.theme.dimensions;
+        let menu_offset_y = px(d.format_toolbar_button_height + 6.0);
+        let editor = state.editor.clone();
+        toolbar_icon_button(
+            "format-toolbar-overflow-button",
+            state.theme,
+            ICON_OVERFLOW,
+            state.overflow_menu_open,
+            false,
+            "",
+            false,
+        )
+        .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+            cx.stop_propagation();
+            let position = point(event.position.x, event.position.y + menu_offset_y);
+            let _ = editor.update(cx, |editor, cx| {
+                editor.toggle_format_toolbar_overflow_menu_at(position, cx);
+            });
+        })
+    }
+
+    fn render_format_toolbar_control(
+        control: FormatToolbarControl,
+        state: &FormatToolbarRenderState<'_>,
+        cx: &mut Context<Editor>,
+    ) -> impl IntoElement {
+        let c = &state.theme.colors;
+        let d = &state.theme.dimensions;
+        match control {
+            FormatToolbarControl::Undo => Self::render_history_toolbar_button(
+                "undo-toolbar-button",
+                ICON_UNDO,
+                state.can_undo,
+                state.theme,
+                state.editor.clone(),
+                Self::undo_document,
+            )
+            .into_any_element(),
+            FormatToolbarControl::Redo => Self::render_history_toolbar_button(
+                "redo-toolbar-button",
+                ICON_REDO,
+                state.can_redo,
+                state.theme,
+                state.editor.clone(),
+                Self::redo_document,
+            )
+            .into_any_element(),
+            FormatToolbarControl::HistorySeparator => div()
+                .id("markdown-format-history-separator")
+                .w(px(d.format_toolbar_separator_width))
+                .h(px(d.format_toolbar_separator_height))
+                .mx(px(d.format_toolbar_separator_margin_x))
+                .flex_shrink_0()
+                .bg(c.dialog_border.opacity(0.45))
+                .into_any_element(),
+            FormatToolbarControl::FormatSeparator => div()
+                .id("markdown-format-separator")
+                .w(px(d.format_toolbar_separator_width))
+                .h(px(d.format_toolbar_separator_height))
+                .mx(px(d.format_toolbar_separator_margin_x))
+                .flex_shrink_0()
+                .bg(c.dialog_border.opacity(0.45))
+                .into_any_element(),
+            FormatToolbarControl::Format(action) => {
+                let icon_path = format_toolbar_icon_path(action);
+                let button_editor = state.editor.clone();
+                toolbar_icon_button(
+                    format_action_element_id(action),
+                    state.theme,
+                    icon_path,
+                    false,
+                    false,
+                    "",
+                    false,
+                )
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    cx.stop_propagation();
+                    let _ = button_editor.update(cx, |editor, cx| {
+                        editor.apply_markdown_toolbar_format(action, window, cx);
+                    });
+                })
+                .into_any_element()
+            }
+            FormatToolbarControl::MermaidTemplate => Self::render_mermaid_template_button(
+                state.theme,
+                state.editor.clone(),
+                state.mermaid_menu_open,
+            )
+            .into_any_element(),
+            FormatToolbarControl::Ai => {
+                let button_editor = state.editor.clone();
+                toolbar_icon_label_button_styled(
+                    "ai-toolbar-button",
+                    ICON_AI_CUSTOM,
+                    "AI",
+                    state.theme,
+                    "",
+                    ToolbarIconLabelStyle::format_toolbar(state.theme),
+                )
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    cx.stop_propagation();
+                    let _ = button_editor.update(cx, |editor, cx| {
+                        editor.on_ask_ai(&AskAi, window, cx);
+                    });
+                })
+                .into_any_element()
+            }
+            FormatToolbarControl::DocumentSearch => toolbar_icon_button(
+                "document-search-toggle",
+                state.theme,
+                ICON_SEARCH,
+                state.document_search_open,
+                false,
+                "",
+                false,
+            )
+            .on_click(cx.listener(Self::on_toggle_document_search_click))
+            .into_any_element(),
+            FormatToolbarControl::Save => Self::render_history_toolbar_button(
+                "save-toolbar-button",
+                ICON_SAVE,
+                state.can_save,
+                state.theme,
+                state.editor.clone(),
+                Self::request_save_document,
+            )
+            .into_any_element(),
+            FormatToolbarControl::AutoSave => toolbar_icon_button(
+                "auto-save-toggle",
+                state.theme,
+                ICON_AUTO_SAVE,
+                state.auto_save_enabled,
+                false,
+                "",
+                false,
+            )
+            .on_click(cx.listener(Self::on_toggle_auto_save))
+            .into_any_element(),
+            FormatToolbarControl::ZoomOut => toolbar_icon_button(
+                "document-zoom-out",
+                state.theme,
+                ICON_ZOOM_OUT,
+                false,
+                false,
+                "",
+                false,
+            )
+            .on_click(cx.listener(Self::on_zoom_document_out_click))
+            .into_any_element(),
+            FormatToolbarControl::ZoomIn => toolbar_icon_button(
+                "document-zoom-in",
+                state.theme,
+                ICON_ZOOM_IN,
+                false,
+                false,
+                "",
+                false,
+            )
+            .on_click(cx.listener(Self::on_zoom_document_in_click))
+            .into_any_element(),
+            FormatToolbarControl::ViewMode => toolbar_icon_button(
+                "view-mode-toggle",
+                state.theme,
+                state.view_mode_icon,
+                false,
+                false,
+                "",
+                false,
+            )
+            .on_click(cx.listener(Self::on_toggle_view_mode))
+            .into_any_element(),
+        }
+    }
+
+    pub(super) fn render_format_toolbar_overflow_menu_overlay(
+        &self,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let position = self.format_toolbar_overflow_menu_position?;
+        let all_controls = self.resolved_format_toolbar_controls();
+        let layout = compute_format_toolbar_layout(&all_controls, self.format_toolbar_width, &theme.dimensions);
+        if layout.overflow.is_empty() {
+            return None;
+        }
+
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let editor = cx.entity().downgrade();
+        let view_mode_icon = match self.view_mode {
+            ViewMode::Rendered => ICON_VIEW_SOURCE,
+            ViewMode::Source => ICON_VIEW_RENDERED,
+        };
+        let toolbar_state = FormatToolbarRenderState {
+            theme,
+            editor: editor.clone(),
+            view_mode_icon,
+            auto_save_enabled: self.auto_save_enabled,
+            document_search_open: self.search.state.open,
+            can_undo: self.can_undo(),
+            can_redo: self.can_redo(),
+            can_save: self.document_dirty,
+            mermaid_menu_open: self.mermaid_template_menu_position.is_some(),
+            overflow_menu_open: true,
+        };
+
+        Some(
+            div()
+                .id("format-toolbar-overflow-menu")
+                .absolute()
+                .left(position.x)
+                .top(position.y)
+                .w(px(d.format_toolbar_button_height + 8.0))
+                .p(px(4.0))
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .rounded(px(d.menu_panel_radius))
+                .bg(c.dialog_surface)
+                .border(px(d.dialog_border_width))
+                .border_color(c.dialog_border)
+                .shadow_lg()
+                .occlude()
+                .children(
+                    layout
+                        .overflow
+                        .into_iter()
+                        .filter(|control| {
+                            !matches!(
+                                control,
+                                FormatToolbarControl::HistorySeparator
+                                    | FormatToolbarControl::FormatSeparator
+                            )
+                        })
+                        .enumerate()
+                        .map(|(index, control)| {
+                            let item_editor = editor.clone();
+                            let menu_offset_y = px(d.format_toolbar_button_height + 6.0);
+                            Self::render_format_toolbar_overflow_menu_item(
+                                index,
+                                control,
+                                &toolbar_state,
+                            )
+                            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                                cx.stop_propagation();
+                                let _ = item_editor.update(cx, |editor, cx| {
+                                    editor.close_format_toolbar_overflow_menu(cx);
+                                    if control == FormatToolbarControl::MermaidTemplate {
+                                        editor.toggle_mermaid_template_menu_at(
+                                            point(
+                                                event.position.x,
+                                                event.position.y + menu_offset_y,
+                                            ),
+                                            cx,
+                                        );
+                                    } else {
+                                        editor.activate_format_toolbar_control(
+                                            control,
+                                            window,
+                                            cx,
+                                        );
+                                    }
+                                });
+                            })
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn render_format_toolbar_overflow_menu_item(
+        index: usize,
+        control: FormatToolbarControl,
+        state: &FormatToolbarRenderState<'_>,
+    ) -> Stateful<Div> {
+        let c = &state.theme.colors;
+        let d = &state.theme.dimensions;
+        let (icon_path, active, disabled, muted_disabled_icon) =
+            format_toolbar_overflow_menu_item_visuals(control, state);
+
+        div()
+            .id(("format-toolbar-overflow-menu-item", index))
+            .w(px(d.format_toolbar_button_height))
+            .h(px(d.format_toolbar_button_height))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.0))
+            .when(!disabled, |this| {
+                this.hover(|this| this.bg(c.dialog_secondary_button_hover))
+                    .cursor_pointer()
+            })
+            .when(disabled, |this| this.opacity(0.45))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(d.format_toolbar_icon_size))
+                    .text_color(if disabled && muted_disabled_icon {
+                        c.dialog_muted
+                    } else if active {
+                        c.text_default
+                    } else {
+                        c.dialog_secondary_button_text
+                    }),
+            )
+    }
+
+    fn activate_format_toolbar_control(
+        &mut self,
+        control: FormatToolbarControl,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match control {
+            FormatToolbarControl::Undo => Self::undo_document(self, cx),
+            FormatToolbarControl::Redo => Self::redo_document(self, cx),
+            FormatToolbarControl::Format(action) => {
+                self.apply_markdown_toolbar_format(action, window, cx);
+            }
+            FormatToolbarControl::Ai => self.on_ask_ai(&AskAi, window, cx),
+            FormatToolbarControl::DocumentSearch => self.toggle_document_search(window, cx),
+            FormatToolbarControl::Save => Self::request_save_document(self, cx),
+            FormatToolbarControl::AutoSave => {
+                self.on_toggle_auto_save(&ClickEvent::default(), window, cx);
+            }
+            FormatToolbarControl::ZoomOut => self.zoom_document_out(cx),
+            FormatToolbarControl::ZoomIn => self.zoom_document_in(cx),
+            FormatToolbarControl::ViewMode => self.toggle_view_mode(cx),
+            FormatToolbarControl::MermaidTemplate
+            | FormatToolbarControl::HistorySeparator
+            | FormatToolbarControl::FormatSeparator => {}
+        }
     }
 
     fn render_mermaid_template_button(
@@ -730,5 +987,70 @@ fn format_toolbar_icon_path(action: MarkdownToolbarAction) -> &'static str {
         MarkdownToolbarAction::HorizontalRule => ICON_HORIZONTAL_RULE,
         MarkdownToolbarAction::Image => ICON_IMAGE,
         MarkdownToolbarAction::TableOfContents => ICON_TABLE_OF_CONTENTS,
+    }
+}
+
+struct FormatToolbarRenderState<'a> {
+    theme: &'a Theme,
+    editor: WeakEntity<Editor>,
+    view_mode_icon: &'static str,
+    auto_save_enabled: bool,
+    document_search_open: bool,
+    can_undo: bool,
+    can_redo: bool,
+    can_save: bool,
+    mermaid_menu_open: bool,
+    overflow_menu_open: bool,
+}
+
+fn format_action_element_id(action: MarkdownToolbarAction) -> SharedString {
+    SharedString::from(format!(
+        "markdown-format-{}",
+        format_action_element_key(action)
+    ))
+}
+
+fn format_action_element_key(action: MarkdownToolbarAction) -> &'static str {
+    match action {
+        MarkdownToolbarAction::Bold => "bold",
+        MarkdownToolbarAction::Italic => "italic",
+        MarkdownToolbarAction::Heading1 => "heading-1",
+        MarkdownToolbarAction::Heading2 => "heading-2",
+        MarkdownToolbarAction::Heading3 => "heading-3",
+        MarkdownToolbarAction::OrderedList => "ordered-list",
+        MarkdownToolbarAction::UnorderedList => "unordered-list",
+        MarkdownToolbarAction::Code => "code",
+        MarkdownToolbarAction::CodeBlock => "code-block",
+        MarkdownToolbarAction::Link => "link",
+        MarkdownToolbarAction::Quote => "quote",
+        MarkdownToolbarAction::Table => "table",
+        MarkdownToolbarAction::Todo => "todo",
+        MarkdownToolbarAction::HorizontalRule => "horizontal-rule",
+        MarkdownToolbarAction::Image => "image",
+        MarkdownToolbarAction::TableOfContents => "table-of-contents",
+    }
+}
+
+fn format_toolbar_overflow_menu_item_visuals(
+    control: FormatToolbarControl,
+    state: &FormatToolbarRenderState<'_>,
+) -> (&'static str, bool, bool, bool) {
+    match control {
+        FormatToolbarControl::Undo => (ICON_UNDO, false, !state.can_undo, false),
+        FormatToolbarControl::Redo => (ICON_REDO, false, !state.can_redo, false),
+        FormatToolbarControl::Format(action) => (format_toolbar_icon_path(action), false, false, false),
+        FormatToolbarControl::MermaidTemplate => (ICON_WORKFLOW, state.mermaid_menu_open, false, false),
+        FormatToolbarControl::Ai => (ICON_AI_CUSTOM, false, false, false),
+        FormatToolbarControl::DocumentSearch => {
+            (ICON_SEARCH, state.document_search_open, false, false)
+        }
+        FormatToolbarControl::Save => (ICON_SAVE, false, !state.can_save, false),
+        FormatToolbarControl::AutoSave => (ICON_AUTO_SAVE, state.auto_save_enabled, false, false),
+        FormatToolbarControl::ZoomOut => (ICON_ZOOM_OUT, false, false, false),
+        FormatToolbarControl::ZoomIn => (ICON_ZOOM_IN, false, false, false),
+        FormatToolbarControl::ViewMode => (state.view_mode_icon, false, false, false),
+        FormatToolbarControl::HistorySeparator | FormatToolbarControl::FormatSeparator => {
+            (ICON_OVERFLOW, false, true, false)
+        }
     }
 }

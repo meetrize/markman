@@ -15,6 +15,9 @@ pub(super) enum EditorOverlayKind {
     CodeLanguageMenu,
     WikiLinkPicker,
     MermaidTemplateMenu,
+    FormatToolbarOverflowMenu,
+    FormatToolbarContextMenu,
+    FormatToolbarCustomizeDialog,
     WorkspaceFileContextMenu,
     WorkspaceNameDialog,
     SingleLineInputContextMenu,
@@ -43,6 +46,15 @@ impl Editor {
         }
         if self.mermaid_template_menu_position.is_some() {
             overlays.push(EditorOverlayKind::MermaidTemplateMenu);
+        }
+        if self.format_toolbar_overflow_menu_position.is_some() {
+            overlays.push(EditorOverlayKind::FormatToolbarOverflowMenu);
+        }
+        if self.format_toolbar_context_menu.is_some() {
+            overlays.push(EditorOverlayKind::FormatToolbarContextMenu);
+        }
+        if self.format_toolbar_customize_dialog.is_some() {
+            overlays.push(EditorOverlayKind::FormatToolbarCustomizeDialog);
         }
         if self.workspace.file_context_menu.is_some() {
             overlays.push(EditorOverlayKind::WorkspaceFileContextMenu);
@@ -93,6 +105,15 @@ impl Editor {
             }
             EditorOverlayKind::MermaidTemplateMenu => {
                 self.render_mermaid_template_menu_overlay(theme, cx)
+            }
+            EditorOverlayKind::FormatToolbarOverflowMenu => {
+                self.render_format_toolbar_overflow_menu_overlay(theme, cx)
+            }
+            EditorOverlayKind::FormatToolbarContextMenu => {
+                self.render_format_toolbar_context_menu_overlay(theme, cx)
+            }
+            EditorOverlayKind::FormatToolbarCustomizeDialog => {
+                self.render_format_toolbar_customize_dialog_overlay(theme, cx)
             }
             EditorOverlayKind::WorkspaceFileContextMenu => {
                 self.render_workspace_file_context_menu_overlay(theme, cx)
