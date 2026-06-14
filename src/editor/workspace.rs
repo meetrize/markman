@@ -502,11 +502,6 @@ impl Editor {
         cx.notify();
     }
 
-    pub(super) fn show_workspace_graph_tab(&mut self, cx: &mut Context<Self>) {
-        self.workspace.state.is_open = true;
-        self.set_workspace_tab(WorkspaceTab::Graph, cx);
-    }
-
     fn sync_workspace_search_selection(&mut self) {
         self.workspace.state.search_input.sync_caret_to_end();
     }

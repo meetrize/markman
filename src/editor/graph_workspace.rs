@@ -522,7 +522,7 @@ impl Editor {
 
         let workspace_root = self.effective_workspace_root();
         let original_editor = cx.entity().clone();
-        let title = cx.global::<I18nManager>().strings().workspace_tab_graph.clone();
+        let title = cx.global::<I18nManager>().strings().workspace_graph_window_title.clone();
         let bounds = Bounds::centered(None, size(px(1080.0), px(720.0)), cx);
         let mut options = velotype_window_options(app_window_title(Some(&title)).into(), bounds);
         options.focus = true;

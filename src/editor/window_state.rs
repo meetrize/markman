@@ -71,6 +71,14 @@ impl Editor {
         }
     }
 
+    pub(super) fn effective_window_title(&self, strings: &crate::i18n::I18nStrings) -> String {
+        if self.graph_only_window {
+            crate::app_identity::app_window_title(Some(&strings.workspace_graph_window_title))
+        } else {
+            Self::window_title(self.file_path.as_deref(), self.document_dirty, strings)
+        }
+    }
+
     pub(crate) fn on_toggle_view_mode(
         &mut self,
         _: &ClickEvent,
