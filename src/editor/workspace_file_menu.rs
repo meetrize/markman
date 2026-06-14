@@ -577,10 +577,16 @@ impl Editor {
             return;
         };
         let start = range.start.min(dialog.input.text_len());
-        dialog.input.replace_text(range, new_text);
-        let cursor = start + new_text.len();
-        dialog.input.selected_range = selected.unwrap_or(cursor..cursor);
-        dialog.input.marked_range = marked.then(|| dialog.input.selected_range.clone());
+        let end = range.end.min(dialog.input.text_len());
+        dialog.input.query.replace_range(start..end, new_text);
+        dialog.input.marked_range = marked.then(|| start..start + new_text.len());
+        if let Some(selected) = selected {
+            dialog.input.selected_range = selected;
+        } else {
+            let cursor = start + new_text.len();
+            dialog.input.selected_range = cursor..cursor;
+        }
+        dialog.input.selection_reversed = false;
         cx.notify();
     }
 
@@ -616,49 +622,66 @@ impl Editor {
     }
 
     fn workspace_name_delete_backward(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
-            return;
-        };
-        if !dialog.input.selected_range.is_empty() {
-            self.replace_workspace_name_dialog_text(
-                dialog.input.selected_range.clone(),
-                "",
-                false,
-                None,
-                cx,
-            );
+        if let Some(marked) = self
+            .workspace
+            .name_dialog
+            .as_ref()
+            .and_then(|dialog| dialog.input.marked_range.clone())
+        {
+            let cursor = marked.start;
+            self.replace_workspace_name_dialog_text(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
 
-        let cursor = dialog.input.selected_range.end;
-        if cursor == 0 {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
-        }
-        let previous = text_grapheme_boundary(&dialog.input.query, cursor, true);
-        self.replace_workspace_name_dialog_text(previous..cursor, "", false, Some(previous..previous), cx);
+        };
+        let selected = dialog.input.selected_range.clone();
+        let delete_range = if selected.is_empty() {
+            let cursor = selected.end;
+            if cursor == 0 {
+                return;
+            }
+            let previous = text_grapheme_boundary(&dialog.input.query, cursor, true);
+            previous..cursor
+        } else {
+            selected
+        };
+
+        let cursor = delete_range.start;
+        self.replace_workspace_name_dialog_text(delete_range, "", false, Some(cursor..cursor), cx);
     }
 
     fn workspace_name_delete_forward(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
-            return;
-        };
-        if !dialog.input.selected_range.is_empty() {
-            self.replace_workspace_name_dialog_text(
-                dialog.input.selected_range.clone(),
-                "",
-                false,
-                None,
-                cx,
-            );
+        if let Some(marked) = self
+            .workspace
+            .name_dialog
+            .as_ref()
+            .and_then(|dialog| dialog.input.marked_range.clone())
+        {
+            let cursor = marked.start;
+            self.replace_workspace_name_dialog_text(marked, "", false, Some(cursor..cursor), cx);
             return;
         }
 
-        let cursor = dialog.input.selected_range.end;
-        if cursor >= dialog.input.query.len() {
+        let Some(dialog) = self.workspace.name_dialog.as_ref() else {
             return;
-        }
-        let next = text_grapheme_boundary(&dialog.input.query, cursor, false);
-        self.replace_workspace_name_dialog_text(cursor..next, "", false, Some(cursor..cursor), cx);
+        };
+        let query_len = dialog.input.query.len();
+        let selected = dialog.input.selected_range.clone();
+        let delete_range = if selected.is_empty() {
+            let cursor = selected.end;
+            if cursor >= query_len {
+                return;
+            }
+            let next = text_grapheme_boundary(&dialog.input.query, cursor, false);
+            cursor..next
+        } else {
+            selected
+        };
+
+        let cursor = delete_range.start;
+        self.replace_workspace_name_dialog_text(delete_range, "", false, Some(cursor..cursor), cx);
     }
 
     pub(super) fn workspace_name_paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
