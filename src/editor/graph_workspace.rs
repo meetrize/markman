@@ -13,7 +13,7 @@ use super::graph_physics::{
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
 use super::graph_view::{
     render_knowledge_graph_panel, GraphViewport, KnowledgeGraphViewState,
-    ACTIVE_NODE_PULSE_FRAME_MS, ACTIVE_NODE_PULSE_PHASE_STEP, GRAPH_ANIMATION_FRAME_MS,
+    GRAPH_ANIMATION_FRAME_MS,
     GRAPH_ANIMATION_FRAMES,
 };
 use super::link_index::{
@@ -45,7 +45,6 @@ impl Editor {
         self.workspace.state.graph_revision = None;
         self.workspace.state.graph_busy = false;
         self.graph_animation_task = None;
-        self.graph_active_node_pulse_task = None;
         self.graph_physics_task = None;
         self.knowledge_graph_view = None;
     }
@@ -229,47 +228,6 @@ impl Editor {
         ));
     }
 
-    pub(super) fn ensure_knowledge_graph_active_node_pulse(&mut self, cx: &mut Context<Self>) {
-        if self.knowledge_graph_view.is_none() || self.graph_active_node_pulse_task.is_some() {
-            return;
-        }
-
-        let phase_step = ACTIVE_NODE_PULSE_PHASE_STEP;
-        let editor = cx.entity().downgrade();
-        self.graph_active_node_pulse_task = Some(cx.spawn(
-            async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                loop {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_millis(
-                            ACTIVE_NODE_PULSE_FRAME_MS,
-                        ))
-                        .await;
-
-                    let keep_going = editor
-                        .update(cx, |editor, cx| {
-                            let Some(state) = editor.knowledge_graph_view.as_mut() else {
-                                return false;
-                            };
-                            state.active_node_pulse_phase =
-                                (state.active_node_pulse_phase + phase_step)
-                                    % std::f32::consts::TAU;
-                            cx.notify();
-                            true
-                        })
-                        .unwrap_or(false);
-
-                    if !keep_going {
-                        break;
-                    }
-                }
-
-                let _ = editor.update(cx, |editor, _| {
-                    editor.graph_active_node_pulse_task = None;
-                });
-            },
-        ));
-    }
-
     pub(super) fn set_knowledge_graph_filter(
         &mut self,
         filter: GraphFilter,
@@ -341,7 +299,11 @@ impl Editor {
             return false;
         }
 
-        let config = GraphPhysicsConfig::for_node_count(simulation.positions.len());
+        let config = if drag.is_some() {
+            GraphPhysicsConfig::for_interactive_drag(simulation.positions.len())
+        } else {
+            GraphPhysicsConfig::for_node_count(simulation.positions.len())
+        };
         let bounds = viewport_physics_bounds(
             &state.viewport,
             panel_width,
@@ -356,7 +318,7 @@ impl Editor {
             GRAPH_PHYSICS_DT,
         );
         simulation.sync_positions_to_layout(&mut state.layout);
-        if still_moving {
+        if still_moving && drag.is_none() {
             cx.notify();
         }
         still_moving

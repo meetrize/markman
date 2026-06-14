@@ -8,7 +8,7 @@ pub(crate) const GRAPH_PHYSICS_DT: f32 = 1.0 / 60.0;
 const GRAPH_PHYSICS_VELOCITY_THRESHOLD: f32 = 0.35;
 const GRAPH_PHYSICS_VELOCITY_THRESHOLD_SQ: f32 =
     GRAPH_PHYSICS_VELOCITY_THRESHOLD * GRAPH_PHYSICS_VELOCITY_THRESHOLD;
-const SPATIAL_GRID_THRESHOLD: usize = 16;
+const SPATIAL_GRID_THRESHOLD: usize = 8;
 const SPATIAL_GRID_CELL_SCALE: f32 = 2.5;
 const SPATIAL_GRID_MIN_CELL: f32 = 28.0;
 const SPATIAL_GRID_MAX_DIM: usize = 256;
@@ -62,16 +62,16 @@ impl GraphPhysicsConfig {
         }
         config
     }
+
+    pub(crate) fn for_interactive_drag(node_count: usize) -> Self {
+        let mut config = Self::for_node_count(node_count);
+        config.solver_iterations = config.solver_iterations.min(2);
+        config
+    }
 }
 
-pub(crate) fn physics_frame_ms(node_count: usize) -> u64 {
-    if node_count > 50 {
-        33
-    } else if node_count > 25 {
-        24
-    } else {
-        GRAPH_PHYSICS_FRAME_MS
-    }
+pub(crate) fn physics_frame_ms(_node_count: usize) -> u64 {
+    GRAPH_PHYSICS_FRAME_MS
 }
 
 pub(crate) fn viewport_physics_bounds(
@@ -151,6 +151,71 @@ pub(crate) fn step_graph_physics(
     graph_physics_has_motion(simulation)
 }
 
+struct CollisionSpatialGrid {
+    cols: usize,
+    rows: usize,
+}
+
+fn populate_collision_grid(simulation: &mut LayoutSimulation) -> Option<CollisionSpatialGrid> {
+    let node_count = simulation.positions.len();
+    if node_count == 0 {
+        return None;
+    }
+
+    let max_radius = simulation
+        .sizes
+        .iter()
+        .copied()
+        .fold(0.0f32, f32::max);
+    let base_cell_size = (max_radius * SPATIAL_GRID_CELL_SCALE).max(SPATIAL_GRID_MIN_CELL);
+
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for (index, position) in simulation.positions.iter().enumerate() {
+        let radius = simulation.sizes[index];
+        min_x = min_x.min(position.x - radius);
+        min_y = min_y.min(position.y - radius);
+        max_x = max_x.max(position.x + radius);
+        max_y = max_y.max(position.y + radius);
+    }
+
+    if !min_x.is_finite()
+        || !min_y.is_finite()
+        || !max_x.is_finite()
+        || !max_y.is_finite()
+    {
+        return None;
+    }
+
+    let (cols, rows, cell_size) =
+        spatial_grid_cell_size(min_x, min_y, max_x, max_y, base_cell_size);
+
+    let grid_len = cols * rows;
+    let mut grid = std::mem::take(&mut simulation.collision_grid);
+    if grid.len() < grid_len {
+        grid.resize(grid_len, Vec::new());
+    }
+    for cell in grid.iter_mut().take(grid_len) {
+        cell.clear();
+    }
+
+    for index in 0..node_count {
+        let position = simulation.positions[index];
+        let col = ((position.x - min_x) / cell_size).floor() as usize;
+        let row = ((position.y - min_y) / cell_size).floor() as usize;
+        let col = col.min(cols.saturating_sub(1));
+        let row = row.min(rows.saturating_sub(1));
+        grid[row * cols + col].push(index);
+    }
+
+    simulation.collision_grid = grid;
+
+    Some(CollisionSpatialGrid { cols, rows })
+}
+
 fn sanitize_node_state(simulation: &mut LayoutSimulation, index: usize) {
     if !simulation.positions[index].is_finite() {
         simulation.positions[index] = LayoutPoint { x: 0.0, y: 0.0 };
@@ -209,61 +274,38 @@ fn resolve_node_collisions(
     resolve_node_collisions_spatial(simulation, drag, restitution);
 }
 
+fn spatial_grid_cell_size(
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+    base_cell_size: f32,
+) -> (usize, usize, f32) {
+    let mut cell_size = base_cell_size;
+    for _ in 0..16 {
+        let cols = ((max_x - min_x) / cell_size).ceil() as usize + 1;
+        let rows = ((max_y - min_y) / cell_size).ceil() as usize + 1;
+        if cols <= SPATIAL_GRID_MAX_DIM && rows <= SPATIAL_GRID_MAX_DIM {
+            return (cols.max(1), rows.max(1), cell_size);
+        }
+        cell_size *= 1.75;
+    }
+
+    let span = (max_x - min_x).max(max_y - min_y).max(SPATIAL_GRID_MIN_CELL);
+    (1, 1, span)
+}
+
 fn resolve_node_collisions_spatial(
     simulation: &mut LayoutSimulation,
     drag: Option<GraphPhysicsDragState>,
     restitution: f32,
 ) {
-    let node_count = simulation.positions.len();
-    let max_radius = simulation
-        .sizes
-        .iter()
-        .copied()
-        .fold(0.0f32, f32::max);
-    let cell_size = (max_radius * SPATIAL_GRID_CELL_SCALE).max(SPATIAL_GRID_MIN_CELL);
-
-    let mut min_x = f32::INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-
-    for (index, position) in simulation.positions.iter().enumerate() {
-        let radius = simulation.sizes[index];
-        min_x = min_x.min(position.x - radius);
-        min_y = min_y.min(position.y - radius);
-        max_x = max_x.max(position.x + radius);
-        max_y = max_y.max(position.y + radius);
-    }
-
-    let cols = ((max_x - min_x) / cell_size).ceil() as usize + 1;
-    let rows = ((max_y - min_y) / cell_size).ceil() as usize + 1;
-    if cols > SPATIAL_GRID_MAX_DIM
-        || rows > SPATIAL_GRID_MAX_DIM
-        || !min_x.is_finite()
-        || !min_y.is_finite()
-        || !max_x.is_finite()
-        || !max_y.is_finite()
-    {
-        for left in 0..node_count {
-            for right in left + 1..node_count {
-                if pair_needs_collision_check(simulation, left, right, drag) {
-                    resolve_collision_pair(simulation, left, right, drag, restitution);
-                }
-            }
-        }
+    let Some(grid_info) = populate_collision_grid(simulation) else {
         return;
-    }
-
-    let mut grid = vec![Vec::<usize>::new(); cols.max(1) * rows.max(1)];
-
-    for index in 0..node_count {
-        let position = simulation.positions[index];
-        let col = ((position.x - min_x) / cell_size).floor() as usize;
-        let row = ((position.y - min_y) / cell_size).floor() as usize;
-        let col = col.min(cols.saturating_sub(1));
-        let row = row.min(rows.saturating_sub(1));
-        grid[row * cols + col].push(index);
-    }
+    };
+    let cols = grid_info.cols;
+    let rows = grid_info.rows;
+    let grid = std::mem::take(&mut simulation.collision_grid);
 
     for row in 0..rows {
         for col in 0..cols {
@@ -321,6 +363,8 @@ fn resolve_node_collisions_spatial(
             }
         }
     }
+
+    simulation.collision_grid = grid;
 }
 
 fn resolve_cell_pairs(
@@ -473,24 +517,32 @@ pub(crate) fn settle_graph_within_viewport_bounds(
 
 fn clamp_boundary_positions(simulation: &mut LayoutSimulation, bounds: GraphPhysicsBounds) {
     for index in 0..simulation.positions.len() {
-        if simulation.pinned[index] {
-            continue;
-        }
+        clamp_boundary_index(simulation, bounds, index);
+    }
+}
 
-        let radius = simulation.sizes[index];
-        let position = &mut simulation.positions[index];
+fn clamp_boundary_index(
+    simulation: &mut LayoutSimulation,
+    bounds: GraphPhysicsBounds,
+    index: usize,
+) {
+    if index >= simulation.positions.len() || simulation.pinned[index] {
+        return;
+    }
 
-        if position.x - radius < bounds.min_x {
-            position.x = bounds.min_x + radius;
-        } else if position.x + radius > bounds.max_x {
-            position.x = bounds.max_x - radius;
-        }
+    let radius = simulation.sizes[index];
+    let position = &mut simulation.positions[index];
 
-        if position.y - radius < bounds.min_y {
-            position.y = bounds.min_y + radius;
-        } else if position.y + radius > bounds.max_y {
-            position.y = bounds.max_y - radius;
-        }
+    if position.x - radius < bounds.min_x {
+        position.x = bounds.min_x + radius;
+    } else if position.x + radius > bounds.max_x {
+        position.x = bounds.max_x - radius;
+    }
+
+    if position.y - radius < bounds.min_y {
+        position.y = bounds.min_y + radius;
+    } else if position.y + radius > bounds.max_y {
+        position.y = bounds.max_y - radius;
     }
 }
 

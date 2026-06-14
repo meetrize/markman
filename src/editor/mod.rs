@@ -192,7 +192,6 @@ pub struct Editor {
     wiki_link_picker: wiki_link_picker::WikiLinkPickerState,
     knowledge_graph_view: Option<graph_view::KnowledgeGraphViewState>,
     graph_animation_task: Option<Task<()>>,
-    graph_active_node_pulse_task: Option<Task<()>>,
     graph_physics_task: Option<Task<()>>,
     /// When true, the window renders only the knowledge graph without sidebar or editor.
     graph_only_window: bool,
@@ -421,7 +420,6 @@ impl Editor {
             wiki_link_picker: wiki_link_picker::WikiLinkPickerState::new(cx),
             knowledge_graph_view: None,
             graph_animation_task: None,
-            graph_active_node_pulse_task: None,
             graph_physics_task: None,
             graph_only_window: false,
             graph_popout_parent: None,

@@ -94,11 +94,13 @@ impl Default for LayoutConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LayoutSimulation {
     node_ids: Vec<GraphNodeId>,
+    id_to_index: HashMap<GraphNodeId, usize>,
     edges: Vec<(usize, usize, GraphEdgeKind)>,
     pub(crate) sizes: Vec<f32>,
     pub(crate) positions: Vec<LayoutPoint>,
     pub(crate) velocities: Vec<LayoutPoint>,
     pub(crate) pinned: Vec<bool>,
+    pub(crate) collision_grid: Vec<Vec<usize>>,
     config: LayoutConfig,
 }
 
@@ -299,17 +301,19 @@ impl LayoutSimulation {
 
         Self {
             node_ids,
+            id_to_index,
             edges,
             sizes,
             positions,
             velocities: vec![LayoutPoint { x: 0.0, y: 0.0 }; node_count],
             pinned: vec![false; node_count],
+            collision_grid: Vec::new(),
             config,
         }
     }
 
     pub(crate) fn node_index(&self, node_id: &GraphNodeId) -> Option<usize> {
-        self.node_ids.iter().position(|id| id == node_id)
+        self.id_to_index.get(node_id).copied()
     }
 
     pub(crate) fn set_node_velocity(&mut self, node_id: &GraphNodeId, velocity: LayoutPoint) {
@@ -322,13 +326,13 @@ impl LayoutSimulation {
     }
 
     pub(crate) fn pin_node(&mut self, node_id: &GraphNodeId) {
-        if let Some(index) = self.node_ids.iter().position(|id| id == node_id) {
+        if let Some(index) = self.node_index(node_id) {
             self.pinned[index] = true;
         }
     }
 
     pub(crate) fn unpin_node(&mut self, node_id: &GraphNodeId) {
-        if let Some(index) = self.node_ids.iter().position(|id| id == node_id) {
+        if let Some(index) = self.node_index(node_id) {
             self.pinned[index] = false;
         }
     }
@@ -337,7 +341,7 @@ impl LayoutSimulation {
         if !position.is_finite() {
             return;
         }
-        if let Some(index) = self.node_ids.iter().position(|id| id == node_id) {
+        if let Some(index) = self.node_index(node_id) {
             self.positions[index] = position;
             self.velocities[index] = LayoutPoint { x: 0.0, y: 0.0 };
         }

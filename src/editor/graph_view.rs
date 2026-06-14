@@ -31,14 +31,6 @@ const VIEWPORT_CULL_PADDING: f32 = 48.0;
 const MAX_EDGES_WITHOUT_HOVER_CULL: usize = 3000;
 pub(crate) const GRAPH_ANIMATION_FRAMES: u32 = 90;
 pub(crate) const GRAPH_ANIMATION_FRAME_MS: u64 = 16;
-pub(crate) const ACTIVE_NODE_PULSE_FRAME_MS: u64 = 32;
-pub(crate) const ACTIVE_NODE_PULSE_PERIOD_SEC: f32 = 2.4;
-pub(crate) const ACTIVE_NODE_PULSE_PHASE_STEP: f32 = std::f32::consts::TAU
-    * ACTIVE_NODE_PULSE_FRAME_MS as f32
-    / 1000.0
-    / ACTIVE_NODE_PULSE_PERIOD_SEC;
-const ACTIVE_NODE_PULSE_RING_BASE: f32 = 5.0;
-const ACTIVE_NODE_PULSE_RING_EXPAND: f32 = 16.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GraphDragMode {
@@ -90,7 +82,6 @@ pub(crate) struct KnowledgeGraphViewState {
     pub simulation: Option<LayoutSimulation>,
     pub animating: bool,
     pub animation_progress: f32,
-    pub active_node_pulse_phase: f32,
     pub hovered_node_id: Option<GraphNodeId>,
     pub pinned: HashSet<GraphNodeId>,
     pub drag: GraphInteractionDrag,
@@ -113,7 +104,6 @@ impl KnowledgeGraphViewState {
             simulation: Some(simulation),
             animating: true,
             animation_progress: 0.0,
-            active_node_pulse_phase: 0.0,
             hovered_node_id: None,
             pinned: HashSet::new(),
             drag: GraphInteractionDrag::default(),
@@ -341,13 +331,26 @@ struct GraphPrepaintState {
     background: PaintQuad,
     edges: Vec<(Path<Pixels>, Hsla)>,
     nodes: Vec<PaintQuad>,
-    active_rings: Vec<(Path<Pixels>, Hsla)>,
     labels: Vec<(ShapedLine, Point<Pixels>, Pixels)>,
     hitbox: Hitbox,
 }
 
 #[derive(Default)]
 struct GraphLayoutState;
+
+fn empty_graph_prepaint_state(
+    bounds: Bounds<Pixels>,
+    theme: &Theme,
+    window: &mut Window,
+) -> GraphPrepaintState {
+    GraphPrepaintState {
+        background: fill(bounds, theme.colors.graph_background),
+        edges: Vec::new(),
+        nodes: Vec::new(),
+        labels: Vec::new(),
+        hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
+    }
+}
 
 fn world_point_visible_in_viewport(
     world: LayoutPoint,
@@ -389,34 +392,6 @@ fn build_graph_edge_path(
     let mut builder = PathBuilder::stroke(stroke_width);
     builder.move_to(source);
     builder.line_to(target);
-    builder.build().ok()
-}
-
-fn build_circle_stroke_path(
-    center: Point<Pixels>,
-    radius: Pixels,
-    stroke_width: Pixels,
-) -> Option<Path<Pixels>> {
-    if !pixel_point_is_finite(center) {
-        return None;
-    }
-    let r = f32::from(radius);
-    if !r.is_finite() || r <= 0.0 {
-        return None;
-    }
-
-    let top = point(center.x, center.y - radius);
-    let right = point(center.x + radius, center.y);
-    let bottom = point(center.x, center.y + radius);
-    let left = point(center.x - radius, center.y);
-    let radii = point(radius, radius);
-    let mut builder = PathBuilder::stroke(stroke_width);
-    builder.move_to(top);
-    builder.arc_to(radii, px(0.0), false, true, right);
-    builder.arc_to(radii, px(0.0), false, true, bottom);
-    builder.arc_to(radii, px(0.0), false, true, left);
-    builder.arc_to(radii, px(0.0), false, true, top);
-    builder.close();
     builder.build().ok()
 }
 
@@ -533,15 +508,9 @@ fn prepaint_graph(
         edges.push((path, edge_color));
     }
 
-    let window_style = window.text_style();
     let mut nodes = Vec::new();
-    let mut active_rings = Vec::new();
     let mut labels = Vec::new();
-    let pulse = if active_document_node_id.is_some() {
-        (state.active_node_pulse_phase.sin() * 0.5 + 0.5).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
+    let window_style = window.text_style();
 
     for node in &state.graph.nodes {
         let Some(world) = positions.get(&node.id) else {
@@ -570,29 +539,16 @@ fn prepaint_graph(
             active_document_node_id.is_some_and(|active_id| active_id == &node.id);
         let mut quad = fill(node_bounds, color);
         quad.corner_radii = Corners::all(radius);
-        quad.border_widths = Edges::all(node_border_width);
+        quad.border_widths = Edges::all(if is_active_document {
+            node_border_width * 1.5
+        } else {
+            node_border_width
+        });
         quad.border_color = if is_active_document {
-            theme
-                .colors
-                .selection
-                .opacity(0.55 + pulse * 0.35)
+            theme.colors.selection.opacity(0.85)
         } else {
             node_border_color(color)
         };
-        if is_active_document {
-            quad.border_widths = Edges::all(node_border_width * (1.25 + pulse * 0.75));
-            let ring_radius =
-                radius + px(ACTIVE_NODE_PULSE_RING_BASE + pulse * ACTIVE_NODE_PULSE_RING_EXPAND);
-            let ring_opacity = 0.5 * (1.0 - pulse);
-            if ring_opacity > 0.02 {
-                if let Some(path) = build_circle_stroke_path(center, ring_radius, px(1.5)) {
-                    active_rings.push((
-                        path,
-                        theme.colors.selection.opacity(ring_opacity),
-                    ));
-                }
-            }
-        }
         nodes.push(quad);
 
         let label_text: SharedString = node_display_label(&node.kind).into();
@@ -630,7 +586,6 @@ fn prepaint_graph(
         background,
         edges,
         nodes,
-        active_rings,
         labels,
         hitbox,
     }
@@ -685,25 +640,13 @@ pub(crate) fn render_knowledge_graph_panel(editor: WeakEntity<Editor>) -> impl I
                             });
 
                             window.on_mouse_event({
-                                let editor = interaction_editor.clone();
+                                let editor = interaction_editor;
                                 move |event: &MouseUpEvent, phase, window, cx| {
                                     if !phase.bubble() {
                                         return;
                                     }
                                     let _ = editor.update(cx, |editor, cx| {
                                         editor.on_knowledge_graph_mouse_up(event, window, cx);
-                                    });
-                                }
-                            });
-
-                            window.on_mouse_event({
-                                let editor = interaction_editor;
-                                move |event: &ScrollWheelEvent, phase, window, cx| {
-                                    if !phase.bubble() {
-                                        return;
-                                    }
-                                    let _ = editor.update(cx, |editor, cx| {
-                                        editor.on_knowledge_graph_scroll_wheel(event, window, cx);
                                     });
                                 }
                             });
@@ -757,13 +700,11 @@ impl Element for KnowledgeGraphElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let theme = cx.global::<ThemeManager>().current_arc();
-        let (mut snapshot, active_document_node_id) = self
-            .editor
+        self.editor
             .update(cx, |editor, cx| {
-                editor.ensure_knowledge_graph_active_node_pulse(cx);
                 let active_id = editor.active_knowledge_graph_document_node_id();
                 let Some(state) = editor.knowledge_graph_view.as_mut() else {
-                    return (None, active_id);
+                    return empty_graph_prepaint_state(bounds, &theme, window);
                 };
 
                 let needs_initial_fit = state.viewport.scale <= 0.0;
@@ -787,34 +728,23 @@ impl Element for KnowledgeGraphElement {
                 }
 
                 state.last_bounds = bounds;
-                let clamped_before = state.viewport_bounds_clamped;
-                state.try_clamp_to_viewport_bounds();
-                if state.viewport_bounds_clamped && !clamped_before {
-                    cx.notify();
+                if !matches!(state.drag.mode, GraphDragMode::Node) {
+                    let clamped_before = state.viewport_bounds_clamped;
+                    state.try_clamp_to_viewport_bounds();
+                    if state.viewport_bounds_clamped && !clamped_before {
+                        cx.notify();
+                    }
                 }
 
-                (editor.knowledge_graph_view.clone(), active_id)
+                prepaint_graph(
+                    bounds,
+                    state,
+                    &theme,
+                    window,
+                    active_id.as_ref(),
+                )
             })
-            .unwrap_or((None, None));
-
-        if let Some(state) = snapshot.as_mut() {
-            prepaint_graph(
-                bounds,
-                state,
-                &theme,
-                window,
-                active_document_node_id.as_ref(),
-            )
-        } else {
-            GraphPrepaintState {
-                background: fill(bounds, theme.colors.graph_background),
-                edges: Vec::new(),
-                nodes: Vec::new(),
-                active_rings: Vec::new(),
-                labels: Vec::new(),
-                hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
-            }
-        }
+            .unwrap_or_else(|_| empty_graph_prepaint_state(bounds, &theme, window))
     }
 
     fn paint(
@@ -835,10 +765,6 @@ impl Element for KnowledgeGraphElement {
 
         for node in prepaint.nodes.drain(..) {
             window.paint_quad(node);
-        }
-
-        for (path, color) in prepaint.active_rings.drain(..) {
-            window.paint_path(path, color);
         }
 
         for (line, origin, font_size) in prepaint.labels.drain(..) {
@@ -936,16 +862,23 @@ impl Editor {
         let Some(state) = self.knowledge_graph_view.as_mut() else {
             return;
         };
+
         let screen = pointer_to_screen_local(event.position, state.last_bounds);
-        state.hovered_node_id = hit_test_graph_node(
-            &state.graph,
-            &state.layout,
-            &state.viewport,
-            screen,
-        )
-        .map(|node| node.id.clone());
         if !state.drag.active() {
+            state.hovered_node_id = hit_test_graph_node(
+                &state.graph,
+                &state.layout,
+                &state.viewport,
+                screen,
+            )
+            .map(|node| node.id.clone());
             state.drag.last_screen = screen;
+            cx.notify();
+            return;
+        }
+
+        if !event.dragging() {
+            state.drag = GraphInteractionDrag::default();
             cx.notify();
             return;
         }
@@ -1014,6 +947,10 @@ impl Editor {
         let Some(state) = self.knowledge_graph_view.as_mut() else {
             return;
         };
+
+        if !state.drag.active() {
+            return;
+        }
 
         let screen = pointer_to_screen_local(event.position, state.last_bounds);
         state.drag.last_screen = screen;
