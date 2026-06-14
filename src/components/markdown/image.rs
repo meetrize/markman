@@ -171,6 +171,21 @@ pub(crate) fn parse_standalone_image(markdown: &str) -> Option<ImageSyntax> {
     }
 }
 
+/// Parses a whole line like `[![alt](image-src)](link-url)`.
+pub(crate) fn parse_standalone_link_wrapped_image(markdown: &str) -> Option<ImageSyntax> {
+    let markdown = markdown.trim();
+    if !markdown.starts_with("[![") || !markdown.ends_with(')') {
+        return None;
+    }
+
+    let (_, syntax, image_end) = parse_inline_image_at(markdown, 1)?;
+    if !markdown[image_end..].starts_with("](") {
+        return None;
+    }
+
+    Some(syntax)
+}
+
 pub(crate) fn parse_table_cell_inline_images(markdown: &str) -> Vec<TableCellInlineImageSegment> {
     let mut segments = Vec::new();
     let mut text_start = 0usize;
@@ -678,9 +693,10 @@ fn is_escaped(input: &str, index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageReferenceDefinition, ImageResolvedSource, ImageSyntax, ImageTarget,
-        TableCellInlineImageSegment, normalize_reference_label, parse_image_reference_definitions,
-        parse_standalone_image, parse_table_cell_inline_images, resolve_image_source,
+        ImageReferenceDefinition, ImageReferenceDefinitions, ImageResolvedSource, ImageSyntax,
+        ImageTarget, ResolvedImageTarget, TableCellInlineImageSegment, normalize_reference_label,
+        parse_image_reference_definitions, parse_standalone_image,
+        parse_standalone_link_wrapped_image, parse_table_cell_inline_images, resolve_image_source,
     };
     use std::path::Path;
 
@@ -806,6 +822,22 @@ mod tests {
         assert!(parse_standalone_image("[![alt](./img.png)](https://example.com)").is_none());
         assert!(parse_standalone_image("![][]").is_none());
         assert!(parse_standalone_image("![]").is_none());
+    }
+
+    #[test]
+    fn parses_standalone_link_wrapped_image_line() {
+        let parsed = parse_standalone_link_wrapped_image(
+            "[![Rust](https://img.shields.io/badge/Rust-2024-f74c00)](https://www.rust-lang.org/)",
+        )
+        .expect("link-wrapped badge");
+        assert_eq!(parsed.alt, "Rust");
+        assert_eq!(
+            parsed.resolve_target(&ImageReferenceDefinitions::default()),
+            Some(ResolvedImageTarget {
+                src: "https://img.shields.io/badge/Rust-2024-f74c00".to_string(),
+                title: None,
+            })
+        );
     }
 
     #[test]

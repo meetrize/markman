@@ -28,7 +28,7 @@ mod tests {
     use super::html_block::{
         html_block_align, html_children_are_plain_text, html_collect_visible_text,
         html_node_visual_style, html_table_column_count, html_table_collect_rows,
-        try_local_standalone_image_line, HtmlComputedStyle,
+        try_standalone_image_line, HtmlComputedStyle,
     };
     use super::code::{html_pre_code_language};
     use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
@@ -337,22 +337,37 @@ mod tests {
     }
 
     #[test]
-    fn try_local_standalone_image_line_accepts_local_paths_only() {
+    fn try_standalone_image_line_accepts_local_and_remote_sources() {
         let refs = ImageReferenceDefinitions::default();
         let base = Path::new("/docs");
 
-        let local = try_local_standalone_image_line("![alt](./images/a.png)", Some(base), &refs)
+        let local = try_standalone_image_line("![alt](./images/a.png)", Some(base), &refs)
             .expect("local image");
         assert_eq!(local.0, "alt");
         assert_eq!(local.1, "./images/a.png");
 
-        assert!(try_local_standalone_image_line(
+        let remote = try_standalone_image_line(
             "![alt](https://example.com/a.png)",
             Some(base),
-            &refs
+            &refs,
         )
-        .is_none());
-        assert!(try_local_standalone_image_line("**not an image**", Some(base), &refs).is_none());
+        .expect("remote image");
+        assert_eq!(remote.0, "alt");
+        assert_eq!(remote.1, "https://example.com/a.png");
+
+        let badge = try_standalone_image_line(
+            "[![Rust](https://img.shields.io/badge/Rust-2024-f74c00)](https://www.rust-lang.org/)",
+            Some(base),
+            &refs,
+        )
+        .expect("link-wrapped badge");
+        assert_eq!(badge.0, "Rust");
+        assert_eq!(
+            badge.1,
+            "https://img.shields.io/badge/Rust-2024-f74c00"
+        );
+
+        assert!(try_standalone_image_line("**not an image**", Some(base), &refs).is_none());
     }
 
     #[test]

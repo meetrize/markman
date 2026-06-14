@@ -8,9 +8,8 @@ use super::super::{Block, ImageRuntime};
 use super::code;
 use super::shared::html_css_color_to_hsla;
 use crate::components::{
-    HtmlDocument, HtmlNode, HtmlNodeKind, ImageReferenceDefinitions, ImageResolvedSource,
-    TableColumnLayout, attr_value, parse_html_image_block, parse_standalone_image,
-    resolve_image_source, style_for_node,
+    HtmlDocument, HtmlNode, HtmlNodeKind, ImageReferenceDefinitions, TableColumnLayout, attr_value, parse_html_image_block, parse_standalone_image,
+    parse_standalone_link_wrapped_image, resolve_image_source, style_for_node,
 };
 use crate::i18n::I18nManager;
 use crate::theme::{Theme, ThemeDimensions};
@@ -72,17 +71,17 @@ pub(super) fn html_block_align(node: &HtmlNode) -> TextAlign {
     }
 }
 
-pub(super) fn try_local_standalone_image_line(
+pub(super) fn try_standalone_image_line(
     line: &str,
     base_dir: Option<&Path>,
     reference_definitions: &ImageReferenceDefinitions,
 ) -> Option<(String, String)> {
-    let syntax = parse_standalone_image(line.trim())?;
+    let trimmed = line.trim();
+    let syntax = parse_standalone_link_wrapped_image(trimmed)
+        .or_else(|| parse_standalone_image(trimmed))?;
     let resolved = syntax.resolve_target(reference_definitions)?;
-    match resolve_image_source(&resolved.src, base_dir) {
-        ImageResolvedSource::Local(_) => Some((syntax.alt, resolved.src)),
-        ImageResolvedSource::Remote(_) => None,
-    }
+    let _ = resolve_image_source(&resolved.src, base_dir);
+    Some((syntax.alt, resolved.src))
 }
 
 pub(super) fn html_node_visual_style(
@@ -1005,7 +1004,7 @@ impl Block {
     ) -> AnyElement {
         let trimmed = raw_source.trim();
         if !raw_source.contains('\n')
-            && let Some((alt, src)) = try_local_standalone_image_line(
+            && let Some((alt, src)) = try_standalone_image_line(
                 trimmed,
                 self.image_base_dir(),
                 &self.image_reference_definitions(),
@@ -1019,7 +1018,7 @@ impl Block {
             if is_collapsible_html_whitespace(line) {
                 continue;
             }
-            if let Some((alt, src)) = try_local_standalone_image_line(
+            if let Some((alt, src)) = try_standalone_image_line(
                 line,
                 self.image_base_dir(),
                 &self.image_reference_definitions(),
