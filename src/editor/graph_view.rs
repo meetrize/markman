@@ -83,6 +83,7 @@ pub(crate) struct KnowledgeGraphViewState {
     pub pinned: HashSet<GraphNodeId>,
     pub drag: GraphInteractionDrag,
     pub last_bounds: Bounds<Pixels>,
+    pub mutual_repulsion: bool,
 }
 
 impl KnowledgeGraphViewState {
@@ -104,7 +105,19 @@ impl KnowledgeGraphViewState {
             pinned: HashSet::new(),
             drag: GraphInteractionDrag::default(),
             last_bounds: Bounds::default(),
+            mutual_repulsion: false,
         }
+    }
+
+    pub(crate) fn apply_mutual_repulsion(&mut self, anchor: Option<&GraphNodeId>) {
+        if !self.mutual_repulsion {
+            return;
+        }
+        let Some(simulation) = self.simulation.as_mut() else {
+            return;
+        };
+        simulation.resolve_collisions(anchor);
+        self.layout = simulation.to_layout();
     }
 
     pub(crate) fn refresh_filtered_graph(&mut self) {
@@ -858,6 +871,9 @@ impl Editor {
                         simulation.set_node_position(&node_id, *position);
                     }
                 }
+                if state.mutual_repulsion {
+                    state.apply_mutual_repulsion(Some(&node_id));
+                }
             }
             GraphDragMode::None => {}
         }
@@ -885,6 +901,15 @@ impl Editor {
         } else {
             None
         };
+
+        if matches!(state.drag.mode, GraphDragMode::Node) {
+            if let Some(node_id) = state.drag.node_id.clone() {
+                state.pinned.remove(&node_id);
+                if let Some(simulation) = state.simulation.as_mut() {
+                    simulation.unpin_node(&node_id);
+                }
+            }
+        }
 
         state.drag = GraphInteractionDrag::default();
         cx.notify();

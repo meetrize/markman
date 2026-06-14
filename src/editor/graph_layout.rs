@@ -16,6 +16,7 @@ const LABEL_RADIUS_PADDING: f32 = 10.0;
 const CENTER_GRAVITY: f32 = 0.035;
 const IDEAL_EDGE_LENGTH_SCALE: f32 = 2.5;
 const MIN_DISTANCE: f32 = 0.01;
+const COLLISION_RESOLVE_ITERATIONS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LayoutPoint {
@@ -302,6 +303,12 @@ impl LayoutSimulation {
         }
     }
 
+    pub(crate) fn unpin_node(&mut self, node_id: &GraphNodeId) {
+        if let Some(index) = self.node_ids.iter().position(|id| id == node_id) {
+            self.pinned[index] = false;
+        }
+    }
+
     pub(crate) fn set_node_position(&mut self, node_id: &GraphNodeId, position: LayoutPoint) {
         if !position.is_finite() {
             return;
@@ -309,6 +316,36 @@ impl LayoutSimulation {
         if let Some(index) = self.node_ids.iter().position(|id| id == node_id) {
             self.positions[index] = position;
             self.velocities[index] = LayoutPoint { x: 0.0, y: 0.0 };
+        }
+    }
+
+    /// Separate overlapping nodes. Pinned nodes (and optional anchor) stay fixed; others are pushed.
+    pub(crate) fn resolve_collisions(&mut self, anchor: Option<&GraphNodeId>) {
+        let anchor_index = anchor.and_then(|id| self.node_ids.iter().position(|node_id| node_id == id));
+        let node_count = self.positions.len();
+        if node_count <= 1 {
+            return;
+        }
+
+        for _ in 0..COLLISION_RESOLVE_ITERATIONS {
+            for left in 0..node_count {
+                for right in left + 1..node_count {
+                    resolve_collision_pair(
+                        left,
+                        right,
+                        anchor_index,
+                        &self.pinned,
+                        &self.sizes,
+                        &mut self.positions,
+                    );
+                }
+            }
+        }
+
+        for position in &mut self.positions {
+            if !position.is_finite() {
+                *position = LayoutPoint { x: 0.0, y: 0.0 };
+            }
         }
     }
 
@@ -350,6 +387,50 @@ fn point_delta(from: LayoutPoint, to: LayoutPoint) -> PointDelta {
     PointDelta {
         x: to.x - from.x,
         y: to.y - from.y,
+    }
+}
+
+fn node_is_fixed(index: usize, anchor_index: Option<usize>, pinned: &[bool]) -> bool {
+    pinned[index] || anchor_index == Some(index)
+}
+
+fn resolve_collision_pair(
+    left: usize,
+    right: usize,
+    anchor_index: Option<usize>,
+    pinned: &[bool],
+    sizes: &[f32],
+    positions: &mut [LayoutPoint],
+) {
+    let delta = point_delta(positions[left], positions[right]);
+    let distance = delta.length().max(MIN_DISTANCE);
+    let min_separation = sizes[left] + sizes[right];
+    if distance >= min_separation {
+        return;
+    }
+
+    let overlap = min_separation - distance;
+    let nx = delta.x / distance;
+    let ny = delta.y / distance;
+    let left_fixed = node_is_fixed(left, anchor_index, pinned);
+    let right_fixed = node_is_fixed(right, anchor_index, pinned);
+
+    if left_fixed && right_fixed {
+        return;
+    }
+
+    if left_fixed && !right_fixed {
+        positions[right].x += nx * overlap;
+        positions[right].y += ny * overlap;
+    } else if right_fixed && !left_fixed {
+        positions[left].x -= nx * overlap;
+        positions[left].y -= ny * overlap;
+    } else {
+        let half = overlap * 0.5;
+        positions[left].x -= nx * half;
+        positions[left].y -= ny * half;
+        positions[right].x += nx * half;
+        positions[right].y += ny * half;
     }
 }
 
@@ -477,6 +558,47 @@ mod tests {
         let before = simulation.positions.clone();
         layout_tick(&mut simulation, 1.0);
         assert_ne!(simulation.positions, before);
+    }
+
+    #[test]
+    fn resolve_collisions_separates_overlapping_nodes() {
+        let graph = triangle_graph();
+        let mut simulation = LayoutSimulation::new(&graph, LayoutConfig::default());
+        simulation.set_node_position(
+            &GraphNodeId::document("a.md"),
+            LayoutPoint { x: 0.0, y: 0.0 },
+        );
+        simulation.set_node_position(
+            &GraphNodeId::document("b.md"),
+            LayoutPoint { x: 8.0, y: 0.0 },
+        );
+        let layout_before = simulation.to_layout();
+        assert!(nodes_overlap(&layout_before, &graph));
+
+        simulation.resolve_collisions(None);
+        let layout_after = simulation.to_layout();
+        assert!(!nodes_overlap(&layout_after, &graph));
+    }
+
+    #[test]
+    fn resolve_collisions_keeps_pinned_node_and_pushes_other() {
+        let graph = triangle_graph();
+        let pinned_id = GraphNodeId::document("a.md");
+        let other_id = GraphNodeId::document("b.md");
+        let mut simulation = LayoutSimulation::new(&graph, LayoutConfig::default());
+        let pinned_position = LayoutPoint { x: 20.0, y: 20.0 };
+        simulation.set_node_position(&pinned_id, pinned_position);
+        simulation.set_node_position(&other_id, LayoutPoint { x: 24.0, y: 20.0 });
+        simulation.pin_node(&pinned_id);
+
+        simulation.resolve_collisions(Some(&pinned_id));
+
+        assert_eq!(simulation.positions[0], pinned_position);
+        let dx = simulation.positions[1].x - pinned_position.x;
+        let dy = simulation.positions[1].y - pinned_position.y;
+        let distance = (dx * dx + dy * dy).sqrt();
+        let min_distance = simulation.sizes[0] + simulation.sizes[1];
+        assert!(distance >= min_distance - 0.01);
     }
 
     #[test]

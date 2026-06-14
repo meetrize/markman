@@ -139,7 +139,18 @@ impl Editor {
             return;
         }
 
+        let mutual_repulsion = self
+            .knowledge_graph_view
+            .as_ref()
+            .map(|state| state.mutual_repulsion)
+            .unwrap_or(false);
         self.knowledge_graph_view = Some(KnowledgeGraphViewState::new(raw_graph, filter));
+        if let Some(state) = self.knowledge_graph_view.as_mut() {
+            state.mutual_repulsion = mutual_repulsion;
+            if state.mutual_repulsion {
+                state.apply_mutual_repulsion(None);
+            }
+        }
         self.workspace.state.graph_revision = Some(revision);
         self.start_knowledge_graph_animation(cx);
         cx.notify();
@@ -271,7 +282,21 @@ impl Editor {
             return;
         };
         state.reset_layout_from_simulation();
+        if state.mutual_repulsion {
+            state.apply_mutual_repulsion(None);
+        }
         self.start_knowledge_graph_animation(cx);
+        cx.notify();
+    }
+
+    pub(super) fn toggle_knowledge_graph_mutual_repulsion(&mut self, cx: &mut Context<Self>) {
+        let Some(state) = self.knowledge_graph_view.as_mut() else {
+            return;
+        };
+        state.mutual_repulsion = !state.mutual_repulsion;
+        if state.mutual_repulsion {
+            state.apply_mutual_repulsion(None);
+        }
         cx.notify();
     }
 
@@ -316,11 +341,17 @@ impl Editor {
         let t = &theme.typography;
         let fit_editor = editor.clone();
         let reset_editor = editor.clone();
+        let repulsion_editor = editor.clone();
         let filter = self
             .knowledge_graph_view
             .as_ref()
             .map(|state| state.filter)
             .unwrap_or_default();
+        let mutual_repulsion = self
+            .knowledge_graph_view
+            .as_ref()
+            .map(|state| state.mutual_repulsion)
+            .unwrap_or(false);
         let filter_all_editor = editor.clone();
         let filter_connected_editor = editor.clone();
 
@@ -370,6 +401,15 @@ impl Editor {
                             .flex()
                             .items_center()
                             .gap(px(6.0))
+                            .child(graph_toggle_button(
+                                "workspace-graph-mutual-repulsion",
+                                &strings.workspace_graph_mutual_repulsion,
+                                mutual_repulsion,
+                                c,
+                                t,
+                                repulsion_editor,
+                                |editor, cx| editor.toggle_knowledge_graph_mutual_repulsion(cx),
+                            ))
                             .child(graph_toolbar_button(
                                 "workspace-graph-fit-view",
                                 &strings.workspace_graph_fit_view,
@@ -437,6 +477,45 @@ fn graph_filter_button(
         .on_click(move |_event, _window, cx| {
             let _ = editor.update(cx, |editor, cx| {
                 editor.set_knowledge_graph_filter(filter, cx);
+            });
+        })
+        .into_any_element()
+}
+
+fn graph_toggle_button(
+    id: &'static str,
+    label: &str,
+    active: bool,
+    c: &ThemeColors,
+    t: &ThemeTypography,
+    editor: WeakEntity<Editor>,
+    action: fn(&mut Editor, &mut Context<Editor>),
+) -> AnyElement {
+    let label = label.to_string();
+    let mut element = div()
+        .id(id)
+        .px(px(6.0))
+        .py(px(2.0))
+        .rounded(px(4.0))
+        .text_size(px(t.text_size * 0.75))
+        .cursor_pointer()
+        .child(label);
+
+    element = if active {
+        element
+            .bg(c.dialog_secondary_button_hover)
+            .text_color(c.text_default)
+    } else {
+        element.text_color(c.dialog_muted).hover(|this| {
+            this.bg(c.dialog_secondary_button_hover)
+                .text_color(c.text_default)
+        })
+    };
+
+    element
+        .on_click(move |_event, _window, cx| {
+            let _ = editor.update(cx, |editor, cx| {
+                action(editor, cx);
             });
         })
         .into_any_element()
