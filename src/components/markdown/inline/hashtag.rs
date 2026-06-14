@@ -12,7 +12,30 @@ pub(crate) fn is_valid_tag_char(ch: char) -> bool {
 }
 
 pub(crate) fn is_hex_color_tag(body: &str) -> bool {
-    (body.len() == 3 || body.len() == 6) && body.chars().all(|ch| ch.is_ascii_hexdigit())
+    if body.len() != 3 && body.len() != 6 {
+        return false;
+    }
+    if !body.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return false;
+    }
+
+    // `#123`, `#f00`, `#1a2b3c` — hex colors usually contain an ASCII digit.
+    if body.chars().any(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+
+    // `#fff`, `#000`, `#aaaaaa` — uniform shorthand.
+    if body.chars().all(|ch| ch == body.chars().next().unwrap()) {
+        return true;
+    }
+
+    // `#aabbcc` — doubled-pair expansion of `#abc`.
+    if body.len() == 6 {
+        let chars: Vec<char> = body.chars().collect();
+        return chars[0] == chars[1] && chars[2] == chars[3] && chars[4] == chars[5];
+    }
+
+    false
 }
 
 pub(crate) fn normalize_tag_name(name: &str) -> String {
@@ -322,6 +345,29 @@ mod tests {
             .map(|span| span.tag.as_ref().unwrap().name.clone())
             .collect();
         assert_eq!(tag_spans, vec!["rust", "go", "java"]);
+    }
+
+    #[test]
+    fn three_and_six_letter_hex_alphabet_tags_parse() {
+        let tree = InlineTextTree::from_markdown("labels #tag #abc and #abcdef");
+        let tag_names: Vec<_> = tree
+            .fragments
+            .iter()
+            .filter_map(|fragment| fragment.tag.as_ref())
+            .map(|tag| tag.name.as_str())
+            .collect();
+        assert_eq!(tag_names, vec!["tag", "abc", "abcdef"]);
+    }
+
+    #[test]
+    fn css_hex_shorthands_stay_plain_text() {
+        assert!(is_hex_color_tag("fff"));
+        assert!(is_hex_color_tag("123"));
+        assert!(is_hex_color_tag("1a2b3c"));
+        assert!(is_hex_color_tag("aabbcc"));
+        assert!(!is_hex_color_tag("tag"));
+        assert!(!is_hex_color_tag("abc"));
+        assert!(!is_hex_color_tag("abcdef"));
     }
 
     #[test]
