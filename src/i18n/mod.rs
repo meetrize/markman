@@ -250,6 +250,8 @@ pub struct I18nStrings {
     pub workspace_graph_reset_layout: String,
     /// Toggle: keep graph nodes from overlapping.
     pub workspace_graph_mutual_repulsion: String,
+    /// Toolbar button to reduce edge crossings in the graph layout.
+    pub workspace_graph_uncross_crossings: String,
     /// Graph filter: show only connected nodes.
     pub workspace_graph_filter_connected: String,
     /// Graph filter: show all markdown nodes.
@@ -610,6 +612,7 @@ struct I18nStringsDe {
     workspace_graph_fit_view: Option<String>,
     workspace_graph_reset_layout: Option<String>,
     workspace_graph_mutual_repulsion: Option<String>,
+    workspace_graph_uncross_crossings: Option<String>,
     workspace_graph_filter_connected: Option<String>,
     workspace_graph_filter_all: Option<String>,
     workspace_tag_sort_by_name: Option<String>,
@@ -863,6 +866,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_graph_fit_view",
     "workspace_graph_reset_layout",
     "workspace_graph_mutual_repulsion",
+    "workspace_graph_uncross_crossings",
     "workspace_graph_filter_connected",
     "workspace_graph_filter_all",
     "workspace_tag_sort_by_name",
@@ -1362,6 +1366,9 @@ impl I18nStringsDe {
             workspace_graph_mutual_repulsion: self
                 .workspace_graph_mutual_repulsion
                 .unwrap_or(defaults.workspace_graph_mutual_repulsion),
+            workspace_graph_uncross_crossings: self
+                .workspace_graph_uncross_crossings
+                .unwrap_or(defaults.workspace_graph_uncross_crossings),
             workspace_graph_filter_connected: self
                 .workspace_graph_filter_connected
                 .unwrap_or(defaults.workspace_graph_filter_connected),
@@ -1832,6 +1839,7 @@ impl I18nStrings {
             workspace_graph_fit_view: "适应窗口".into(),
             workspace_graph_reset_layout: "重置布局".into(),
             workspace_graph_mutual_repulsion: "互相排斥".into(),
+            workspace_graph_uncross_crossings: "去除交叉".into(),
             workspace_graph_filter_connected: "已连接".into(),
             workspace_graph_filter_all: "全部".into(),
             workspace_tag_sort_by_name: "按名称排序".into(),
@@ -2104,6 +2112,7 @@ impl I18nStrings {
             workspace_graph_fit_view: "Fit view".into(),
             workspace_graph_reset_layout: "Reset layout".into(),
             workspace_graph_mutual_repulsion: "Repel".into(),
+            workspace_graph_uncross_crossings: "Uncross edges".into(),
             workspace_graph_filter_connected: "Connected".into(),
             workspace_graph_filter_all: "All".into(),
             workspace_tag_sort_by_name: "Sort by name".into(),

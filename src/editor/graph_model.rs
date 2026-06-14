@@ -243,6 +243,14 @@ pub(crate) fn build_knowledge_graph(
     }
 }
 
+pub(crate) fn workspace_document_node_id(
+    workspace_root: &Path,
+    absolute_path: &Path,
+) -> Option<GraphNodeId> {
+    relative_markdown_path(workspace_root, absolute_path)
+        .map(|relative| GraphNodeId::document(&relative))
+}
+
 fn relative_markdown_path(workspace_root: &Path, absolute: &Path) -> Option<String> {
     absolute
         .strip_prefix(workspace_root)

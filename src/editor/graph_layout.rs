@@ -17,6 +17,10 @@ const CENTER_GRAVITY: f32 = 0.035;
 const IDEAL_EDGE_LENGTH_SCALE: f32 = 2.5;
 const MIN_DISTANCE: f32 = 0.01;
 const COLLISION_RESOLVE_ITERATIONS: usize = 16;
+const UNCROSS_ITERATIONS: usize = 120;
+const UNCROSS_RELAX_TICKS: usize = 40;
+const UNCROSS_PUSH_STRENGTH: f32 = 5.0;
+const ORIENTATION_EPSILON: f32 = 1e-4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LayoutPoint {
@@ -154,6 +158,39 @@ pub(crate) fn settle_graph_layout(simulation: &mut LayoutSimulation, iterations:
     }
     for velocity in &mut simulation.velocities {
         *velocity = LayoutPoint { x: 0.0, y: 0.0 };
+    }
+}
+
+pub(crate) fn count_edge_crossings(simulation: &LayoutSimulation) -> usize {
+    find_crossing_edge_pairs(simulation).len()
+}
+
+pub(crate) fn uncross_graph_layout(simulation: &mut LayoutSimulation, resolve_collisions: bool) {
+    if simulation.edges.len() < 2 {
+        return;
+    }
+
+    for _ in 0..UNCROSS_ITERATIONS {
+        let crossings = find_crossing_edge_pairs(simulation);
+        if crossings.is_empty() {
+            break;
+        }
+
+        for (edge_left, edge_right) in crossings {
+            let (a, b, _) = simulation.edges[edge_left];
+            let (c, d, _) = simulation.edges[edge_right];
+            apply_uncross_push(simulation, a, b, c, d, UNCROSS_PUSH_STRENGTH);
+        }
+
+        layout_tick(simulation, 0.25);
+        if resolve_collisions {
+            simulation.resolve_collisions(None);
+        }
+    }
+
+    settle_graph_layout(simulation, UNCROSS_RELAX_TICKS);
+    if resolve_collisions {
+        simulation.resolve_collisions(None);
     }
 }
 
@@ -381,6 +418,13 @@ impl PointDelta {
             y: self.y / length,
         }
     }
+
+    fn perpendicular(self) -> PointDelta {
+        PointDelta {
+            x: -self.y,
+            y: self.x,
+        }
+    }
 }
 
 fn point_delta(from: LayoutPoint, to: LayoutPoint) -> PointDelta {
@@ -388,6 +432,149 @@ fn point_delta(from: LayoutPoint, to: LayoutPoint) -> PointDelta {
         x: to.x - from.x,
         y: to.y - from.y,
     }
+}
+
+fn orientation(a: LayoutPoint, b: LayoutPoint, c: LayoutPoint) -> f32 {
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+fn edges_share_endpoint(
+    left: (usize, usize, GraphEdgeKind),
+    right: (usize, usize, GraphEdgeKind),
+) -> bool {
+    left.0 == right.0 || left.0 == right.1 || left.1 == right.0 || left.1 == right.1
+}
+
+fn segments_properly_cross(a: LayoutPoint, b: LayoutPoint, c: LayoutPoint, d: LayoutPoint) -> bool {
+    let o1 = orientation(a, b, c);
+    let o2 = orientation(a, b, d);
+    let o3 = orientation(c, d, a);
+    let o4 = orientation(c, d, b);
+
+    if o1.abs() <= ORIENTATION_EPSILON
+        && o2.abs() <= ORIENTATION_EPSILON
+        && o3.abs() <= ORIENTATION_EPSILON
+        && o4.abs() <= ORIENTATION_EPSILON
+    {
+        return false;
+    }
+
+    (o1 > ORIENTATION_EPSILON) != (o2 > ORIENTATION_EPSILON)
+        && (o3 > ORIENTATION_EPSILON) != (o4 > ORIENTATION_EPSILON)
+}
+
+fn find_crossing_edge_pairs(simulation: &LayoutSimulation) -> Vec<(usize, usize)> {
+    let edge_count = simulation.edges.len();
+    let mut crossings = Vec::new();
+    for left in 0..edge_count {
+        for right in left + 1..edge_count {
+            if edges_share_endpoint(simulation.edges[left], simulation.edges[right]) {
+                continue;
+            }
+            let (a, b, _) = simulation.edges[left];
+            let (c, d, _) = simulation.edges[right];
+            if segments_properly_cross(
+                simulation.positions[a],
+                simulation.positions[b],
+                simulation.positions[c],
+                simulation.positions[d],
+            ) {
+                crossings.push((left, right));
+            }
+        }
+    }
+    crossings
+}
+
+fn push_node(simulation: &mut LayoutSimulation, index: usize, delta: LayoutPoint) {
+    if simulation.pinned[index] || !delta.is_finite() {
+        return;
+    }
+    simulation.positions[index].x += delta.x;
+    simulation.positions[index].y += delta.y;
+}
+
+fn apply_uncross_push(
+    simulation: &mut LayoutSimulation,
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    strength: f32,
+) {
+    if !simulation.pinned[b] && !simulation.pinned[c] {
+        simulation.positions.swap(b, c);
+        return;
+    }
+
+    let pa = simulation.positions[a];
+    let pb = simulation.positions[b];
+    let pc = simulation.positions[c];
+    let pd = simulation.positions[d];
+
+    let mid_ab = LayoutPoint {
+        x: (pa.x + pb.x) * 0.5,
+        y: (pa.y + pb.y) * 0.5,
+    };
+    let mid_cd = LayoutPoint {
+        x: (pc.x + pd.x) * 0.5,
+        y: (pc.y + pd.y) * 0.5,
+    };
+    let separation = point_delta(mid_ab, mid_cd).normalized().scaled(strength * 0.35);
+    push_node(simulation, a, separation);
+    push_node(simulation, b, separation);
+    push_node(
+        simulation,
+        c,
+        LayoutPoint {
+            x: -separation.x,
+            y: -separation.y,
+        },
+    );
+    push_node(
+        simulation,
+        d,
+        LayoutPoint {
+            x: -separation.x,
+            y: -separation.y,
+        },
+    );
+
+    let ab = point_delta(pa, pb);
+    let perp_ab = ab.perpendicular().normalized();
+    let side_c = orientation(pa, pb, pc);
+    let push_b = if side_c >= 0.0 {
+        perp_ab.scaled(strength)
+    } else {
+        perp_ab.scaled(-strength)
+    };
+    push_node(simulation, b, push_b);
+    push_node(
+        simulation,
+        a,
+        LayoutPoint {
+            x: push_b.x * 0.35,
+            y: push_b.y * 0.35,
+        },
+    );
+
+    let cd = point_delta(pc, pd);
+    let perp_cd = cd.perpendicular().normalized();
+    let side_a = orientation(pc, pd, pa);
+    let push_c = if side_a >= 0.0 {
+        perp_cd.scaled(strength)
+    } else {
+        perp_cd.scaled(-strength)
+    };
+    push_node(simulation, c, push_c);
+    push_node(
+        simulation,
+        d,
+        LayoutPoint {
+            x: push_c.x * 0.35,
+            y: push_c.y * 0.35,
+        },
+    );
 }
 
 fn node_is_fixed(index: usize, anchor_index: Option<usize>, pinned: &[bool]) -> bool {
@@ -439,7 +626,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::editor::graph_model::{GraphEdge, GraphNode, KnowledgeGraph};
+    use crate::editor::graph_model::{GraphEdge, GraphNode, GraphNodeId, GraphNodeKind, KnowledgeGraph};
 
     fn triangle_graph() -> KnowledgeGraph {
         let nodes = vec![
@@ -599,6 +786,89 @@ mod tests {
         let distance = (dx * dx + dy * dy).sqrt();
         let min_distance = simulation.sizes[0] + simulation.sizes[1];
         assert!(distance >= min_distance - 0.01);
+    }
+
+    #[test]
+    fn uncross_graph_layout_reduces_crossings() {
+        let graph = crossing_graph();
+        let mut simulation = LayoutSimulation::new(&graph, LayoutConfig::default());
+        simulation.set_node_position(
+            &GraphNodeId::document("a.md"),
+            LayoutPoint { x: 0.0, y: 0.0 },
+        );
+        simulation.set_node_position(
+            &GraphNodeId::document("b.md"),
+            LayoutPoint { x: 100.0, y: 0.0 },
+        );
+        simulation.set_node_position(
+            &GraphNodeId::document("c.md"),
+            LayoutPoint { x: 100.0, y: 100.0 },
+        );
+        simulation.set_node_position(
+            &GraphNodeId::document("d.md"),
+            LayoutPoint { x: 0.0, y: 100.0 },
+        );
+        let before = count_edge_crossings(&simulation);
+        assert_eq!(before, 1);
+
+        uncross_graph_layout(&mut simulation, false);
+        let after = count_edge_crossings(&simulation);
+        assert!(after < before);
+    }
+
+    fn crossing_graph() -> KnowledgeGraph {
+        let nodes = vec![
+            GraphNode {
+                id: GraphNodeId::document("a.md"),
+                kind: GraphNodeKind::Document {
+                    path: PathBuf::from("/tmp/a.md"),
+                    relative_path: "a.md".to_string(),
+                    label: "a.md".to_string(),
+                },
+            },
+            GraphNode {
+                id: GraphNodeId::document("b.md"),
+                kind: GraphNodeKind::Document {
+                    path: PathBuf::from("/tmp/b.md"),
+                    relative_path: "b.md".to_string(),
+                    label: "b.md".to_string(),
+                },
+            },
+            GraphNode {
+                id: GraphNodeId::document("c.md"),
+                kind: GraphNodeKind::Document {
+                    path: PathBuf::from("/tmp/c.md"),
+                    relative_path: "c.md".to_string(),
+                    label: "c.md".to_string(),
+                },
+            },
+            GraphNode {
+                id: GraphNodeId::document("d.md"),
+                kind: GraphNodeKind::Document {
+                    path: PathBuf::from("/tmp/d.md"),
+                    relative_path: "d.md".to_string(),
+                    label: "d.md".to_string(),
+                },
+            },
+        ];
+        let edges = vec![
+            GraphEdge {
+                source: GraphNodeId::document("a.md"),
+                target: GraphNodeId::document("c.md"),
+                kind: GraphEdgeKind::WikiLink,
+            },
+            GraphEdge {
+                source: GraphNodeId::document("b.md"),
+                target: GraphNodeId::document("d.md"),
+                kind: GraphEdgeKind::WikiLink,
+            },
+        ];
+        KnowledgeGraph {
+            nodes,
+            edges,
+            broken_wiki_links: 0,
+            revision: 1,
+        }
     }
 
     #[test]

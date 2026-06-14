@@ -175,6 +175,7 @@ pub struct Editor {
     wiki_link_picker: wiki_link_picker::WikiLinkPickerState,
     knowledge_graph_view: Option<graph_view::KnowledgeGraphViewState>,
     graph_animation_task: Option<Task<()>>,
+    graph_active_node_pulse_task: Option<Task<()>>,
     ai: controllers::AiController,
 }
 
@@ -383,6 +384,7 @@ impl Editor {
             wiki_link_picker: wiki_link_picker::WikiLinkPickerState::new(cx),
             knowledge_graph_view: None,
             graph_animation_task: None,
+            graph_active_node_pulse_task: None,
             ai: controllers::AiController::new(cx),
         };
         editor.rebuild_table_runtimes(cx);

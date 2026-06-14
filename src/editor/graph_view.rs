@@ -30,6 +30,10 @@ const VIEWPORT_CULL_PADDING: f32 = 48.0;
 const MAX_EDGES_WITHOUT_HOVER_CULL: usize = 3000;
 pub(crate) const GRAPH_ANIMATION_FRAMES: u32 = 90;
 pub(crate) const GRAPH_ANIMATION_FRAME_MS: u64 = 16;
+pub(crate) const ACTIVE_NODE_PULSE_FRAME_MS: u64 = 32;
+const ACTIVE_NODE_PULSE_PERIOD_SEC: f32 = 2.4;
+const ACTIVE_NODE_PULSE_RING_BASE: f32 = 5.0;
+const ACTIVE_NODE_PULSE_RING_EXPAND: f32 = 16.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GraphDragMode {
@@ -79,6 +83,7 @@ pub(crate) struct KnowledgeGraphViewState {
     pub simulation: Option<LayoutSimulation>,
     pub animating: bool,
     pub animation_progress: f32,
+    pub active_node_pulse_phase: f32,
     pub hovered_node_id: Option<GraphNodeId>,
     pub pinned: HashSet<GraphNodeId>,
     pub drag: GraphInteractionDrag,
@@ -101,6 +106,7 @@ impl KnowledgeGraphViewState {
             simulation: Some(simulation),
             animating: true,
             animation_progress: 0.0,
+            active_node_pulse_phase: 0.0,
             hovered_node_id: None,
             pinned: HashSet::new(),
             drag: GraphInteractionDrag::default(),
@@ -319,6 +325,7 @@ struct GraphPrepaintState {
     background: PaintQuad,
     edges: Vec<(Path<Pixels>, Hsla)>,
     nodes: Vec<PaintQuad>,
+    active_rings: Vec<(Path<Pixels>, Hsla)>,
     labels: Vec<(ShapedLine, Point<Pixels>, Pixels)>,
     hitbox: Hitbox,
 }
@@ -366,6 +373,34 @@ fn build_graph_edge_path(
     let mut builder = PathBuilder::stroke(stroke_width);
     builder.move_to(source);
     builder.line_to(target);
+    builder.build().ok()
+}
+
+fn build_circle_stroke_path(
+    center: Point<Pixels>,
+    radius: Pixels,
+    stroke_width: Pixels,
+) -> Option<Path<Pixels>> {
+    if !pixel_point_is_finite(center) {
+        return None;
+    }
+    let r = f32::from(radius);
+    if !r.is_finite() || r <= 0.0 {
+        return None;
+    }
+
+    let top = point(center.x, center.y - radius);
+    let right = point(center.x + radius, center.y);
+    let bottom = point(center.x, center.y + radius);
+    let left = point(center.x - radius, center.y);
+    let radii = point(radius, radius);
+    let mut builder = PathBuilder::stroke(stroke_width);
+    builder.move_to(top);
+    builder.arc_to(radii, px(0.0), false, true, right);
+    builder.arc_to(radii, px(0.0), false, true, bottom);
+    builder.arc_to(radii, px(0.0), false, true, left);
+    builder.arc_to(radii, px(0.0), false, true, top);
+    builder.close();
     builder.build().ok()
 }
 
@@ -421,6 +456,7 @@ fn prepaint_graph(
     state: &mut KnowledgeGraphViewState,
     theme: &Theme,
     window: &mut Window,
+    active_document_node_id: Option<&GraphNodeId>,
 ) -> GraphPrepaintState {
     if state.viewport.scale <= 0.0 {
         state
@@ -483,7 +519,13 @@ fn prepaint_graph(
 
     let window_style = window.text_style();
     let mut nodes = Vec::new();
+    let mut active_rings = Vec::new();
     let mut labels = Vec::new();
+    let pulse = if active_document_node_id.is_some() {
+        (state.active_node_pulse_phase.sin() * 0.5 + 0.5).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
 
     for node in &state.graph.nodes {
         let Some(world) = positions.get(&node.id) else {
@@ -508,10 +550,33 @@ fn prepaint_graph(
             GraphNodeKind::Document { .. } => theme.colors.graph_node_document,
             GraphNodeKind::Tag { .. } => theme.colors.graph_node_tag,
         };
+        let is_active_document =
+            active_document_node_id.is_some_and(|active_id| active_id == &node.id);
         let mut quad = fill(node_bounds, color);
         quad.corner_radii = Corners::all(radius);
         quad.border_widths = Edges::all(node_border_width);
-        quad.border_color = node_border_color(color);
+        quad.border_color = if is_active_document {
+            theme
+                .colors
+                .selection
+                .opacity(0.55 + pulse * 0.35)
+        } else {
+            node_border_color(color)
+        };
+        if is_active_document {
+            quad.border_widths = Edges::all(node_border_width * (1.25 + pulse * 0.75));
+            let ring_radius =
+                radius + px(ACTIVE_NODE_PULSE_RING_BASE + pulse * ACTIVE_NODE_PULSE_RING_EXPAND);
+            let ring_opacity = 0.5 * (1.0 - pulse);
+            if ring_opacity > 0.02 {
+                if let Some(path) = build_circle_stroke_path(center, ring_radius, px(1.5)) {
+                    active_rings.push((
+                        path,
+                        theme.colors.selection.opacity(ring_opacity),
+                    ));
+                }
+            }
+        }
         nodes.push(quad);
 
         let label_text: SharedString = node_display_label(&node.kind).into();
@@ -549,6 +614,7 @@ fn prepaint_graph(
         background,
         edges,
         nodes,
+        active_rings,
         labels,
         hitbox,
     }
@@ -675,11 +741,16 @@ impl Element for KnowledgeGraphElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let theme = cx.global::<ThemeManager>().current_arc();
-        let mut snapshot = self
+        let (mut snapshot, active_document_node_id) = self
             .editor
-            .update(cx, |editor, _| editor.knowledge_graph_view.clone())
-            .ok()
-            .flatten();
+            .update(cx, |editor, cx| {
+                editor.ensure_knowledge_graph_active_node_pulse(cx);
+                (
+                    editor.knowledge_graph_view.clone(),
+                    editor.active_knowledge_graph_document_node_id(),
+                )
+            })
+            .unwrap_or((None, None));
 
         if let Some(state) = snapshot.as_mut() {
             if state.viewport.scale <= 0.0 {
@@ -707,12 +778,19 @@ impl Element for KnowledgeGraphElement {
                     live.last_bounds = bounds;
                 }
             });
-            prepaint_graph(bounds, state, &theme, window)
+            prepaint_graph(
+                bounds,
+                state,
+                &theme,
+                window,
+                active_document_node_id.as_ref(),
+            )
         } else {
             GraphPrepaintState {
                 background: fill(bounds, theme.colors.graph_background),
                 edges: Vec::new(),
                 nodes: Vec::new(),
+                active_rings: Vec::new(),
                 labels: Vec::new(),
                 hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
             }
@@ -739,6 +817,10 @@ impl Element for KnowledgeGraphElement {
             window.paint_quad(node);
         }
 
+        for (path, color) in prepaint.active_rings.drain(..) {
+            window.paint_path(path, color);
+        }
+
         for (line, origin, font_size) in prepaint.labels.drain(..) {
             let _ = line.paint(origin, font_size, window, cx);
         }
@@ -760,6 +842,19 @@ enum GraphNodeClickAction {
 }
 
 impl Editor {
+    pub(super) fn active_knowledge_graph_document_node_id(&self) -> Option<GraphNodeId> {
+        let root = self.effective_workspace_root()?;
+        let file_path = self.file_path.as_ref()?;
+        let node_id = super::graph_model::workspace_document_node_id(&root, file_path)?;
+        self.knowledge_graph_view
+            .as_ref()?
+            .graph
+            .nodes
+            .iter()
+            .any(|node| node.id == node_id)
+            .then_some(node_id)
+    }
+
     pub(super) fn knowledge_graph_cursor_style(&self) -> Option<CursorStyle> {
         let state = self.knowledge_graph_view.as_ref()?;
         if state.drag.active() {

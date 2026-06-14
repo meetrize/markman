@@ -4,11 +4,11 @@ use std::path::Path;
 
 use gpui::*;
 
-use super::graph_layout::{LayoutConfig, LayoutSimulation};
+use super::graph_layout::{LayoutConfig, LayoutSimulation, uncross_graph_layout};
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
 use super::graph_view::{
     render_knowledge_graph_panel, GraphViewport, KnowledgeGraphViewState,
-    GRAPH_ANIMATION_FRAME_MS, GRAPH_ANIMATION_FRAMES,
+    ACTIVE_NODE_PULSE_FRAME_MS, GRAPH_ANIMATION_FRAME_MS, GRAPH_ANIMATION_FRAMES,
 };
 use super::link_index::{
     build_workspace_link_index, refresh_link_index_for_file, WorkspaceLinkIndex,
@@ -19,6 +19,7 @@ use crate::i18n::I18nStrings;
 use crate::theme::{Theme, ThemeColors, ThemeTypography};
 
 const GRAPH_REPEL_ICON: &str = "icon/workspace/graph-repel.svg";
+const GRAPH_UNCROSS_ICON: &str = "icon/workspace/graph-uncross.svg";
 const GRAPH_FIT_ICON: &str = "icon/workspace/graph-fit.svg";
 const GRAPH_RESET_ICON: &str = "icon/workspace/graph-reset.svg";
 const GRAPH_TOOLBAR_ICON_SIZE: f32 = 12.0;
@@ -38,6 +39,7 @@ impl Editor {
         self.workspace.state.graph_revision = None;
         self.workspace.state.graph_busy = false;
         self.graph_animation_task = None;
+        self.graph_active_node_pulse_task = None;
         self.knowledge_graph_view = None;
     }
 
@@ -229,6 +231,47 @@ impl Editor {
         ));
     }
 
+    pub(super) fn ensure_knowledge_graph_active_node_pulse(&mut self, cx: &mut Context<Self>) {
+        if self.knowledge_graph_view.is_none() || self.graph_active_node_pulse_task.is_some() {
+            return;
+        }
+
+        let phase_step = std::f32::consts::TAU * ACTIVE_NODE_PULSE_FRAME_MS as f32 / 1000.0 / 2.4;
+        let editor = cx.entity().downgrade();
+        self.graph_active_node_pulse_task = Some(cx.spawn(
+            async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(
+                            ACTIVE_NODE_PULSE_FRAME_MS,
+                        ))
+                        .await;
+
+                    let keep_going = editor
+                        .update(cx, |editor, cx| {
+                            let Some(state) = editor.knowledge_graph_view.as_mut() else {
+                                return false;
+                            };
+                            state.active_node_pulse_phase =
+                                (state.active_node_pulse_phase + phase_step)
+                                    % std::f32::consts::TAU;
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false);
+
+                    if !keep_going {
+                        break;
+                    }
+                }
+
+                let _ = editor.update(cx, |editor, _| {
+                    editor.graph_active_node_pulse_task = None;
+                });
+            },
+        ));
+    }
+
     pub(super) fn set_knowledge_graph_filter(
         &mut self,
         filter: GraphFilter,
@@ -305,6 +348,22 @@ impl Editor {
         cx.notify();
     }
 
+    pub(super) fn uncross_knowledge_graph_layout(&mut self, cx: &mut Context<Self>) {
+        let Some(state) = self.knowledge_graph_view.as_mut() else {
+            return;
+        };
+        let Some(simulation) = state.simulation.as_mut() else {
+            return;
+        };
+        let resolve_collisions = state.mutual_repulsion;
+        uncross_graph_layout(simulation, resolve_collisions);
+        state.layout = simulation.to_layout();
+        if state.last_bounds.size.width > px(0.0) && state.last_bounds.size.height > px(0.0) {
+            state.reset_viewport_fit(state.last_bounds.size);
+        }
+        cx.notify();
+    }
+
     pub(super) fn fit_knowledge_graph_viewport(&mut self, cx: &mut Context<Self>) {
         let Some(state) = self.knowledge_graph_view.as_mut() else {
             return;
@@ -344,9 +403,12 @@ impl Editor {
 
         let c = &theme.colors;
         let t = &theme.typography;
+        let tooltip_colors = theme.colors.clone();
+        let tooltip_typography = theme.typography.clone();
         let fit_editor = editor.clone();
         let reset_editor = editor.clone();
         let repulsion_editor = editor.clone();
+        let uncross_editor = editor.clone();
         let filter = self
             .knowledge_graph_view
             .as_ref()
@@ -410,21 +472,36 @@ impl Editor {
                                 "workspace-graph-mutual-repulsion",
                                 GRAPH_REPEL_ICON,
                                 mutual_repulsion,
-                                c,
+                                tooltip_colors.clone(),
+                                tooltip_typography.clone(),
+                                strings.workspace_graph_mutual_repulsion.clone(),
                                 repulsion_editor,
                                 |editor, cx| editor.toggle_knowledge_graph_mutual_repulsion(cx),
                             ))
                             .child(graph_toolbar_button(
+                                "workspace-graph-uncross-edges",
+                                GRAPH_UNCROSS_ICON,
+                                tooltip_colors.clone(),
+                                tooltip_typography.clone(),
+                                strings.workspace_graph_uncross_crossings.clone(),
+                                uncross_editor,
+                                |editor, cx| editor.uncross_knowledge_graph_layout(cx),
+                            ))
+                            .child(graph_toolbar_button(
                                 "workspace-graph-fit-view",
                                 GRAPH_FIT_ICON,
-                                c,
+                                tooltip_colors.clone(),
+                                tooltip_typography.clone(),
+                                strings.workspace_graph_fit_view.clone(),
                                 fit_editor,
                                 |editor, cx| editor.fit_knowledge_graph_viewport(cx),
                             ))
                             .child(graph_toolbar_button(
                                 "workspace-graph-reset-layout",
                                 GRAPH_RESET_ICON,
-                                c,
+                                tooltip_colors,
+                                tooltip_typography,
+                                strings.workspace_graph_reset_layout.clone(),
                                 reset_editor,
                                 |editor, cx| editor.reset_knowledge_graph_layout(cx),
                             )),
@@ -492,18 +569,59 @@ fn graph_toolbar_icon(icon: &'static str, text_color: Hsla) -> impl IntoElement 
         .text_color(text_color)
 }
 
+struct GraphToolbarTooltip {
+    text: SharedString,
+    colors: ThemeColors,
+    typography: ThemeTypography,
+}
+
+impl Render for GraphToolbarTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let c = &self.colors;
+        let t = &self.typography;
+        div()
+            .px(px(8.0))
+            .py(px(4.0))
+            .rounded(px(4.0))
+            .bg(c.dialog_surface)
+            .border(px(1.0))
+            .border_color(c.dialog_border.opacity(0.75))
+            .text_size(px(t.text_size * 0.75))
+            .text_color(c.text_default)
+            .child(self.text.clone())
+    }
+}
+
+fn graph_toolbar_tooltip(
+    text: impl Into<SharedString>,
+    colors: ThemeColors,
+    typography: ThemeTypography,
+) -> impl Fn(&mut Window, &mut App) -> AnyView + Clone + 'static {
+    let text = text.into();
+    move |_window, cx| {
+        cx.new(|_cx| GraphToolbarTooltip {
+            text: text.clone(),
+            colors: colors.clone(),
+            typography: typography.clone(),
+        })
+        .into()
+    }
+}
+
 fn graph_toggle_button(
     id: &'static str,
     icon: &'static str,
     active: bool,
-    c: &ThemeColors,
+    colors: ThemeColors,
+    typography: ThemeTypography,
+    tooltip: impl Into<SharedString>,
     editor: WeakEntity<Editor>,
     action: fn(&mut Editor, &mut Context<Editor>),
 ) -> AnyElement {
     let icon_color = if active {
-        c.text_default
+        colors.text_default
     } else {
-        c.dialog_muted
+        colors.dialog_muted
     };
     let mut element = div()
         .id(id)
@@ -516,15 +634,13 @@ fn graph_toggle_button(
         .child(graph_toolbar_icon(icon, icon_color));
 
     element = if active {
-        element
-            .bg(c.dialog_secondary_button_hover)
+        element.bg(colors.dialog_secondary_button_hover)
     } else {
-        element.hover(|this| {
-            this.bg(c.dialog_secondary_button_hover)
-        })
+        element.hover(|this| this.bg(colors.dialog_secondary_button_hover))
     };
 
     element
+        .tooltip(graph_toolbar_tooltip(tooltip, colors, typography))
         .on_click(move |_event, _window, cx| {
             let _ = editor.update(cx, |editor, cx| {
                 action(editor, cx);
@@ -536,7 +652,9 @@ fn graph_toggle_button(
 fn graph_toolbar_button(
     id: &'static str,
     icon: &'static str,
-    c: &ThemeColors,
+    colors: ThemeColors,
+    typography: ThemeTypography,
+    tooltip: impl Into<SharedString>,
     editor: WeakEntity<Editor>,
     action: fn(&mut Editor, &mut Context<Editor>),
 ) -> AnyElement {
@@ -548,8 +666,9 @@ fn graph_toolbar_button(
         .flex()
         .items_center()
         .justify_center()
-        .hover(|this| this.bg(c.dialog_secondary_button_hover))
-        .child(graph_toolbar_icon(icon, c.dialog_muted))
+        .hover(|this| this.bg(colors.dialog_secondary_button_hover))
+        .child(graph_toolbar_icon(icon, colors.dialog_muted))
+        .tooltip(graph_toolbar_tooltip(tooltip, colors, typography))
         .on_click(move |_event, _window, cx| {
             let _ = editor.update(cx, |editor, cx| {
                 action(editor, cx);
