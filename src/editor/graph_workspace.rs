@@ -5,9 +5,9 @@ use std::path::Path;
 use gpui::*;
 use gpui::prelude::FluentBuilder;
 
-use super::graph_layout::{LayoutConfig, LayoutSimulation, uncross_graph_layout};
+use super::graph_layout::{LayoutConfig, LayoutSimulation};
 use super::graph_physics::{
-    clear_graph_physics_velocities, physics_frame_ms, step_graph_physics, viewport_physics_bounds,
+    physics_frame_ms, step_graph_physics, viewport_physics_bounds,
     GraphPhysicsConfig, GraphPhysicsDragState, GRAPH_PHYSICS_DT, GRAPH_PHYSICS_FRAME_MS,
 };
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
@@ -27,11 +27,6 @@ use crate::i18n::I18nStrings;
 use crate::theme::{Theme, ThemeColors, ThemeTypography};
 use crate::window_chrome::velotype_window_options;
 
-const GRAPH_REPEL_ICON: &str = "icon/workspace/graph-repel.svg";
-const GRAPH_PHYSICS_ICON: &str = "icon/workspace/graph-physics.svg";
-const GRAPH_UNCROSS_ICON: &str = "icon/workspace/graph-uncross.svg";
-const GRAPH_FIT_ICON: &str = "icon/workspace/graph-fit.svg";
-const GRAPH_RESET_ICON: &str = "icon/workspace/graph-reset.svg";
 const GRAPH_POPOUT_ICON: &str = "icon/workspace/graph-popout.svg";
 const GRAPH_TOOLBAR_ICON_SIZE: f32 = 12.0;
 
@@ -158,24 +153,7 @@ impl Editor {
             return;
         }
 
-        let mutual_repulsion = self
-            .knowledge_graph_view
-            .as_ref()
-            .map(|state| state.mutual_repulsion)
-            .unwrap_or(false);
-        let physics_collisions = self
-            .knowledge_graph_view
-            .as_ref()
-            .map(|state| state.physics_collisions)
-            .unwrap_or(true);
         self.knowledge_graph_view = Some(KnowledgeGraphViewState::new(raw_graph, filter));
-        if let Some(state) = self.knowledge_graph_view.as_mut() {
-            state.mutual_repulsion = mutual_repulsion;
-            state.physics_collisions = physics_collisions;
-            if state.mutual_repulsion {
-                state.apply_mutual_repulsion(None);
-            }
-        }
         self.workspace.state.graph_revision = Some(revision);
         self.start_knowledge_graph_animation(cx);
         cx.notify();
@@ -239,10 +217,8 @@ impl Editor {
                             && state.last_bounds.size.height > px(0.0)
                         {
                             state.reset_viewport_fit(state.last_bounds.size);
-                            if state.physics_collisions {
-                                state.invalidate_viewport_bounds_clamp();
-                                state.try_clamp_to_viewport_bounds();
-                            }
+                            state.invalidate_viewport_bounds_clamp();
+                            state.try_clamp_to_viewport_bounds();
                         } else {
                             state.viewport = GraphViewport::default();
                         }
@@ -347,62 +323,12 @@ impl Editor {
         }
     }
 
-    pub(super) fn reset_knowledge_graph_layout(&mut self, cx: &mut Context<Self>) {
-        let Some(state) = self.knowledge_graph_view.as_mut() else {
-            return;
-        };
-        state.reset_layout_from_simulation();
-        if state.mutual_repulsion {
-            state.apply_mutual_repulsion(None);
-        }
-        self.start_knowledge_graph_animation(cx);
-        cx.notify();
-    }
-
-    pub(super) fn toggle_knowledge_graph_mutual_repulsion(&mut self, cx: &mut Context<Self>) {
-        let Some(state) = self.knowledge_graph_view.as_mut() else {
-            return;
-        };
-        state.mutual_repulsion = !state.mutual_repulsion;
-        if state.mutual_repulsion {
-            state.apply_mutual_repulsion(None);
-        }
-        cx.notify();
-    }
-
-    pub(super) fn toggle_knowledge_graph_physics_collisions(&mut self, cx: &mut Context<Self>) {
-        let enabled = {
-            let Some(state) = self.knowledge_graph_view.as_mut() else {
-                return;
-            };
-            state.physics_collisions = !state.physics_collisions;
-            state.physics_collisions
-        };
-        if enabled {
-            if let Some(state) = self.knowledge_graph_view.as_mut() {
-                state.invalidate_viewport_bounds_clamp();
-                state.try_clamp_to_viewport_bounds();
-            }
-            self.ensure_knowledge_graph_physics_loop(cx);
-        } else {
-            self.stop_knowledge_graph_physics_loop();
-            if let Some(simulation) = self
-                .knowledge_graph_view
-                .as_mut()
-                .and_then(|state| state.simulation.as_mut())
-            {
-                clear_graph_physics_velocities(simulation);
-            }
-        }
-        cx.notify();
-    }
-
     pub(super) fn run_knowledge_graph_physics_step(&mut self, cx: &mut Context<Self>) -> bool {
         let drag = self.knowledge_graph_physics_drag_state();
         let Some(state) = self.knowledge_graph_view.as_mut() else {
             return false;
         };
-        if !state.physics_collisions || state.viewport.scale <= 0.0 {
+        if state.viewport.scale <= 0.0 {
             return false;
         }
         let Some(simulation) = state.simulation.as_mut() else {
@@ -457,9 +383,6 @@ impl Editor {
         let Some(state) = self.knowledge_graph_view.as_ref() else {
             return;
         };
-        if !state.physics_collisions {
-            return;
-        }
         if state.viewport.scale <= 0.0 {
             return;
         }
@@ -490,7 +413,7 @@ impl Editor {
                             let Some(state) = editor.knowledge_graph_view.as_ref() else {
                                 return false;
                             };
-                            if !state.physics_collisions || state.drag.active() {
+                            if state.drag.active() {
                                 return false;
                             }
                             editor.run_knowledge_graph_physics_step(cx)
@@ -507,35 +430,6 @@ impl Editor {
                 });
             },
         ));
-    }
-
-    pub(super) fn stop_knowledge_graph_physics_loop(&mut self) {
-        self.graph_physics_task = None;
-    }
-
-    pub(super) fn uncross_knowledge_graph_layout(&mut self, cx: &mut Context<Self>) {
-        let Some(state) = self.knowledge_graph_view.as_mut() else {
-            return;
-        };
-        let Some(simulation) = state.simulation.as_mut() else {
-            return;
-        };
-        let resolve_collisions = state.mutual_repulsion;
-        uncross_graph_layout(simulation, resolve_collisions);
-        state.layout = simulation.to_layout();
-        cx.notify();
-    }
-
-    pub(super) fn fit_knowledge_graph_viewport(&mut self, cx: &mut Context<Self>) {
-        let Some(state) = self.knowledge_graph_view.as_mut() else {
-            return;
-        };
-        if state.last_bounds.size.width > px(0.0) && state.last_bounds.size.height > px(0.0) {
-            state.reset_viewport_fit(state.last_bounds.size);
-        } else {
-            state.viewport = GraphViewport::default();
-        }
-        cx.notify();
     }
 
     pub(super) fn popout_knowledge_graph(&mut self, cx: &mut Context<Self>) {
@@ -604,27 +498,12 @@ impl Editor {
         let t = &theme.typography;
         let tooltip_colors = theme.colors.clone();
         let tooltip_typography = theme.typography.clone();
-        let fit_editor = editor.clone();
-        let reset_editor = editor.clone();
-        let repulsion_editor = editor.clone();
-        let physics_editor = editor.clone();
-        let uncross_editor = editor.clone();
         let popout_editor = editor.clone();
         let filter = self
             .knowledge_graph_view
             .as_ref()
             .map(|state| state.filter)
             .unwrap_or_default();
-        let mutual_repulsion = self
-            .knowledge_graph_view
-            .as_ref()
-            .map(|state| state.mutual_repulsion)
-            .unwrap_or(false);
-        let physics_collisions = self
-            .knowledge_graph_view
-            .as_ref()
-            .map(|state| state.physics_collisions)
-            .unwrap_or(true);
         let filter_all_editor = editor.clone();
         let filter_connected_editor = editor.clone();
 
@@ -674,53 +553,6 @@ impl Editor {
                             .flex()
                             .items_center()
                             .gap(px(6.0))
-                            .child(graph_toggle_button(
-                                "workspace-graph-mutual-repulsion",
-                                GRAPH_REPEL_ICON,
-                                mutual_repulsion,
-                                tooltip_colors.clone(),
-                                tooltip_typography.clone(),
-                                strings.workspace_graph_mutual_repulsion.clone(),
-                                repulsion_editor,
-                                |editor, cx| editor.toggle_knowledge_graph_mutual_repulsion(cx),
-                            ))
-                            .child(graph_toggle_button(
-                                "workspace-graph-physics-collisions",
-                                GRAPH_PHYSICS_ICON,
-                                physics_collisions,
-                                tooltip_colors.clone(),
-                                tooltip_typography.clone(),
-                                strings.workspace_graph_physics_collisions.clone(),
-                                physics_editor,
-                                |editor, cx| editor.toggle_knowledge_graph_physics_collisions(cx),
-                            ))
-                            .child(graph_toolbar_button(
-                                "workspace-graph-uncross-edges",
-                                GRAPH_UNCROSS_ICON,
-                                tooltip_colors.clone(),
-                                tooltip_typography.clone(),
-                                strings.workspace_graph_uncross_crossings.clone(),
-                                uncross_editor,
-                                |editor, cx| editor.uncross_knowledge_graph_layout(cx),
-                            ))
-                            .child(graph_toolbar_button(
-                                "workspace-graph-fit-view",
-                                GRAPH_FIT_ICON,
-                                tooltip_colors.clone(),
-                                tooltip_typography.clone(),
-                                strings.workspace_graph_fit_view.clone(),
-                                fit_editor,
-                                |editor, cx| editor.fit_knowledge_graph_viewport(cx),
-                            ))
-                            .child(graph_toolbar_button(
-                                "workspace-graph-reset-layout",
-                                GRAPH_RESET_ICON,
-                                tooltip_colors.clone(),
-                                tooltip_typography.clone(),
-                                strings.workspace_graph_reset_layout.clone(),
-                                reset_editor,
-                                |editor, cx| editor.reset_knowledge_graph_layout(cx),
-                            ))
                             .when(!self.graph_only_window, |this| {
                                 this.child(graph_toolbar_button(
                                     "workspace-graph-popout",
@@ -833,47 +665,6 @@ fn graph_toolbar_tooltip(
         })
         .into()
     }
-}
-
-fn graph_toggle_button(
-    id: &'static str,
-    icon: &'static str,
-    active: bool,
-    colors: ThemeColors,
-    typography: ThemeTypography,
-    tooltip: impl Into<SharedString>,
-    editor: WeakEntity<Editor>,
-    action: fn(&mut Editor, &mut Context<Editor>),
-) -> AnyElement {
-    let icon_color = if active {
-        colors.text_default
-    } else {
-        colors.dialog_muted
-    };
-    let mut element = div()
-        .id(id)
-        .p(px(4.0))
-        .rounded(px(4.0))
-        .cursor_pointer()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(graph_toolbar_icon(icon, icon_color));
-
-    element = if active {
-        element.bg(colors.dialog_secondary_button_hover)
-    } else {
-        element.hover(|this| this.bg(colors.dialog_secondary_button_hover))
-    };
-
-    element
-        .tooltip(graph_toolbar_tooltip(tooltip, colors, typography))
-        .on_click(move |_event, _window, cx| {
-            let _ = editor.update(cx, |editor, cx| {
-                action(editor, cx);
-            });
-        })
-        .into_any_element()
 }
 
 fn graph_toolbar_button(

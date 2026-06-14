@@ -95,8 +95,6 @@ pub(crate) struct KnowledgeGraphViewState {
     pub pinned: HashSet<GraphNodeId>,
     pub drag: GraphInteractionDrag,
     pub last_bounds: Bounds<Pixels>,
-    pub mutual_repulsion: bool,
-    pub physics_collisions: bool,
     pub viewport_bounds_clamped: bool,
 }
 
@@ -120,8 +118,6 @@ impl KnowledgeGraphViewState {
             pinned: HashSet::new(),
             drag: GraphInteractionDrag::default(),
             last_bounds: Bounds::default(),
-            mutual_repulsion: false,
-            physics_collisions: true,
             viewport_bounds_clamped: false,
         }
     }
@@ -131,7 +127,7 @@ impl KnowledgeGraphViewState {
     }
 
     pub(crate) fn try_clamp_to_viewport_bounds(&mut self) {
-        if !self.physics_collisions || self.viewport_bounds_clamped {
+        if self.viewport_bounds_clamped {
             return;
         }
         if self.viewport.scale <= 0.0 {
@@ -157,17 +153,6 @@ impl KnowledgeGraphViewState {
         self.viewport_bounds_clamped = true;
     }
 
-    pub(crate) fn apply_mutual_repulsion(&mut self, anchor: Option<&GraphNodeId>) {
-        if !self.mutual_repulsion {
-            return;
-        }
-        let Some(simulation) = self.simulation.as_mut() else {
-            return;
-        };
-        simulation.resolve_collisions(anchor);
-        self.layout = simulation.to_layout();
-    }
-
     pub(crate) fn refresh_filtered_graph(&mut self) {
         self.graph = apply_graph_filter(&self.raw_graph, self.filter);
         let mut simulation = LayoutSimulation::new(&self.graph, LayoutConfig::default());
@@ -179,19 +164,6 @@ impl KnowledgeGraphViewState {
         self.simulation = Some(simulation);
         self.animating = true;
         self.animation_progress = 0.0;
-        self.viewport_bounds_clamped = false;
-    }
-
-    pub(crate) fn reset_layout_from_simulation(&mut self) {
-        let mut simulation = LayoutSimulation::new(&self.graph, LayoutConfig::default());
-        settle_graph_layout(&mut simulation, LayoutConfig::default().iterations);
-        self.layout = simulation.to_layout();
-        self.simulation = Some(simulation);
-        self.animating = true;
-        self.animation_progress = 0.0;
-        self.viewport = GraphViewport::default();
-        self.pinned.clear();
-        self.drag = GraphInteractionDrag::default();
         self.viewport_bounds_clamped = false;
     }
 
@@ -804,27 +776,21 @@ impl Element for KnowledgeGraphElement {
                         bounds.size,
                         &state.graph,
                     );
-                    if state.physics_collisions {
-                        state.invalidate_viewport_bounds_clamp();
-                    }
+                    state.invalidate_viewport_bounds_clamp();
                 } else if panel_resized && !state.drag.active() {
                     state.viewport.fit_to_bounds(
                         &state.layout.bounds,
                         bounds.size,
                         &state.graph,
                     );
-                    if state.physics_collisions {
-                        state.invalidate_viewport_bounds_clamp();
-                    }
+                    state.invalidate_viewport_bounds_clamp();
                 }
 
                 state.last_bounds = bounds;
-                if state.physics_collisions {
-                    let clamped_before = state.viewport_bounds_clamped;
-                    state.try_clamp_to_viewport_bounds();
-                    if state.viewport_bounds_clamped && !clamped_before {
-                        cx.notify();
-                    }
+                let clamped_before = state.viewport_bounds_clamped;
+                state.try_clamp_to_viewport_bounds();
+                if state.viewport_bounds_clamped && !clamped_before {
+                    cx.notify();
                 }
 
                 (editor.knowledge_graph_view.clone(), active_id)
@@ -1028,17 +994,10 @@ impl Editor {
                         simulation.set_node_position(&node_id, *position);
                     }
                 }
-                let use_physics = state.physics_collisions;
-                let use_repulsion = state.mutual_repulsion && !use_physics;
-                if use_repulsion {
-                    state.apply_mutual_repulsion(Some(&node_id));
-                }
-                if use_physics {
-                    let _ = state;
-                    self.run_knowledge_graph_physics_step(cx);
-                    cx.notify();
-                    return;
-                }
+                let _ = state;
+                self.run_knowledge_graph_physics_step(cx);
+                cx.notify();
+                return;
             }
             GraphDragMode::None => {}
         }
@@ -1069,11 +1028,9 @@ impl Editor {
 
         if matches!(state.drag.mode, GraphDragMode::Node) {
             if let Some(node_id) = state.drag.node_id.clone() {
-                if state.physics_collisions {
-                    let release_velocity = state.drag.drag_velocity;
-                    if let Some(simulation) = state.simulation.as_mut() {
-                        simulation.set_node_velocity(&node_id, release_velocity);
-                    }
+                let release_velocity = state.drag.drag_velocity;
+                if let Some(simulation) = state.simulation.as_mut() {
+                    simulation.set_node_velocity(&node_id, release_velocity);
                 }
                 state.pinned.remove(&node_id);
                 if let Some(simulation) = state.simulation.as_mut() {
@@ -1082,13 +1039,10 @@ impl Editor {
             }
         }
 
-        let start_physics_loop = state.physics_collisions;
         state.drag = GraphInteractionDrag::default();
         cx.notify();
 
-        if start_physics_loop {
-            self.ensure_knowledge_graph_physics_loop(cx);
-        }
+        self.ensure_knowledge_graph_physics_loop(cx);
 
         let Some(node_id) = clicked_node else {
             return;
