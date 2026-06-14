@@ -8,7 +8,8 @@ use super::graph_layout::{LayoutConfig, LayoutSimulation, uncross_graph_layout};
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
 use super::graph_view::{
     render_knowledge_graph_panel, GraphViewport, KnowledgeGraphViewState,
-    ACTIVE_NODE_PULSE_FRAME_MS, GRAPH_ANIMATION_FRAME_MS, GRAPH_ANIMATION_FRAMES,
+    ACTIVE_NODE_PULSE_FRAME_MS, ACTIVE_NODE_PULSE_PHASE_STEP, GRAPH_ANIMATION_FRAME_MS,
+    GRAPH_ANIMATION_FRAMES,
 };
 use super::link_index::{
     build_workspace_link_index, refresh_link_index_for_file, WorkspaceLinkIndex,
@@ -236,7 +237,7 @@ impl Editor {
             return;
         }
 
-        let phase_step = std::f32::consts::TAU * ACTIVE_NODE_PULSE_FRAME_MS as f32 / 1000.0 / 2.4;
+        let phase_step = ACTIVE_NODE_PULSE_PHASE_STEP;
         let editor = cx.entity().downgrade();
         self.graph_active_node_pulse_task = Some(cx.spawn(
             async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {

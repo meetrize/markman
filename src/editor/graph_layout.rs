@@ -161,6 +161,7 @@ pub(crate) fn settle_graph_layout(simulation: &mut LayoutSimulation, iterations:
     }
 }
 
+#[cfg(test)]
 pub(crate) fn count_edge_crossings(simulation: &LayoutSimulation) -> usize {
     find_crossing_edge_pairs(simulation).len()
 }
