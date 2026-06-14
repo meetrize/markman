@@ -310,6 +310,21 @@ impl Editor {
         cx.notify();
     }
 
+    pub(in crate::editor) fn add_selection_to_ai_chat(
+        &mut self,
+        snapshot: Option<AiContextSnapshot>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let snapshot = snapshot.or_else(|| {
+            self.preserve_ai_selection_visuals(cx);
+            ai_context::snapshot_editor_selection_context(self, window, cx)
+        });
+        if let Some(snapshot) = snapshot {
+            self.apply_ai_chat_selection_snapshot(snapshot, window, cx);
+        }
+    }
+
     pub(in crate::editor) fn clear_ai_chat_pinned_selection(&mut self, cx: &mut Context<Self>) {
         self.ai_chat.pinned_selection_context = None;
         if self.ai_chat.context_mode == AiChatContextMode::Selection {

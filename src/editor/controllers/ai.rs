@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
-use super::super::toolbar_button::ai_toolbar_action_button;
+use super::super::toolbar_button::{ai_toolbar_action_button, ai_toolbar_icon_button};
 use super::super::ai_context::{
     self, AiCollectedContext, AiContextMode, AiContextSnapshot, AiContextTarget,
 };
@@ -28,6 +28,7 @@ use crate::config::ai_toolbar::{AiSelectionToolbarBuiltin, AiSelectionToolbarBut
 use crate::app_menu::dispatch_menu_action;
 use crate::components::OpenAiPreferences;
 use crate::config::{AiPreferences, read_app_preferences};
+use crate::i18n::I18nManager;
 use crate::net::ai::{self as ai_client, AiCompletionRequest};
 use crate::input::text_norm::normalize_line_endings_lf;
 use crate::theme::Theme;
@@ -36,6 +37,7 @@ const WORKSPACE_CONTEXT_FILE_LIMIT: usize = 8;
 const WORKSPACE_CONTEXT_BYTES_PER_FILE: usize = 1200;
 
 const ICON_AI_TOOLBAR_CONFIG: &str = "icon/toolbar/settings-2.svg";
+const ICON_AI_ADD_TO_CHAT: &str = "icon/workspace/ai-chat.svg";
 const ICON_AI_PREVIEW_INSERT: &str = "icon/toolbar/list-plus.svg";
 const ICON_AI_PREVIEW_REPLACE: &str = "icon/toolbar/replace.svg";
 
@@ -1545,9 +1547,15 @@ impl Editor {
         let position = self.ai_selection_toolbar_position(window, cx)?;
         let selection_context = self.collect_selected_ai_context(window, cx)?;
         let preferences = read_app_preferences().ok()?;
+        let add_to_chat_label = cx
+            .global::<I18nManager>()
+            .strings()
+            .context_menu_add_to_ai_chat
+            .clone();
         let c = &theme.colors;
         let d = &theme.dimensions;
         let editor = cx.entity().downgrade();
+        let editor_for_chat = editor.clone();
         let mut toolbar = div()
             .id("ai-selection-toolbar")
             .absolute()
@@ -1566,7 +1574,18 @@ impl Editor {
             .bg(c.dialog_surface)
             .border(px(d.dialog_border_width))
             .border_color(c.dialog_border)
-            .shadow_lg();
+            .shadow_lg()
+            .child(ai_toolbar_icon_button(
+                "ai-floating-add-to-chat",
+                ICON_AI_ADD_TO_CHAT,
+                add_to_chat_label,
+                theme,
+                move |window, cx| {
+                    let _ = editor_for_chat.update(cx, |editor, cx| {
+                        editor.add_selection_to_ai_chat(None, window, cx);
+                    });
+                },
+            ));
 
         for (index, button) in preferences
             .ai

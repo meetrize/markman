@@ -261,17 +261,9 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let snapshot = self
-            .context_menu_selection_snapshot
-            .take()
-            .or_else(|| {
-                self.preserve_ai_selection_visuals(cx);
-                ai_context::snapshot_editor_selection_context(self, window, cx)
-            });
+        let snapshot = self.context_menu_selection_snapshot.take();
         self.close_context_menu(cx);
-        if let Some(snapshot) = snapshot {
-            self.apply_ai_chat_selection_snapshot(snapshot, window, cx);
-        }
+        self.add_selection_to_ai_chat(snapshot, window, cx);
     }
 
     pub(super) fn open_table_axis_context_menu(
