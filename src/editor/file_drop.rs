@@ -19,6 +19,22 @@ impl Editor {
             })
     }
 
+    /// Opens a workspace file in the editor when it is Markdown; otherwise uses the OS default app.
+    pub(super) fn open_workspace_path(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if Self::is_markdown_file_path(&path) {
+            self.open_workspace_file(path, window, cx);
+            return;
+        }
+        if path.is_file() {
+            super::workspace_file_menu::open_path_with_system_default(&path);
+        }
+    }
+
     pub(super) fn first_dropped_markdown_path(paths: &[PathBuf]) -> Option<PathBuf> {
         paths
             .iter()

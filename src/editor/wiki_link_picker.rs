@@ -32,6 +32,8 @@ const PANEL_WIDTH: f32 = 420.0;
 const ROW_HEIGHT: f32 = 28.0;
 const MAX_VISIBLE_ROWS: usize = 10;
 const INPUT_HEIGHT: f32 = 32.0;
+const WIKI_LINK_OPEN_ICON: &str = "icon/workspace/chevron-right.svg";
+const WIKI_LINK_OPEN_ICON_SIZE: f32 = 14.0;
 
 enum WikiLinkPickerAcceptAction {
     Apply(String),
@@ -604,6 +606,19 @@ impl Editor {
         window.focus(&block.read(cx).focus_handle);
     }
 
+    pub(super) fn wiki_link_picker_open_file(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entity_id) = self.wiki_link_picker.block_entity_id {
+            self.wiki_link_picker.suppress_auto_open_for = Some(entity_id);
+        }
+        self.close_wiki_link_picker(cx);
+        self.open_workspace_path(path, window, cx);
+    }
+
     pub(super) fn on_wiki_link_picker_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -1013,6 +1028,7 @@ impl Editor {
             .min((viewport_width - PANEL_WIDTH - VIEWPORT_MARGIN).max(VIEWPORT_MARGIN));
 
         let mut rows = Vec::new();
+        let workspace_root = self.effective_workspace_root();
         if picker.filtering {
             let end = (picker.scroll_top + MAX_VISIBLE_ROWS).min(picker.filter_results.len());
             for index in picker.scroll_top..end {
@@ -1025,6 +1041,7 @@ impl Editor {
                     result.label.clone(),
                     result.detail.clone(),
                     result.label.clone(),
+                    result.path.clone(),
                     editor.clone(),
                     c,
                     t,
@@ -1097,6 +1114,10 @@ impl Editor {
                         label,
                         detail,
                     } => {
+                        let open_path = workspace_root
+                            .as_ref()
+                            .map(|root| root.join(relative_path))
+                            .unwrap_or_else(|| PathBuf::from(relative_path));
                         rows.push(render_file_row(
                             row_index,
                             selected,
@@ -1104,6 +1125,7 @@ impl Editor {
                             label.clone(),
                             detail.clone(),
                             relative_path.clone(),
+                            open_path,
                             editor.clone(),
                             c,
                             t,
@@ -1215,52 +1237,93 @@ fn render_file_row(
     label: String,
     detail: String,
     relative_path: String,
+    open_path: PathBuf,
     editor: WeakEntity<Editor>,
     c: &ThemeColors,
     t: &ThemeTypography,
 ) -> AnyElement {
+    let row_bg = if selected {
+        c.selection.opacity(0.35)
+    } else {
+        c.dialog_surface
+    };
+    let select_editor = editor.clone();
+    let open_editor = editor;
     div()
         .id(("wiki-link-file", row_index))
         .h(px(ROW_HEIGHT))
         .w_full()
         .pl(px(8.0 + depth as f32 * 12.0))
-        .pr(px(8.0))
+        .pr(px(4.0))
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(px(4.0))
         .rounded(px(4.0))
-        .bg(if selected {
-            c.selection.opacity(0.35)
-        } else {
-            c.dialog_surface
-        })
-        .cursor_pointer()
+        .bg(row_bg)
         .hover(|this| this.bg(c.dialog_secondary_button_hover))
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.0))
-                .truncate()
-                .text_size(px(t.text_size * 0.88))
-                .text_color(c.text_default)
-                .child(label),
+                .h_full()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .text_size(px(t.text_size * 0.88))
+                        .text_color(c.text_default)
+                        .child(label),
+                )
+                .when(!detail.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .max_w(px(140.0))
+                            .truncate()
+                            .text_size(px(t.text_size * 0.72))
+                            .text_color(c.dialog_muted)
+                            .child(detail),
+                    )
+                })
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    let path = relative_path.clone();
+                    let index = row_index;
+                    let _ = select_editor.update(cx, |editor, cx| {
+                        editor.wiki_link_picker_select_file(index, &path, window, cx);
+                    });
+                    cx.stop_propagation();
+                }),
         )
-        .when(!detail.is_empty(), |this| {
-            this.child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(px(t.text_size * 0.72))
-                    .text_color(c.dialog_muted)
-                    .child(detail),
-            )
-        })
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-            let path = relative_path.clone();
-            let index = row_index;
-            let _ = editor.update(cx, |editor, cx| {
-                editor.wiki_link_picker_select_file(index, &path, window, cx);
-            });
-            cx.stop_propagation();
-        })
+        .child(
+            div()
+                .id(("wiki-link-open", row_index))
+                .flex_shrink_0()
+                .w(px(24.0))
+                .h(px(24.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.0))
+                .cursor_pointer()
+                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                .child(
+                    svg()
+                        .path(WIKI_LINK_OPEN_ICON)
+                        .size(px(WIKI_LINK_OPEN_ICON_SIZE))
+                        .text_color(c.dialog_muted),
+                )
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    let path = open_path.clone();
+                    let _ = open_editor.update(cx, |editor, cx| {
+                        editor.wiki_link_picker_open_file(path, window, cx);
+                    });
+                    cx.stop_propagation();
+                }),
+        )
         .into_any_element()
 }

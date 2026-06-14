@@ -1477,6 +1477,28 @@ fn reveal_in_file_manager(path: &Path) {
     }
 }
 
+/// Opens a file or folder with the platform default application.
+pub(super) fn open_path_with_system_default(path: &Path) {
+    if !path.exists() {
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(path).spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path.to_string_lossy()])
+            .spawn();
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{create_directory, create_markdown_file, unique_path_in_parent};

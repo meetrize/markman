@@ -479,7 +479,7 @@ impl Editor {
             if let Some(root) = self.effective_workspace_root() {
                 let path = root.join(&link.open_target);
                 if path.is_file() {
-                    self.open_workspace_file(path, window, cx);
+                    self.open_workspace_path(path, window, cx);
                     return;
                 }
             }
