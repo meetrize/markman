@@ -1925,8 +1925,8 @@ impl Element for BlockTextElement {
             .unwrap_or(px(0.0));
         let content_gutter_width =
             link_content_gutter_width(input, line_height, source_line_number_gutter_width);
-        let layout_bounds = source_text_bounds(bounds, source_line_number_gutter_width);
         let text_bounds = source_text_bounds(bounds, content_gutter_width);
+        let icon_layout_bounds = link_icon_layout_bounds(text_bounds, link_icon_gutter);
         let text_align = input.text_align();
         let text = input.display_text();
         let link_icon_text_insets = if self.is_placeholder || input.is_source_raw_mode() {
@@ -1935,7 +1935,7 @@ impl Element for BlockTextElement {
             compute_link_icon_text_insets(
                 input,
                 &lines,
-                layout_bounds,
+                icon_layout_bounds,
                 text_bounds,
                 line_height,
                 text_align,
@@ -2105,7 +2105,7 @@ impl Element for BlockTextElement {
             collect_link_action_icons(
                 input,
                 &lines,
-                layout_bounds,
+                icon_layout_bounds,
                 text_bounds,
                 line_height,
                 theme.colors.text_link,
@@ -2188,16 +2188,18 @@ impl Element for BlockTextElement {
             bounds,
             prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
         );
+        let link_click_bounds =
+            link_icon_layout_bounds(text_bounds, prepaint.link_icon_gutter_width);
         let input_entity = self.input.clone();
         let focus_handle_for_click = focus_handle.clone();
         let input_entity_for_wiki = self.input.clone();
         window.on_mouse_event({
-            let text_bounds_for_link = text_bounds;
+            let link_click_bounds = link_click_bounds;
             move |event: &MouseUpEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble
                     || event.button != MouseButton::Left
                     || event.click_count != 1
-                    || !text_bounds_for_link.contains(&event.position)
+                    || !link_click_bounds.contains(&event.position)
                 {
                     return;
                 }
@@ -2885,6 +2887,16 @@ mod tests {
         inline.read_with(cx, |block, _cx| {
             assert!(!first_hard_line_starts_with_link(block));
         });
+    }
+
+    #[test]
+    fn link_icon_layout_bounds_includes_leading_gutter_slot() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+        let gutter = px(20.0);
+        let text_bounds = source_text_bounds(bounds, gutter);
+        let icon_click = point(text_bounds.left() - gutter / 2.0, px(10.0));
+        assert!(!text_bounds.contains(&icon_click));
+        assert!(link_icon_layout_bounds(text_bounds, gutter).contains(&icon_click));
     }
 
     #[gpui::test]

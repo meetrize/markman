@@ -999,6 +999,14 @@ impl Block {
             return;
         }
 
+        if event.click_count == 1
+            && self.try_handle_link_icon_click(event.position, window, cx)
+        {
+            self.is_selecting = false;
+            cx.stop_propagation();
+            return;
+        }
+
         let was_focused = self.focus_handle.is_focused(window);
         let columns_preview_active = self.is_columns_raw_markdown()
             && parse_columns_markdown(self.display_text()).is_some()
@@ -1082,7 +1090,46 @@ impl Block {
         }
     }
 
-    /// Returns `true` when a single click on a link icon or wiki link text was handled.
+    /// Returns `true` when a single click on a link-type icon was handled.
+    pub(crate) fn try_handle_link_icon_click(
+        &mut self,
+        position: Point<Pixels>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.is_source_raw_mode() {
+            return false;
+        }
+
+        let text_bounds = match self.last_bounds.or(self.interaction_bounds) {
+            Some(bounds) => bounds,
+            None => return false,
+        };
+        let lines = match self.last_layout.as_ref() {
+            Some(lines) => lines,
+            None => return false,
+        };
+
+        let Some(link) = super::element::link_action_icon_at_position(
+            self,
+            lines,
+            text_bounds,
+            self.last_line_height,
+            position,
+        ) else {
+            return false;
+        };
+
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestOpenLink {
+            prompt_target: link.prompt_target,
+            open_target: link.open_target,
+            is_workspace_file: link.is_workspace_file,
+        });
+        true
+    }
+
+    /// Returns `true` when a single click on wiki link text was handled.
     pub(crate) fn try_handle_link_single_click(
         &mut self,
         position: Point<Pixels>,
@@ -1102,20 +1149,16 @@ impl Block {
             None => return false,
         };
 
-        if let Some(link) = super::element::link_action_icon_at_position(
+        if super::element::link_action_icon_at_position(
             self,
             lines,
             text_bounds,
             self.last_line_height,
             position,
-        ) {
-            cx.stop_propagation();
-            cx.emit(BlockEvent::RequestOpenLink {
-                prompt_target: link.prompt_target,
-                open_target: link.open_target,
-                is_workspace_file: link.is_workspace_file,
-            });
-            return true;
+        )
+        .is_some()
+        {
+            return false;
         }
 
         let path = match super::element::link_text_at_position(
