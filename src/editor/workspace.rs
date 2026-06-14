@@ -2254,9 +2254,9 @@ impl Editor {
         }
 
         let icon = match &node.kind {
-            WorkspaceTreeKind::Directory(_) => Some((FOLDER_ICON, Hsla::from(rgba(0xf59e0bff)))),
+            WorkspaceTreeKind::Directory(_) => Some((FOLDER_ICON, Hsla::from(rgba(0xe8c078ff)))),
             WorkspaceTreeKind::MarkdownFile(_) => {
-                Some((MARKDOWN_ICON, Hsla::from(rgba(0x2563ebff))))
+                Some((MARKDOWN_ICON, Hsla::from(rgba(0x60a5faff))))
             }
             WorkspaceTreeKind::Heading { .. } => None,
         };
