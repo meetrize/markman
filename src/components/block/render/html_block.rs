@@ -1,12 +1,15 @@
 //! Native HTML block preview rendering.
 
+use std::path::Path;
+
 use gpui::*;
 
 use super::super::{Block, ImageRuntime};
 use super::code;
 use super::shared::html_css_color_to_hsla;
 use crate::components::{
-    HtmlDocument, HtmlNode, HtmlNodeKind, TableColumnLayout, attr_value, parse_html_image_block,
+    HtmlDocument, HtmlNode, HtmlNodeKind, ImageReferenceDefinitions, ImageResolvedSource,
+    TableColumnLayout, attr_value, parse_html_image_block, parse_standalone_image,
     resolve_image_source, style_for_node,
 };
 use crate::i18n::I18nManager;
@@ -36,6 +39,7 @@ pub(super) struct HtmlComputedStyle {
     pub(super) color: Hsla,
     pub(super) font_size: f32,
     pub(super) root_font_size: f32,
+    pub(super) text_align: TextAlign,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,7 +54,34 @@ impl HtmlComputedStyle {
             color: theme.colors.text_default,
             font_size: theme.typography.text_size,
             root_font_size: theme.typography.text_size,
+            text_align: TextAlign::Left,
         }
+    }
+}
+
+pub(super) fn html_block_align(node: &HtmlNode) -> TextAlign {
+    match attr_value(node, "align")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("center") => TextAlign::Center,
+        Some("right") => TextAlign::Right,
+        _ => TextAlign::Left,
+    }
+}
+
+pub(super) fn try_local_standalone_image_line(
+    line: &str,
+    base_dir: Option<&Path>,
+    reference_definitions: &ImageReferenceDefinitions,
+) -> Option<(String, String)> {
+    let syntax = parse_standalone_image(line.trim())?;
+    let resolved = syntax.resolve_target(reference_definitions)?;
+    match resolve_image_source(&resolved.src, base_dir) {
+        ImageResolvedSource::Local(_) => Some((syntax.alt, resolved.src)),
+        ImageResolvedSource::Remote(_) => None,
     }
 }
 
@@ -350,14 +381,14 @@ impl Block {
         }
 
         if node.tag_name == "#text" {
-            return div()
-                .min_w(px(0.0))
-                .flex_shrink_0()
-                .text_size(px(inherited_style.font_size))
-                .text_color(inherited_style.color)
-                .line_height(rems(body_line_height))
-                .child(SharedString::from(node.raw_source.clone()))
-                .into_any_element();
+            return self.render_html_text_node(
+                &node.raw_source,
+                theme,
+                inherited_style,
+                for_column,
+                body_line_height,
+                cx,
+            );
         }
 
         let node_style = html_node_visual_style(node, inherited_style, theme);
@@ -719,6 +750,38 @@ impl Block {
                 }
                 element.into_any_element()
             }
+            "div" => {
+                let align = html_block_align(node);
+                let mut child_style = node_style.computed;
+                child_style.text_align = align;
+                let mut element = div()
+                    .w_full()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .gap(px(d.block_gap * 0.25))
+                    .text_size(px(node_style.computed.font_size))
+                    .text_color(node_style.computed.color)
+                    .line_height(rems(body_line_height))
+                    .children(
+                        node
+                            .children
+                            .iter()
+                            .filter(|child| !should_skip_html_flow_child(child))
+                            .map(|child| {
+                                self.render_html_node(child, theme, child_style, for_column, cx)
+                            }),
+                    );
+                element = match align {
+                    TextAlign::Center => element.items_center(),
+                    TextAlign::Right => element.items_end(),
+                    TextAlign::Left => element.items_start(),
+                };
+                if let Some(bg) = node_style.background {
+                    element = element.bg(bg);
+                }
+                element.into_any_element()
+            }
             _ => {
                 let mut element =
                     div()
@@ -929,6 +992,100 @@ impl Block {
                 },
             )
             .into_any_element()
+    }
+
+    fn render_html_text_node(
+        &self,
+        raw_source: &str,
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        for_column: bool,
+        body_line_height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let trimmed = raw_source.trim();
+        if !raw_source.contains('\n')
+            && let Some((alt, src)) = try_local_standalone_image_line(
+                trimmed,
+                self.image_base_dir(),
+                &self.image_reference_definitions(),
+            )
+        {
+            return self.render_html_markdown_image_line(alt, src, theme, cx);
+        }
+
+        let mut elements = Vec::new();
+        for line in raw_source.split('\n') {
+            if is_collapsible_html_whitespace(line) {
+                continue;
+            }
+            if let Some((alt, src)) = try_local_standalone_image_line(
+                line,
+                self.image_base_dir(),
+                &self.image_reference_definitions(),
+            ) {
+                elements.push(self.render_html_markdown_image_line(alt, src, theme, cx));
+            } else {
+                elements.push(
+                    div()
+                        .min_w(px(0.0))
+                        .flex_shrink_0()
+                        .text_size(px(inherited_style.font_size))
+                        .text_color(inherited_style.color)
+                        .line_height(rems(body_line_height))
+                        .text_align(inherited_style.text_align)
+                        .child(SharedString::from(line.to_string()))
+                        .into_any_element(),
+                );
+            }
+        }
+
+        if elements.is_empty() {
+            return div().into_any_element();
+        }
+        if elements.len() == 1 {
+            return elements.into_iter().next().expect("single element");
+        }
+
+        let d = &theme.dimensions;
+        let mut container = div()
+            .w_full()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap(px(d.block_gap * 0.25));
+        container = match inherited_style.text_align {
+            TextAlign::Center => container.items_center(),
+            TextAlign::Right => container.items_end(),
+            TextAlign::Left => container.items_start(),
+        };
+        constrain_html_block_for_column(container, for_column, false)
+            .children(elements)
+            .into_any_element()
+    }
+
+    fn render_html_markdown_image_line(
+        &self,
+        alt: String,
+        src: String,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let runtime = ImageRuntime {
+            alt,
+            src: src.clone(),
+            title: None,
+            resolved_source: resolve_image_source(&src, self.image_base_dir()),
+        };
+        let strings = cx.global::<I18nManager>().strings_arc();
+        self.render_image_content(
+            &runtime,
+            Length::Definite(relative(1.0)),
+            px(theme.dimensions.image_root_max_height),
+            px(theme.dimensions.image_root_placeholder_height),
+            theme,
+            &strings,
+        )
     }
 
     fn render_html_image(

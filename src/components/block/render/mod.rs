@@ -26,17 +26,19 @@ mod tests {
         ColumnMarkdownSegment, parse_columns_markdown, split_column_markdown_segments,
     };
     use super::html_block::{
-        html_children_are_plain_text, html_collect_visible_text, html_node_visual_style,
-        html_table_column_count, html_table_collect_rows, HtmlComputedStyle,
+        html_block_align, html_children_are_plain_text, html_collect_visible_text,
+        html_node_visual_style, html_table_column_count, html_table_collect_rows,
+        try_local_standalone_image_line, HtmlComputedStyle,
     };
     use super::code::{html_pre_code_language};
     use pulldown_cmark::{Parser as CmarkParser, html as cmark_html};
     use crate::components::gfm_parser_options;
     use crate::components::highlight_code_block;
-    use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, parse_html_document};
+    use crate::components::{Block, BlockKind, BlockRecord, ImageReferenceDefinitions, InlineTextTree, attr_value, parse_html_document};
     use crate::i18n::I18nManager;
     use crate::theme::{Theme, ThemeManager};
-    use gpui::{Hsla, Rgba, TestAppContext};
+    use gpui::{Hsla, Rgba, TestAppContext, TextAlign};
+    use std::path::Path;
 
     fn assert_color_near(color: Hsla, red: u8, green: u8, blue: u8, alpha: u8) {
         let color = Rgba::from(color);
@@ -320,6 +322,47 @@ mod tests {
 
         assert_color_near(parent.background.unwrap(), 0x11, 0x22, 0x33, 0xff);
         assert!(child.background.is_none());
+    }
+
+    #[test]
+    fn html_block_align_maps_center_and_right() {
+        let center = parse_html_document(r#"<div align="center"></div>"#);
+        assert_eq!(html_block_align(&center.nodes[0]), TextAlign::Center);
+
+        let right = parse_html_document(r#"<div align="RIGHT"></div>"#);
+        assert_eq!(html_block_align(&right.nodes[0]), TextAlign::Right);
+
+        let left = parse_html_document("<div></div>");
+        assert_eq!(html_block_align(&left.nodes[0]), TextAlign::Left);
+    }
+
+    #[test]
+    fn try_local_standalone_image_line_accepts_local_paths_only() {
+        let refs = ImageReferenceDefinitions::default();
+        let base = Path::new("/docs");
+
+        let local = try_local_standalone_image_line("![alt](./images/a.png)", Some(base), &refs)
+            .expect("local image");
+        assert_eq!(local.0, "alt");
+        assert_eq!(local.1, "./images/a.png");
+
+        assert!(try_local_standalone_image_line(
+            "![alt](https://example.com/a.png)",
+            Some(base),
+            &refs
+        )
+        .is_none());
+        assert!(try_local_standalone_image_line("**not an image**", Some(base), &refs).is_none());
+    }
+
+    #[test]
+    fn centered_div_with_local_image_lines_is_semantic() {
+        let doc = parse_html_document(
+            "<div align=\"center\">\n\n![banner](./assets/banner.png)\n\n**bold text**\n</div>",
+        );
+        assert!(doc.is_semantic());
+        assert_eq!(doc.nodes[0].tag_name, "div");
+        assert_eq!(attr_value(&doc.nodes[0], "align"), Some("center"));
     }
 
     #[gpui::test]

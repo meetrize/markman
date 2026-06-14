@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::projection::{
     expanded_display_cursor_offset_for_clean, expanded_display_offset_for_clean,
 };
-use crate::components::markdown::code_highlight::CodeLanguageKey;
+use crate::components::markdown::code_highlight::{CodeHighlightClass, CodeLanguageKey};
 use crate::components::markdown::inline::{
     InlineFragment, InlineInsertionAttributes, InlineLinkHit, InlineScript, InlineStyle,
     InlineTextTree,
@@ -2435,6 +2435,42 @@ async fn broken_rendered_image_syntax_blurs_back_to_plain_text(cx: &mut TestAppC
         assert!(!block.showing_rendered_image());
         assert_eq!(block.display_text(), "not an image anymore");
     });
+}
+
+#[gpui::test]
+async fn code_block_cache_builds_markdown_highlight_spans(cx: &mut TestAppContext) {
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::CodeBlock {
+                    language: Some("markdown".into()),
+                },
+                InlineTextTree::plain("# Title\n\nSome **bold** text\n"),
+            ),
+        )
+    });
+
+    let highlight = block
+        .read_with(cx, |block, _cx| block.code_highlight_result().cloned())
+        .expect("markdown code block should cache a highlight result");
+    assert_eq!(highlight.language, CodeLanguageKey::Markdown);
+    assert!(
+        highlight
+            .spans
+            .iter()
+            .any(|span| span.class == CodeHighlightClass::MarkdownHeading1),
+        "expected heading span, got {:?}",
+        highlight.spans
+    );
+    assert!(
+        highlight
+            .spans
+            .iter()
+            .any(|span| span.class == CodeHighlightClass::MarkdownStrong),
+        "expected strong span, got {:?}",
+        highlight.spans
+    );
 }
 
 #[gpui::test]

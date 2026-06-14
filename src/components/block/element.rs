@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::*;
 
-use super::{Block, InlineFootnoteHit, InlineLinkHit, InlineTagHit, code_highlight_color};
+use super::{Block, InlineFootnoteHit, InlineLinkHit, InlineTagHit, code_highlight_class_at, code_highlight_color};
 use crate::components::{HtmlCssColor, InlineTextTree};
 use crate::theme::{ThemeColors, ThemeManager};
 
@@ -209,6 +209,26 @@ fn build_text_runs(
     }
 }
 
+fn apply_code_highlight_font_style(class: crate::components::markdown::code_highlight::CodeHighlightClass, font: &mut Font) {
+    use crate::components::markdown::code_highlight::CodeHighlightClass;
+
+    match class {
+        CodeHighlightClass::MarkdownHeading1 => font.weight = FontWeight::BOLD,
+        CodeHighlightClass::MarkdownHeading2 => font.weight = FontWeight::SEMIBOLD,
+        CodeHighlightClass::MarkdownHeading3 => font.weight = FontWeight::SEMIBOLD,
+        CodeHighlightClass::MarkdownHeading4 => font.weight = FontWeight::MEDIUM,
+        CodeHighlightClass::MarkdownHeading5 => font.weight = FontWeight::MEDIUM,
+        CodeHighlightClass::MarkdownHeading6 => font.weight = FontWeight::MEDIUM,
+        CodeHighlightClass::MarkdownStrong => {
+            if font.weight < FontWeight::BOLD {
+                font.weight = FontWeight::BOLD;
+            }
+        }
+        CodeHighlightClass::MarkdownEmphasis => font.style = FontStyle::Italic,
+        _ => {}
+    }
+}
+
 fn html_css_color_to_hsla(color: HtmlCssColor, current_color: Hsla) -> Hsla {
     match color {
         HtmlCssColor::CurrentColor => current_color,
@@ -255,7 +275,6 @@ fn build_code_text_runs(
     let search_highlight_ranges = &input.search_highlight_ranges;
     let search_highlight_active_range = input.search_highlight_active_range.as_ref();
     let mut runs = Vec::new();
-    let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
         let start = boundary_pair[0];
         let end = boundary_pair[1];
@@ -270,18 +289,18 @@ fn build_code_text_runs(
             segment_in_search_highlight(start, end, search_highlight_ranges);
         let is_active_search_highlight = search_highlight_active_range
             .is_some_and(|range| segment_overlaps_range(start, end, range));
-        while span_idx < highlight_spans.len() && highlight_spans[span_idx].range.end <= start {
-            span_idx += 1;
-        }
-        let run_color = highlight_spans
-            .get(span_idx)
-            .filter(|span| span.range.start <= start && start < span.range.end)
-            .map(|span| code_highlight_color(colors, span.class))
+        let highlight_class = code_highlight_class_at(highlight_spans, start);
+        let run_color = highlight_class
+            .map(|class| code_highlight_color(colors, class))
             .unwrap_or(base_run.color);
+        let mut font = base_run.font.clone();
+        if let Some(class) = highlight_class {
+            apply_code_highlight_font_style(class, &mut font);
+        }
 
         runs.push(TextRun {
             len: end - start,
-            font: base_run.font.clone(),
+            font,
             color: run_color,
             background_color: if is_active_search_highlight {
                 Some(search_highlight_active_bg)

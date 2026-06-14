@@ -85,6 +85,28 @@ pub(crate) enum CodeHighlightClass {
     Operator,
     /// Punctuation token.
     Punctuation,
+    /// Markdown ATX/setext H1 heading content.
+    MarkdownHeading1,
+    /// Markdown ATX/setext H2 heading content.
+    MarkdownHeading2,
+    /// Markdown ATX/setext H3 heading content.
+    MarkdownHeading3,
+    /// Markdown ATX/setext H4 heading content.
+    MarkdownHeading4,
+    /// Markdown ATX/setext H5 heading content.
+    MarkdownHeading5,
+    /// Markdown ATX/setext H6 heading content.
+    MarkdownHeading6,
+    /// Markdown emphasis / italic inline span.
+    MarkdownEmphasis,
+    /// Markdown strong / bold inline span.
+    MarkdownStrong,
+    /// Markdown inline code, code block, or literal text.
+    MarkdownLiteral,
+    /// Markdown link destination or autolink URI.
+    MarkdownUri,
+    /// Markdown link label or reference text.
+    MarkdownReference,
 }
 
 /// Highlighted byte range inside a code block.
@@ -226,7 +248,87 @@ const HIGHLIGHT_NAMES: &[&str] = &[
     "variable",
     "variable.builtin",
     "variable.parameter",
+    "markdown.heading.1",
+    "markdown.heading.2",
+    "markdown.heading.3",
+    "markdown.heading.4",
+    "markdown.heading.5",
+    "markdown.heading.6",
+    "markdown.emphasis",
+    "markdown.strong",
+    "markdown.literal",
+    "markdown.uri",
+    "markdown.reference",
+    "markdown.punctuation",
+    "markdown.escape",
+    "text.literal",
+    "text.emphasis",
+    "text.strong",
+    "text.uri",
+    "text.reference",
 ];
+
+/// Block-level Markdown highlight query with per-level heading captures.
+const MARKDOWN_BLOCK_HIGHLIGHTS_QUERY: &str = r#"
+(atx_heading
+  (atx_h1_marker)
+  (inline) @markdown.heading.1)
+
+(atx_heading
+  (atx_h2_marker)
+  (inline) @markdown.heading.2)
+
+(atx_heading
+  (atx_h3_marker)
+  (inline) @markdown.heading.3)
+
+(atx_heading
+  (atx_h4_marker)
+  (inline) @markdown.heading.4)
+
+(atx_heading
+  (atx_h5_marker)
+  (inline) @markdown.heading.5)
+
+(atx_heading
+  (atx_h6_marker)
+  (inline) @markdown.heading.6)
+
+[
+  (atx_h1_marker)
+  (atx_h2_marker)
+  (atx_h3_marker)
+  (atx_h4_marker)
+  (atx_h5_marker)
+  (atx_h6_marker)
+  (setext_h1_underline)
+  (setext_h2_underline)
+  (list_marker_plus)
+  (list_marker_minus)
+  (list_marker_star)
+  (list_marker_dot)
+  (list_marker_parenthesis)
+  (thematic_break)
+  (block_quote_marker)
+  (fenced_code_block_delimiter)
+] @markdown.punctuation
+
+[
+  (link_title)
+  (indented_code_block)
+  (fenced_code_block)
+] @markdown.literal
+
+(code_fence_content) @none
+
+(link_destination) @markdown.uri
+
+(link_label) @markdown.reference
+
+(block_continuation) @markdown.punctuation
+
+(backslash_escape) @markdown.escape
+"#;
 
 /// Lazily built tree-sitter highlighter registry.
 #[cfg(feature = "code-highlight-core")]
@@ -439,7 +541,7 @@ fn build_markdown_config() -> Option<HighlightConfiguration> {
     configure_highlights(
         tree_sitter_md::LANGUAGE.into(),
         "markdown",
-        tree_sitter_md::HIGHLIGHT_QUERY_BLOCK,
+        MARKDOWN_BLOCK_HIGHLIGHTS_QUERY,
         tree_sitter_md::INJECTION_QUERY_BLOCK,
         "",
     )
@@ -658,6 +760,12 @@ pub(crate) fn highlight_code_block(
             }
         }
 
+        if key == CodeLanguageKey::Markdown {
+            if let Some(inline_config) = registry.config_for_injection("markdown_inline") {
+                augment_markdown_inline_spans(source, inline_config, &mut spans);
+            }
+        }
+
         return Some(CodeHighlightResult {
             language: key,
             spans,
@@ -690,6 +798,104 @@ fn push_highlight_span(
     spans.push(CodeHighlightSpan { range, class });
 }
 
+/// Prefer the shortest highlight span covering `offset` so nested Markdown marks win.
+pub(crate) fn code_highlight_class_at(
+    spans: &[CodeHighlightSpan],
+    offset: usize,
+) -> Option<CodeHighlightClass> {
+    spans
+        .iter()
+        .filter(|span| span.range.start <= offset && offset < span.range.end)
+        .min_by_key(|span| span.range.len())
+        .map(|span| span.class)
+}
+
+#[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+fn append_config_highlight_spans(
+    config: &HighlightConfiguration,
+    source: &str,
+    byte_offset: usize,
+    spans: &mut Vec<CodeHighlightSpan>,
+) {
+    let mut highlighter = Highlighter::new();
+    let Ok(events) = highlighter.highlight(config, source.as_bytes(), None, |_| None) else {
+        return;
+    };
+
+    let mut active = Vec::new();
+    for event in events {
+        let Ok(event) = event else {
+            return;
+        };
+        match event {
+            HighlightEvent::Source { start, end } => {
+                if let Some(class) = active.last().copied() {
+                    push_highlight_span(spans, byte_offset + start..byte_offset + end, class);
+                }
+            }
+            HighlightEvent::HighlightStart(highlight) => {
+                if let Some(class) = class_for_highlight(highlight) {
+                    active.push(class);
+                }
+            }
+            HighlightEvent::HighlightEnd => {
+                active.pop();
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+fn augment_markdown_inline_spans(
+    source: &str,
+    inline_config: &HighlightConfiguration,
+    spans: &mut Vec<CodeHighlightSpan>,
+) {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&tree_sitter_md::LANGUAGE.into())
+        .is_err()
+    {
+        return;
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return;
+    };
+
+    collect_markdown_inline_spans(
+        tree.root_node(),
+        source,
+        inline_config,
+        spans,
+    );
+}
+
+#[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+fn collect_markdown_inline_spans(
+    node: tree_sitter::Node<'_>,
+    source: &str,
+    inline_config: &HighlightConfiguration,
+    spans: &mut Vec<CodeHighlightSpan>,
+) {
+    if node.kind() == "inline" {
+        let start = node.start_byte();
+        let end = node.end_byte();
+        if start < end && end <= source.len() {
+            append_config_highlight_spans(
+                inline_config,
+                &source[start..end],
+                start,
+                spans,
+            );
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_markdown_inline_spans(child, source, inline_config, spans);
+    }
+}
+
 #[cfg(feature = "code-highlight-core")]
 fn class_for_highlight(highlight: Highlight) -> Option<CodeHighlightClass> {
     let name = HIGHLIGHT_NAMES.get(highlight.0)?;
@@ -704,9 +910,24 @@ fn class_for_highlight(highlight: Highlight) -> Option<CodeHighlightClass> {
         "variable" | "variable.builtin" | "variable.parameter" => CodeHighlightClass::Variable,
         "property" | "property.builtin" | "attribute" => CodeHighlightClass::Property,
         "operator" => CodeHighlightClass::Operator,
-        "punctuation" | "punctuation.bracket" | "punctuation.delimiter" | "punctuation.special" => {
-            CodeHighlightClass::Punctuation
-        }
+        "punctuation" | "punctuation.bracket" | "punctuation.delimiter" | "punctuation.special"
+        | "markdown.punctuation" => CodeHighlightClass::Punctuation,
+        "markdown.heading.1" => CodeHighlightClass::MarkdownHeading1,
+        "markdown.heading.2" => CodeHighlightClass::MarkdownHeading2,
+        "markdown.heading.3" => CodeHighlightClass::MarkdownHeading3,
+        "markdown.heading.4" => CodeHighlightClass::MarkdownHeading4,
+        "markdown.heading.5" => CodeHighlightClass::MarkdownHeading5,
+        "markdown.heading.6" => CodeHighlightClass::MarkdownHeading6,
+        "markdown.emphasis" => CodeHighlightClass::MarkdownEmphasis,
+        "markdown.strong" => CodeHighlightClass::MarkdownStrong,
+        "markdown.literal" => CodeHighlightClass::MarkdownLiteral,
+        "markdown.uri" => CodeHighlightClass::MarkdownUri,
+        "markdown.reference" | "text.reference" => CodeHighlightClass::MarkdownReference,
+        "markdown.escape" | "string.escape" => CodeHighlightClass::String,
+        "text.literal" => CodeHighlightClass::MarkdownLiteral,
+        "text.emphasis" => CodeHighlightClass::MarkdownEmphasis,
+        "text.strong" => CodeHighlightClass::MarkdownStrong,
+        "text.uri" => CodeHighlightClass::MarkdownUri,
         _ => return None,
     })
 }
@@ -724,6 +945,17 @@ pub(crate) fn code_highlight_color(colors: &ThemeColors, class: CodeHighlightCla
         CodeHighlightClass::Property => colors.code_syntax_property,
         CodeHighlightClass::Operator => colors.code_syntax_operator,
         CodeHighlightClass::Punctuation => colors.code_syntax_punctuation,
+        CodeHighlightClass::MarkdownHeading1 => colors.code_syntax_constant,
+        CodeHighlightClass::MarkdownHeading2 => colors.code_syntax_function,
+        CodeHighlightClass::MarkdownHeading3 => colors.code_syntax_type,
+        CodeHighlightClass::MarkdownHeading4 => colors.code_syntax_keyword,
+        CodeHighlightClass::MarkdownHeading5 => colors.code_syntax_string,
+        CodeHighlightClass::MarkdownHeading6 => colors.code_syntax_comment,
+        CodeHighlightClass::MarkdownEmphasis => colors.text_quote,
+        CodeHighlightClass::MarkdownStrong => colors.code_syntax_constant,
+        CodeHighlightClass::MarkdownLiteral => colors.code_syntax_string,
+        CodeHighlightClass::MarkdownUri => colors.text_link,
+        CodeHighlightClass::MarkdownReference => colors.code_syntax_type,
     }
 }
 
@@ -807,6 +1039,33 @@ mod tests {
 
     #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
     #[test]
+    fn markdown_highlight_configuration_builds() {
+        use tree_sitter_highlight::HighlightConfiguration;
+
+        match HighlightConfiguration::new(
+            tree_sitter_md::LANGUAGE.into(),
+            "markdown",
+            super::MARKDOWN_BLOCK_HIGHLIGHTS_QUERY,
+            tree_sitter_md::INJECTION_QUERY_BLOCK,
+            "",
+        ) {
+            Ok(_) => {}
+            Err(error) => panic!("markdown block highlight query failed: {error}"),
+        }
+        match HighlightConfiguration::new(
+            tree_sitter_md::INLINE_LANGUAGE.into(),
+            "markdown_inline",
+            tree_sitter_md::HIGHLIGHT_QUERY_INLINE,
+            tree_sitter_md::INJECTION_QUERY_INLINE,
+            "",
+        ) {
+            Ok(_) => {}
+            Err(error) => panic!("markdown inline highlight query failed: {error}"),
+        }
+    }
+
+    #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+    #[test]
     fn markdown_fenced_code_block_has_nested_highlight_spans() {
         use super::{CodeHighlightClass, CodeLanguageKey};
 
@@ -821,6 +1080,76 @@ mod tests {
         assert!(
             has_keyword,
             "expected nested rust highlighting in markdown fenced block, spans: {:?}",
+            result.spans
+        );
+    }
+
+    #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+    #[test]
+    fn markdown_headings_use_distinct_highlight_classes() {
+        use super::{CodeHighlightClass, CodeLanguageKey};
+
+        let source = "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n";
+        let result = highlight_code_block(Some("md"), source).expect("markdown should highlight");
+        assert_eq!(result.language, CodeLanguageKey::Markdown);
+        for (expected, label) in [
+            (CodeHighlightClass::MarkdownHeading1, "H1"),
+            (CodeHighlightClass::MarkdownHeading2, "H2"),
+            (CodeHighlightClass::MarkdownHeading3, "H3"),
+            (CodeHighlightClass::MarkdownHeading4, "H4"),
+            (CodeHighlightClass::MarkdownHeading5, "H5"),
+            (CodeHighlightClass::MarkdownHeading6, "H6"),
+        ] {
+            assert!(
+                result.spans.iter().any(|span| span.class == expected),
+                "expected {label} heading span, got {:?}",
+                result.spans
+            );
+        }
+    }
+
+
+    #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+    #[test]
+    fn markdown_paragraph_inline_receives_strong_highlight() {
+        use super::{CodeHighlightClass, CodeLanguageKey};
+
+        let source = "# Title\n\nSome **bold** text\n";
+        let result = highlight_code_block(Some("markdown"), source)
+            .expect("markdown should highlight");
+        assert_eq!(result.language, CodeLanguageKey::Markdown);
+        assert!(
+            result
+                .spans
+                .iter()
+                .any(|span| span.class == CodeHighlightClass::MarkdownStrong),
+            "expected strong inline span, got {:?}",
+            result.spans
+        );
+    }
+
+    #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+    #[test]
+    fn markdown_block_formats_use_semantic_highlight_classes() {
+        use super::{CodeHighlightClass, CodeLanguageKey};
+
+        let source = "- list item\n\n> quoted text\n\n[label]: https://example.com\n";
+        let result = highlight_code_block(Some("md"), source).expect("markdown should highlight");
+        assert_eq!(result.language, CodeLanguageKey::Markdown);
+        assert!(
+            result
+                .spans
+                .iter()
+                .any(|span| span.class == CodeHighlightClass::Punctuation),
+            "expected list/quote punctuation span, got {:?}",
+            result.spans
+        );
+        assert!(
+            result
+                .spans
+                .iter()
+                .any(|span| span.class == CodeHighlightClass::MarkdownReference),
+            "expected reference link span, got {:?}",
             result.spans
         );
     }

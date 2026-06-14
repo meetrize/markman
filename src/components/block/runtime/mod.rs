@@ -724,7 +724,11 @@ impl Block {
         self.refresh_cached_display_text();
     }
 
-    fn sync_link_reference_definitions(
+    pub(crate) fn image_reference_definitions(&self) -> &Arc<ImageReferenceDefinitions> {
+        &self.image_reference_definitions
+    }
+
+    pub(crate) fn sync_link_reference_definitions(
         &mut self,
         link_reference_definitions: Arc<LinkReferenceDefinitions>,
     ) {
