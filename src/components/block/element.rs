@@ -21,6 +21,8 @@ const LINK_ACTION_ICON_SIZE_RATIO: f32 = 0.68;
 /// Applied in `link_action_icon_layout()` as `bg_right = anchor_x - trailing_gap`.
 const LINK_ACTION_ICON_MARKER_GAP: f32 = 3.0;
 const LINK_ACTION_ICON_BG_PAD: f32 = 1.5;
+/// Inline links: gap from preceding content right edge to icon background left edge.
+const LINK_ACTION_ICON_PRECEDING_GAP: f32 = 2.0;
 const LINK_ACTION_ICON_BG_RADIUS: f32 = 3.0;
 const LINK_ACTION_ICON_VISUAL_INSET: f32 = 1.5;
 const LINK_ACTION_ICON_BG_OPACITY: f32 = 0.14;
@@ -518,11 +520,21 @@ pub(super) struct LinkIconTextInset {
     extra_x: Pixels,
 }
 
-fn link_icon_x_shift_for_offset(
+pub(super) fn link_icon_x_shift_for_offset(
     lines: &[WrappedLine],
     text: &str,
     offset: usize,
     insets: &[LinkIconTextInset],
+) -> Pixels {
+    link_icon_x_shift_for_offset_at(lines, text, offset, insets, true)
+}
+
+fn link_icon_x_shift_for_offset_at(
+    lines: &[WrappedLine],
+    text: &str,
+    offset: usize,
+    insets: &[LinkIconTextInset],
+    inclusive: bool,
 ) -> Pixels {
     if insets.is_empty() {
         return px(0.0);
@@ -539,9 +551,16 @@ fn link_icon_x_shift_for_offset(
         .filter(|inset| {
             let (inset_line, inset_local) =
                 line_index_for_offset(&ranges, inset.anchor_offset);
-            inset_line == line_idx
-                && offset_on_same_wrapped_row(line, inset_local, line_local)
-                && inset.anchor_offset <= offset
+            if inset_line != line_idx
+                || !offset_on_same_wrapped_row(line, inset_local, line_local)
+            {
+                return false;
+            }
+            if inclusive {
+                inset.anchor_offset <= offset
+            } else {
+                inset.anchor_offset < offset
+            }
         })
         .map(|inset| inset.extra_x)
         .fold(px(0.0), |total, extra| total + extra)
@@ -580,35 +599,51 @@ fn range_segment_bounds_for_hard_line(
         let origin_x = wrapped_row_origin_x(line, bounds, align, row_start, row_end);
         let y = line_top + line_height * row_idx as f32;
 
-        let mut cursor = seg_start;
-        while cursor < seg_end {
-            let doc_offset = hard_line_start + cursor;
-            let start_shift = link_icon_x_shift_for_offset(lines, text, doc_offset, link_insets);
-            let mut next = seg_end;
-            for inset in link_insets {
-                let (inset_line, inset_local) =
-                    line_index_for_offset(&ranges, inset.anchor_offset);
-                if inset_line != line_idx {
-                    continue;
-                }
-                let inset_local = inset_local;
-                if inset_local <= cursor || inset_local >= seg_end {
-                    continue;
-                }
-                if !offset_on_same_wrapped_row(line, inset_local, cursor) {
-                    continue;
-                }
-                next = next.min(inset_local);
+        let mut boundaries = vec![seg_start, seg_end];
+        for inset in link_insets {
+            let (inset_line, inset_local) =
+                line_index_for_offset(&ranges, inset.anchor_offset);
+            if inset_line != line_idx {
+                continue;
             }
+            if inset_local <= seg_start || inset_local >= seg_end {
+                continue;
+            }
+            if !offset_on_same_wrapped_row(line, inset_local, seg_start) {
+                continue;
+            }
+            boundaries.push(inset_local);
+        }
+        boundaries.sort_unstable();
+        boundaries.dedup();
 
-            let end_shift = link_icon_x_shift_for_offset(lines, text, hard_line_start + next, link_insets);
-            let start_x = line.unwrapped_layout.x_for_index(cursor) - row_start_x + start_shift;
-            let end_x = line.unwrapped_layout.x_for_index(next) - row_start_x + end_shift;
+        for boundary_pair in boundaries.windows(2) {
+            let part_start = boundary_pair[0];
+            let part_end = boundary_pair[1];
+            if part_start >= part_end {
+                continue;
+            }
+            let start_shift = link_icon_x_shift_for_offset(
+                lines,
+                text,
+                hard_line_start + part_start,
+                link_insets,
+            );
+            let end_shift = link_icon_x_shift_for_offset_at(
+                lines,
+                text,
+                hard_line_start + part_end,
+                link_insets,
+                false,
+            );
+            let raw_start = line.unwrapped_layout.x_for_index(part_start) - row_start_x;
+            let raw_end = line.unwrapped_layout.x_for_index(part_end) - row_start_x;
+            let start_x = px(f32::from(raw_start) + f32::from(start_shift));
+            let end_x = px(f32::from(raw_end) + f32::from(end_shift));
             segments.push(Bounds::from_corners(
                 point(origin_x + start_x, y),
                 point(origin_x + end_x, y + line_height),
             ));
-            cursor = next;
         }
     }
 
@@ -892,22 +927,14 @@ fn link_action_icon_layout(
     let paint_left = paint_right - icon_size;
 
     // Line-start links: align icon to the row/content left edge inside the reserved gutter.
-    // Inline links: prefer anchor-relative placement when the slot fits; otherwise stay after
-    // preceding text (ignoring trailing whitespace before the anchor).
-    // `min_icon_left` is the preceding text right edge; add `bg_pad` so the background
-    // does not extend into that text.
-    let min_paint_left = min_icon_left + bg_pad;
+    // Inline links: icon background left edge starts at preceding content right + gap.
+    // `min_icon_left` is the preceding content right edge (including whitespace before anchor).
+    let min_bg_left = min_icon_left + px(LINK_ACTION_ICON_PRECEDING_GAP);
+    let min_paint_left = min_bg_left + bg_pad;
     let final_paint_left = if pin_leading {
         layout_bounds.left()
     } else {
-        let chrome_right_at = |left: Pixels| left + icon_size + bg_pad;
-        let fits_at_paint_left = paint_left >= min_paint_left
-            && chrome_right_at(paint_left) + trailing_gap <= anchor_x + px(0.5);
-        if fits_at_paint_left {
-            paint_left
-        } else {
-            paint_left.max(min_paint_left)
-        }
+        paint_left.max(min_paint_left)
     };
 
     let chrome_right = final_paint_left + icon_size + bg_pad;
@@ -942,21 +969,12 @@ fn content_right_before_anchor(
         return bounds.left();
     }
 
-    // Ignore trailing whitespace before the anchor so the icon can sit in that gap.
-    let trimmed_end = {
-        let slice = &text[line_start..anchor_offset];
-        line_start + slice.trim_end().len()
-    };
-    if trimmed_end <= line_start {
-        return bounds.left();
-    }
-
     range_segment_bounds_with_link_insets(
         lines,
         bounds,
         line_height,
         text,
-        line_start..trimmed_end,
+        line_start..anchor_offset,
         align,
         link_insets,
     )
@@ -2614,7 +2632,7 @@ mod tests {
         range_segment_bounds, range_segment_bounds_with_link_insets,
         source_line_number_gutter_width, source_line_number_tops, source_text_bounds,
         wrapped_line_height, LINK_ACTION_ICON_BG_PAD, LINK_ACTION_ICON_MARKER_GAP,
-        LINK_ACTION_ICON_TEXT_GAP,
+        LINK_ACTION_ICON_PRECEDING_GAP, LINK_ACTION_ICON_TEXT_GAP,
     };
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, TableCellPosition};
     use gpui::{
@@ -2797,25 +2815,23 @@ mod tests {
                 px(10.0),
             );
             let anchor = link_icon_anchor_offset(block, &span.range, link);
-            let preceding_right = {
-                let line_start = display_text[..anchor]
-                    .rfind('\n')
-                    .map(|index| index + 1)
-                    .unwrap_or(0);
-                let trimmed_end =
-                    line_start + display_text[line_start..anchor].trim_end().len();
-                range_segment_bounds(
-                    &lines,
-                    text_bounds,
-                    line_height,
-                    &display_text,
-                    line_start..trimmed_end.max(line_start + 1),
-                    block.text_align(),
-                )
-                .last()
-                .map(|segment| segment.right())
-                .unwrap_or(text_bounds.left())
-            };
+            let preceding_right = range_segment_bounds(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                {
+                    let line_start = display_text[..anchor]
+                        .rfind('\n')
+                        .map(|index| index + 1)
+                        .unwrap_or(0);
+                    line_start..anchor
+                },
+                block.text_align(),
+            )
+            .last()
+            .map(|segment| segment.right())
+            .unwrap_or(text_bounds.left());
             let trailing_gap = if anchor < span.range.start {
                 px(LINK_ACTION_ICON_MARKER_GAP)
             } else {
@@ -2829,7 +2845,8 @@ mod tests {
                 link_text_at_position(block, &lines, text_bounds, line_height, text_position)
                     .map(|link| link.open_target.clone()),
                 link_text_at_position(block, &lines, text_bounds, line_height, icon_position).is_none(),
-                icon_bg.left() + px(0.5) >= preceding_right,
+                icon_bg.left() + px(0.5)
+                    >= preceding_right + px(LINK_ACTION_ICON_PRECEDING_GAP),
                 icon_before_link,
             )
         });
