@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use gpui::*;
 
 use super::graph_layout::{
-    node_layout_radius, GraphLayout, LayoutBounds, LayoutConfig, LayoutPoint, LayoutSimulation,
-    layout_tick,
+    node_display_label, node_layout_radius, GraphLayout, LayoutBounds, LayoutConfig, LayoutPoint,
+    LayoutSimulation, layout_tick,
 };
 use super::graph_model::{
     apply_graph_filter, GraphEdge, GraphEdgeKind, GraphFilter, GraphNode, GraphNodeId,
@@ -19,8 +19,7 @@ use crate::theme::{Theme, ThemeManager};
 const VIEWPORT_PADDING: f32 = 28.0;
 const MIN_VIEWPORT_SCALE: f32 = 0.05;
 const MAX_VIEWPORT_SCALE: f32 = 4.0;
-const LABEL_MAX_WIDTH: f32 = 96.0;
-const LABEL_GAP: f32 = 4.0;
+const NODE_LABEL_PADDING: f32 = 8.0;
 const CLICK_DRAG_THRESHOLD_PX: f32 = 4.0;
 const ZOOM_LINE_SCALE: f32 = 0.08;
 const GRAPH_EDGE_STROKE_BASE: f32 = 1.5;
@@ -294,7 +293,7 @@ struct GraphPrepaintState {
     background: PaintQuad,
     edges: Vec<(Path<Pixels>, Hsla)>,
     nodes: Vec<PaintQuad>,
-    labels: Vec<(ShapedLine, Point<Pixels>)>,
+    labels: Vec<(ShapedLine, Point<Pixels>, Pixels)>,
     hitbox: Hitbox,
 }
 
@@ -442,7 +441,6 @@ fn prepaint_graph(
     }
 
     let window_style = window.text_style();
-    let label_font_size = px(theme.typography.text_size * 0.82);
     let mut nodes = Vec::new();
     let mut labels = Vec::new();
 
@@ -473,36 +471,32 @@ fn prepaint_graph(
         quad.corner_radii = Corners::all(radius);
         nodes.push(quad);
 
-        let label_text: SharedString = match &node.kind {
-            GraphNodeKind::Document { label, .. } => label.clone().into(),
-            GraphNodeKind::Tag { name, .. } => format!("#{name}").into(),
-        };
+        let label_text: SharedString = node_display_label(&node.kind).into();
+        let max_label_width = (radius * 2.0 * 0.82 - px(NODE_LABEL_PADDING)).max(px(8.0));
+        let label_font_size = (f32::from(radius) * 0.38).clamp(8.0, 12.0);
+        let font_size = px(label_font_size);
         let mut runs = vec![TextRun {
             len: label_text.len(),
             font: window_style.font(),
-            color: theme.colors.text_default,
+            color: white(),
             background_color: None,
             underline: None,
             strikethrough: None,
         }];
-        let max_label_width = px(LABEL_MAX_WIDTH * viewport.scale.max(0.5));
         let shaped = if max_label_width > px(0.0) {
-            let mut wrapper =
-                window
-                    .text_system()
-                    .line_wrapper(window_style.font(), label_font_size);
+            let mut wrapper = window.text_system().line_wrapper(window_style.font(), font_size);
             wrapper.truncate_line(label_text, max_label_width, "…", &mut runs)
         } else {
             label_text
         };
         let shaped_line = window
             .text_system()
-            .shape_line(shaped, label_font_size, &runs, None);
+            .shape_line(shaped, font_size, &runs, None);
         let label_origin = point(
             center.x - px(f32::from(shaped_line.width) / 2.0),
-            center.y + radius + px(LABEL_GAP),
+            center.y - font_size / 2.0,
         );
-        labels.push((shaped_line, label_origin));
+        labels.push((shaped_line, label_origin, font_size));
     }
 
     let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
@@ -651,6 +645,14 @@ impl Element for KnowledgeGraphElement {
                 state
                     .viewport
                     .fit_to_bounds(&state.layout.bounds, bounds.size);
+            } else {
+                let panel_resized = state.last_bounds.size.width != bounds.size.width
+                    || state.last_bounds.size.height != bounds.size.height;
+                if panel_resized && !state.drag.active() {
+                    state
+                        .viewport
+                        .fit_to_bounds(&state.layout.bounds, bounds.size);
+                }
             }
             state.last_bounds = bounds;
             let viewport = state.viewport;
@@ -692,8 +694,8 @@ impl Element for KnowledgeGraphElement {
             window.paint_quad(node);
         }
 
-        for (line, origin) in prepaint.labels.drain(..) {
-            let _ = line.paint(origin, px(0.0), window, cx);
+        for (line, origin, font_size) in prepaint.labels.drain(..) {
+            let _ = line.paint(origin, font_size, window, cx);
         }
 
         if prepaint.hitbox.is_hovered(window) {

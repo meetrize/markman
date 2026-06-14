@@ -6,9 +6,11 @@ use super::graph_model::{
     GraphEdgeKind, GraphNodeId, GraphNodeKind, KnowledgeGraph,
 };
 
-const DOCUMENT_NODE_RADIUS: f32 = 14.0;
-const TAG_NODE_BASE_RADIUS: f32 = 10.0;
+const DOCUMENT_NODE_RADIUS: f32 = 16.0;
+const TAG_NODE_BASE_RADIUS: f32 = 12.0;
 const TAG_NODE_RADIUS_SCALE: f32 = 4.0;
+const MIN_NODE_RADIUS: f32 = 10.0;
+const MAX_NODE_RADIUS: f32 = 52.0;
 const CENTER_GRAVITY: f32 = 0.02;
 const IDEAL_EDGE_LENGTH_SCALE: f32 = 2.5;
 const MIN_DISTANCE: f32 = 0.01;
@@ -89,20 +91,44 @@ impl Default for LayoutConfig {
 pub(crate) struct LayoutSimulation {
     node_ids: Vec<GraphNodeId>,
     edges: Vec<(usize, usize, GraphEdgeKind)>,
-    radii: Vec<f32>,
+    sizes: Vec<f32>,
     positions: Vec<LayoutPoint>,
     velocities: Vec<LayoutPoint>,
     pinned: Vec<bool>,
     config: LayoutConfig,
 }
 
+pub(crate) fn node_display_label(kind: &GraphNodeKind) -> String {
+    match kind {
+        GraphNodeKind::Document { label, .. } => label.clone(),
+        GraphNodeKind::Tag { name, .. } => format!("#{name}"),
+    }
+}
+
 pub(crate) fn node_layout_radius(kind: &GraphNodeKind) -> f32 {
     match kind {
         GraphNodeKind::Document { .. } => DOCUMENT_NODE_RADIUS,
         GraphNodeKind::Tag { count, .. } => {
-            TAG_NODE_BASE_RADIUS + TAG_NODE_RADIUS_SCALE * (*count as f32).sqrt()
+            let count = (*count).max(1) as f32;
+            (TAG_NODE_BASE_RADIUS + TAG_NODE_RADIUS_SCALE * count.sqrt())
+                .clamp(MIN_NODE_RADIUS, MAX_NODE_RADIUS)
         }
     }
+}
+
+pub(crate) fn layout_spread_for_graph(graph: &KnowledgeGraph) -> f32 {
+    let node_count = graph.nodes.len().max(1) as f32;
+    let average_radius = if graph.nodes.is_empty() {
+        DOCUMENT_NODE_RADIUS
+    } else {
+        graph
+            .nodes
+            .iter()
+            .map(|node| node_layout_radius(&node.kind))
+            .sum::<f32>()
+            / node_count
+    };
+    (node_count.sqrt() * average_radius * 3.0).max(120.0)
 }
 
 #[cfg(test)]
@@ -129,7 +155,7 @@ pub(crate) fn layout_tick(simulation: &mut LayoutSimulation, dt: f32) {
         for right in left + 1..node_count {
             let delta = point_delta(simulation.positions[left], simulation.positions[right]);
             let distance = delta.length().max(MIN_DISTANCE);
-            let min_separation = simulation.radii[left] + simulation.radii[right];
+            let min_separation = simulation.sizes[left] + simulation.sizes[right];
             let repulsion_strength =
                 simulation.config.repulsion * (min_separation / distance).powi(2);
             let repulsion = delta
@@ -146,7 +172,7 @@ pub(crate) fn layout_tick(simulation: &mut LayoutSimulation, dt: f32) {
     for &(source, target, kind) in &simulation.edges {
         let delta = point_delta(simulation.positions[source], simulation.positions[target]);
         let distance = delta.length().max(MIN_DISTANCE);
-        let min_separation = simulation.radii[source] + simulation.radii[target];
+        let min_separation = simulation.sizes[source] + simulation.sizes[target];
         let ideal_length = min_separation * IDEAL_EDGE_LENGTH_SCALE;
         let attraction_scale = match kind {
             GraphEdgeKind::WikiLink => simulation.config.attraction * 1.25,
@@ -190,7 +216,7 @@ pub(crate) fn layout_tick(simulation: &mut LayoutSimulation, dt: f32) {
 impl LayoutSimulation {
     pub(crate) fn new(graph: &KnowledgeGraph, config: LayoutConfig) -> Self {
         let mut rng = Rng::new(config.seed);
-        let spread = 120.0;
+        let spread = layout_spread_for_graph(graph);
 
         let node_ids: Vec<GraphNodeId> = graph.nodes.iter().map(|node| node.id.clone()).collect();
         let id_to_index: HashMap<_, _> = node_ids
@@ -199,7 +225,7 @@ impl LayoutSimulation {
             .map(|(index, id)| (id.clone(), index))
             .collect();
 
-        let radii = graph
+        let sizes = graph
             .nodes
             .iter()
             .map(|node| node_layout_radius(&node.kind))
@@ -228,7 +254,7 @@ impl LayoutSimulation {
         Self {
             node_ids,
             edges,
-            radii,
+            sizes,
             positions,
             velocities: vec![LayoutPoint { x: 0.0, y: 0.0 }; node_count],
             pinned: vec![false; node_count],
@@ -259,7 +285,7 @@ impl LayoutSimulation {
         for (index, node_id) in self.node_ids.iter().enumerate() {
             let point = self.positions[index];
             positions.insert(node_id.clone(), point);
-            bounds.include_point(point, self.radii[index]);
+            bounds.include_point(point, self.sizes[index]);
         }
 
         GraphLayout { positions, bounds }
@@ -442,15 +468,41 @@ mod tests {
     }
 
     #[test]
-    fn tag_radius_scales_with_count() {
-        let small = node_layout_radius(&GraphNodeKind::Tag {
-            name: "a".to_string(),
+    fn tag_radius_scales_proportionally_with_count() {
+        let name = "shared".to_string();
+        let one = node_layout_radius(&GraphNodeKind::Tag {
+            name: name.clone(),
             count: 1,
         });
-        let large = node_layout_radius(&GraphNodeKind::Tag {
-            name: "b".to_string(),
+        let four = node_layout_radius(&GraphNodeKind::Tag {
+            name: name.clone(),
+            count: 4,
+        });
+        let sixteen = node_layout_radius(&GraphNodeKind::Tag {
+            name,
             count: 16,
         });
+        assert!(four > one);
+        assert!(sixteen > four);
+        assert!((four - one - (sixteen - four) * 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn layout_spread_grows_with_node_count() {
+        let small = layout_spread_for_graph(&triangle_graph());
+        let mut many_nodes = triangle_graph();
+        for index in 0..20 {
+            let relative = format!("extra-{index}.md");
+            many_nodes.nodes.push(GraphNode {
+                id: GraphNodeId::document(&relative),
+                kind: GraphNodeKind::Document {
+                    path: PathBuf::from(format!("/tmp/{relative}")),
+                    relative_path: relative.clone(),
+                    label: relative,
+                },
+            });
+        }
+        let large = layout_spread_for_graph(&many_nodes);
         assert!(large > small);
     }
 }
