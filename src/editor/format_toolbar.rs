@@ -10,6 +10,8 @@ use crate::theme::Theme;
 
 use super::format_toolbar_overflow::{
     FormatToolbarControl, compute_format_toolbar_layout,
+    format_toolbar_separator_belongs_to_right_section,
+    is_format_toolbar_right_section_control,
 };
 use super::toolbar_button::{
     toolbar_icon_button, toolbar_icon_label_button_styled, ToolbarIconLabelStyle,
@@ -326,16 +328,31 @@ impl Editor {
             overflow_menu_open: self.format_toolbar_overflow_menu_position.is_some(),
         };
         let mut overflow_button_rendered = false;
-        let mut toolbar_children = Vec::new();
+        let mut left_toolbar_children = Vec::new();
+        let mut right_toolbar_children = Vec::new();
 
-        for control in all_controls {
+        for (index, control) in all_controls.iter().copied().enumerate() {
             if layout.visible.contains(&control) {
-                toolbar_children.push(
-                    Self::render_format_toolbar_control(control, &toolbar_state, cx)
-                        .into_any_element(),
-                );
+                let element = Self::render_format_toolbar_control(control, &toolbar_state, cx)
+                    .into_any_element();
+                if is_format_toolbar_right_section_control(control)
+                    || matches!(
+                        control,
+                        FormatToolbarControl::HistorySeparator
+                            | FormatToolbarControl::FormatSeparator
+                    )
+                        && format_toolbar_separator_belongs_to_right_section(
+                            &all_controls,
+                            index,
+                            &layout.visible,
+                        )
+                {
+                    right_toolbar_children.push(element);
+                } else {
+                    left_toolbar_children.push(element);
+                }
             } else if layout.overflow.contains(&control) && !overflow_button_rendered {
-                toolbar_children.push(
+                right_toolbar_children.push(
                     Self::render_format_toolbar_overflow_button(&toolbar_state).into_any_element(),
                 );
                 overflow_button_rendered = true;
@@ -343,7 +360,7 @@ impl Editor {
         }
 
         if !overflow_button_rendered && !layout.overflow.is_empty() {
-            toolbar_children.push(
+            right_toolbar_children.push(
                 Self::render_format_toolbar_overflow_button(&toolbar_state).into_any_element(),
             );
         }
@@ -384,11 +401,26 @@ impl Editor {
             .child(
                 div()
                     .relative()
+                    .w_full()
                     .flex()
                     .items_center()
-                    .gap(px(d.format_toolbar_gap))
-                    .overflow_hidden()
-                    .children(toolbar_children),
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(d.format_toolbar_gap))
+                            .overflow_hidden()
+                            .children(left_toolbar_children),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(d.format_toolbar_gap))
+                            .flex_shrink_0()
+                            .children(right_toolbar_children),
+                    ),
             )
     }
 

@@ -209,6 +209,20 @@ fn toolbar_row_width(
     width
 }
 
+pub(super) fn is_format_toolbar_right_section_control(control: FormatToolbarControl) -> bool {
+    format_toolbar_group(control) == 8
+}
+
+pub(super) fn format_toolbar_separator_belongs_to_right_section(
+    all_controls: &[FormatToolbarControl],
+    separator_index: usize,
+    visible: &[FormatToolbarControl],
+) -> bool {
+    all_controls[separator_index + 1..].iter().any(|control| {
+        visible.contains(control) && is_format_toolbar_right_section_control(*control)
+    })
+}
+
 fn format_toolbar_group(control: FormatToolbarControl) -> u8 {
     match control {
         FormatToolbarControl::Undo | FormatToolbarControl::Redo => 0,
