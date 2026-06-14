@@ -1490,22 +1490,26 @@ impl Editor {
     fn ai_selection_toolbar_position(&self, window: &Window, cx: &App) -> Option<Point<Pixels>> {
         let has_selection = self.cross_block_selected_markdown(cx).is_some()
             || self
-                .focused_edit_target(window, cx)
-                .is_some_and(|block| !block.read(cx).selected_range.is_empty());
+                .selection_anchor_block(window, cx)
+                .is_some_and(|block| ai_context::block_has_visible_text_selection(block.read(cx)));
         if !has_selection {
             return None;
         }
         let entity_id = self
             .cross_block_selection
             .map(|selection| selection.anchor.entity_id)
-            .or(self.active_entity_id)?;
+            .or_else(|| self.selection_anchor_block(window, cx).map(|block| block.entity_id()))?;
         let block = self.document.block_entity_by_id(entity_id)?;
         let block_ref = block.read(cx);
         let bounds = block_ref.last_bounds.or(block_ref.interaction_bounds)?;
-        let anchor_bounds = if self.cross_block_selection.is_none() && !block_ref.selected_range.is_empty() {
-            block_ref
-                .visible_range_bounds(block_ref.selected_range.clone())
-                .unwrap_or(bounds)
+        let anchor_bounds = if self.cross_block_selection.is_none() {
+            if let Some(range) = ai_context::block_text_selection_range(block_ref)
+                .filter(|range| !range.is_empty())
+            {
+                block_ref.visible_range_bounds(range).unwrap_or(bounds)
+            } else {
+                bounds
+            }
         } else {
             bounds
         };

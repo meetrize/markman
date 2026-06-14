@@ -19,6 +19,7 @@ pub(super) enum EditorOverlayKind {
     FormatToolbarContextMenu,
     FormatToolbarCustomizeDialog,
     WorkspaceFileContextMenu,
+    WorkspaceFileSortMenu,
     WorkspaceNameDialog,
     SingleLineInputContextMenu,
     TableInsertDialog,
@@ -58,6 +59,9 @@ impl Editor {
         }
         if self.workspace.file_context_menu.is_some() {
             overlays.push(EditorOverlayKind::WorkspaceFileContextMenu);
+        }
+        if self.workspace.file_sort_menu.is_some() {
+            overlays.push(EditorOverlayKind::WorkspaceFileSortMenu);
         }
         if self.workspace.name_dialog.is_some() {
             overlays.push(EditorOverlayKind::WorkspaceNameDialog);
@@ -117,6 +121,9 @@ impl Editor {
             }
             EditorOverlayKind::WorkspaceFileContextMenu => {
                 self.render_workspace_file_context_menu_overlay(theme, cx)
+            }
+            EditorOverlayKind::WorkspaceFileSortMenu => {
+                self.render_workspace_file_sort_menu_overlay(theme, strings, cx)
             }
             EditorOverlayKind::WorkspaceNameDialog => {
                 self.render_workspace_name_dialog_overlay(theme, cx)

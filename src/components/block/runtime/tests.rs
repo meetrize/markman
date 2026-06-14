@@ -1886,6 +1886,31 @@ async fn reversed_selection_survives_render_cache_refresh(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+async fn display_only_delimiter_selection_survives_projection_focus_refresh(cx: &mut TestAppContext) {
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("**bold**"),
+            ),
+        )
+    });
+
+    block.update(cx, |block, _cx| {
+        block.selected_range = 2..2;
+        block.sync_inline_projection_for_focus(true);
+        block.selected_range = 0..2;
+        block.sync_inline_projection_for_focus(true);
+    });
+
+    assert_eq!(
+        block.read_with(cx, |block, _cx| block.selected_range.clone()),
+        0..2
+    );
+}
+
+#[gpui::test]
 async fn reversed_selection_survives_clear_inline_projection(cx: &mut TestAppContext) {
     let block = cx.new(|cx| {
         Block::with_record(

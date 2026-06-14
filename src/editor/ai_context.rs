@@ -266,6 +266,10 @@ pub(in crate::editor) fn block_text_selection_range(block: &Block) -> Option<Ran
     }
 }
 
+pub(in crate::editor) fn block_has_visible_text_selection(block: &Block) -> bool {
+    block_text_selection_range(block).is_some()
+}
+
 fn collect_selection_context(
     editor: &Editor,
     selection_override: Option<&AiContextSnapshot>,

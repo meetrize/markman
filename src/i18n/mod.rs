@@ -348,6 +348,16 @@ pub struct I18nStrings {
     pub workspace_default_folder_name: String,
     /// Default name for a new Markdown file in the workspace tree.
     pub workspace_default_file_name: String,
+    /// Workspace file-tree root row: expand all directories.
+    pub workspace_files_expand_all: String,
+    /// Workspace file-tree root row: collapse all directories.
+    pub workspace_files_collapse_all: String,
+    /// Workspace file-tree root row: sort menu trigger.
+    pub workspace_files_sort: String,
+    /// Workspace file-tree sort menu: sort by file name.
+    pub workspace_files_sort_by_name: String,
+    /// Workspace file-tree sort menu: sort by modified time.
+    pub workspace_files_sort_by_time: String,
     /// Title of the link-opening confirmation prompt.
     pub open_link_title: String,
     /// Title when opening a file outside the current workspace root.
@@ -753,6 +763,11 @@ struct I18nStringsDe {
     workspace_operation_failed_title: Option<String>,
     workspace_default_folder_name: Option<String>,
     workspace_default_file_name: Option<String>,
+    workspace_files_expand_all: Option<String>,
+    workspace_files_collapse_all: Option<String>,
+    workspace_files_sort: Option<String>,
+    workspace_files_sort_by_name: Option<String>,
+    workspace_files_sort_by_time: Option<String>,
     open_link_title: Option<String>,
     open_link_outside_workspace_title: Option<String>,
     open_link_open: Option<String>,
@@ -1053,6 +1068,11 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_operation_failed_title",
     "workspace_default_folder_name",
     "workspace_default_file_name",
+    "workspace_files_expand_all",
+    "workspace_files_collapse_all",
+    "workspace_files_sort",
+    "workspace_files_sort_by_name",
+    "workspace_files_sort_by_time",
     "open_link_title",
     "open_link_outside_workspace_title",
     "open_link_open",
@@ -1697,6 +1717,21 @@ impl I18nStringsDe {
             workspace_default_file_name: self
                 .workspace_default_file_name
                 .unwrap_or(defaults.workspace_default_file_name),
+            workspace_files_expand_all: self
+                .workspace_files_expand_all
+                .unwrap_or(defaults.workspace_files_expand_all),
+            workspace_files_collapse_all: self
+                .workspace_files_collapse_all
+                .unwrap_or(defaults.workspace_files_collapse_all),
+            workspace_files_sort: self
+                .workspace_files_sort
+                .unwrap_or(defaults.workspace_files_sort),
+            workspace_files_sort_by_name: self
+                .workspace_files_sort_by_name
+                .unwrap_or(defaults.workspace_files_sort_by_name),
+            workspace_files_sort_by_time: self
+                .workspace_files_sort_by_time
+                .unwrap_or(defaults.workspace_files_sort_by_time),
             open_link_title: self.open_link_title.unwrap_or(defaults.open_link_title),
             open_link_outside_workspace_title: self
                 .open_link_outside_workspace_title
@@ -2211,6 +2246,11 @@ impl I18nStrings {
             workspace_operation_failed_title: "文件操作失败".into(),
             workspace_default_folder_name: "新建文件夹".into(),
             workspace_default_file_name: "未命名.md".into(),
+            workspace_files_expand_all: "全部展开".into(),
+            workspace_files_collapse_all: "全部折叠".into(),
+            workspace_files_sort: "排序".into(),
+            workspace_files_sort_by_name: "按文件名排序".into(),
+            workspace_files_sort_by_time: "按修改时间排序".into(),
             open_link_title: "打开链接？".into(),
             open_link_outside_workspace_title: "打开工作区外的文件？".into(),
             open_link_open: "打开".into(),
@@ -2531,6 +2571,11 @@ impl I18nStrings {
             workspace_operation_failed_title: "File Operation Failed".into(),
             workspace_default_folder_name: "New Folder".into(),
             workspace_default_file_name: "Untitled.md".into(),
+            workspace_files_expand_all: "Expand All".into(),
+            workspace_files_collapse_all: "Collapse All".into(),
+            workspace_files_sort: "Sort".into(),
+            workspace_files_sort_by_name: "Sort by Name".into(),
+            workspace_files_sort_by_time: "Sort by Modified Time".into(),
             open_link_title: "Open link?".into(),
             open_link_outside_workspace_title: "Open file outside workspace?".into(),
             open_link_open: "Open".into(),

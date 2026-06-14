@@ -1088,6 +1088,8 @@ impl Block {
                 _window,
                 cx,
             );
+        } else {
+            self.finalize_pointer_word_or_line_selection(_window, cx);
         }
     }
 

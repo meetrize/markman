@@ -987,11 +987,13 @@ impl Block {
             self.selection_reversed = snapshot.selection_reversed;
             self.collapsed_caret_affinity = CollapsedCaretAffinity::Default;
         } else if clean_selected.is_empty() {
-            let offset = self.clean_to_current_cursor_offset_with_affinity(
-                clean_selected.start,
-                collapsed_affinity,
-            );
-            self.assign_collapsed_selection_offset(offset, collapsed_affinity, None);
+            if self.selected_range.is_empty() {
+                let offset = self.clean_to_current_cursor_offset_with_affinity(
+                    clean_selected.start,
+                    collapsed_affinity,
+                );
+                self.assign_collapsed_selection_offset(offset, collapsed_affinity, None);
+            }
         } else {
             self.selected_range = self.clean_to_current_range(clean_selected.clone());
             self.collapsed_caret_affinity = CollapsedCaretAffinity::Default;
@@ -2402,6 +2404,9 @@ impl Block {
         self.cursor_blink_epoch = Instant::now();
         self.clear_vertical_motion();
         self.sync_collapsed_caret_affinity();
+        if !self.selected_range.is_empty() && self.shows_text_selection_highlight() {
+            self.editor_selection_range = Some(self.selected_range.clone());
+        }
         cx.notify();
     }
 

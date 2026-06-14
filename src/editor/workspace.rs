@@ -45,15 +45,30 @@ const TAGS_TAB_ICON: &str = "icon/workspace/tags.svg";
 const GRAPH_TAB_ICON: &str = "icon/workspace/graph.svg";
 const AI_TAB_ICON: &str = "icon/workspace/ai-chat.svg";
 const SEARCH_ICON: &str = "icon/workspace/search.svg";
+const FILE_PLUS_ICON: &str = "icon/workspace/file-plus.svg";
+const FOLDER_PLUS_ICON: &str = "icon/workspace/folder-plus.svg";
+const EXPAND_ALL_ICON: &str = "icon/toolbar/chevrons-up-down.svg";
+const COLLAPSE_ALL_ICON: &str = "icon/toolbar/chevrons-down-up.svg";
+const SORT_ICON: &str = "icon/toolbar/chevrons-up-down.svg";
+const HEADING_1_ICON: &str = "icon/toolbar/heading-1.svg";
+const HEADING_2_ICON: &str = "icon/toolbar/heading-2.svg";
+const HEADING_3_ICON: &str = "icon/toolbar/heading-3.svg";
+const OUTLINE_HEADING_ICON: &str = "icon/toolbar/table-of-contents.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
 const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
 const WORKSPACE_PANEL_MAX_WIDTH: f32 = 360.0;
 const WORKSPACE_PANEL_MAX_VIEWPORT_RATIO: f32 = 0.45;
 const WORKSPACE_NODE_HEIGHT: f32 = 22.0;
 const WORKSPACE_NODE_INDENT: f32 = 12.0;
+const OUTLINE_NODE_HEIGHT: f32 = 24.0;
+const OUTLINE_NODE_INDENT: f32 = 10.0;
 const WORKSPACE_CHEVRON_SIZE: f32 = 12.0;
 const WORKSPACE_ICON_SIZE: f32 = 14.0;
+const OUTLINE_ICON_SIZE: f32 = 13.0;
+const OUTLINE_TOOLBAR_ICON_SIZE: f32 = 12.0;
+const OUTLINE_TEXT_SCALE: f32 = 0.82;
 const WORKSPACE_TAB_ICON_SIZE: f32 = 12.0;
+const WORKSPACE_ROOT_ACTION_ICON_SIZE: f32 = 12.0;
 const WORKSPACE_RESIZE_HANDLE_WIDTH: f32 = 5.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,6 +95,13 @@ enum WorkspaceTagSort {
     #[default]
     ByCountDesc,
     ByNameAsc,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum WorkspaceFileSort {
+    #[default]
+    ByName,
+    ByModifiedTime,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +152,7 @@ pub(super) struct WorkspaceState {
     pub(super) graph_busy: bool,
     selected_tag: Option<String>,
     tag_sort: WorkspaceTagSort,
+    file_sort: WorkspaceFileSort,
 }
 
 impl Default for WorkspaceState {
@@ -160,6 +183,7 @@ impl Default for WorkspaceState {
             graph_busy: false,
             selected_tag: None,
             tag_sort: WorkspaceTagSort::default(),
+            file_sort: WorkspaceFileSort::default(),
         }
     }
 }
@@ -289,7 +313,7 @@ impl Editor {
             return;
         }
 
-        match scan_workspace_dir(&root) {
+        match scan_workspace_dir(&root, self.workspace.state.file_sort) {
             Ok(tree) => {
                 self.workspace.state.expanded.insert(tree.id.clone());
                 self.workspace.state.file_tree = Some(tree);
@@ -1203,6 +1227,84 @@ impl Editor {
         cx.notify();
     }
 
+    fn toggle_workspace_outline_expand_all(&mut self, cx: &mut Context<Self>) {
+        if self.workspace.state.outline_tree.is_empty() {
+            return;
+        }
+
+        let mut expandable_ids = Vec::new();
+        collect_expandable_outline_node_ids(&self.workspace.state.outline_tree, &mut expandable_ids);
+        if expandable_ids.is_empty() {
+            return;
+        }
+
+        let fully_expanded = expandable_ids
+            .iter()
+            .all(|id| self.workspace.state.expanded.contains(id));
+
+        if fully_expanded {
+            for id in expandable_ids {
+                self.workspace.state.expanded.remove(&id);
+            }
+        } else {
+            for id in expandable_ids {
+                self.workspace.state.expanded.insert(id);
+            }
+        }
+        cx.notify();
+    }
+
+    fn workspace_outline_fully_expanded(&self) -> bool {
+        let mut expandable_ids = Vec::new();
+        collect_expandable_outline_node_ids(&self.workspace.state.outline_tree, &mut expandable_ids);
+        !expandable_ids.is_empty()
+            && expandable_ids
+                .iter()
+                .all(|id| self.workspace.state.expanded.contains(id))
+    }
+
+    fn toggle_workspace_tree_expand_all(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.workspace.state.file_tree.as_ref() else {
+            return;
+        };
+
+        let mut directory_ids = Vec::new();
+        collect_directory_node_ids(root, &mut directory_ids);
+        let fully_expanded = directory_ids
+            .iter()
+            .all(|id| self.workspace.state.expanded.contains(id));
+
+        if fully_expanded {
+            self.workspace.state.expanded.clear();
+        } else {
+            for id in directory_ids {
+                self.workspace.state.expanded.insert(id);
+            }
+        }
+        cx.notify();
+    }
+
+    fn workspace_tree_fully_expanded(&self) -> bool {
+        let Some(root) = self.workspace.state.file_tree.as_ref() else {
+            return false;
+        };
+        let mut directory_ids = Vec::new();
+        collect_directory_node_ids(root, &mut directory_ids);
+        directory_ids
+            .iter()
+            .all(|id| self.workspace.state.expanded.contains(id))
+    }
+
+    pub(super) fn set_workspace_file_sort(&mut self, sort: WorkspaceFileSort, cx: &mut Context<Self>) {
+        if self.workspace.state.file_sort == sort {
+            self.close_workspace_file_sort_menu(cx);
+            return;
+        }
+        self.workspace.state.file_sort = sort;
+        self.close_workspace_file_sort_menu(cx);
+        self.workspace_refresh_file_tree(cx);
+    }
+
     fn select_outline_node(&mut self, id: String, line_index: usize, cx: &mut Context<Self>) {
         self.workspace.state.selected = Some(WorkspaceSelection::Outline(id));
         if self.jump_to_source_line_index(line_index, cx) {
@@ -1754,7 +1856,7 @@ impl Editor {
             .w_full()
             .flex()
             .flex_col()
-            .children(self.render_workspace_nodes(std::slice::from_ref(root), 0, theme, editor))
+            .children(self.render_workspace_nodes(std::slice::from_ref(root), 0, theme, editor, strings))
             .into_any_element()
     }
 
@@ -1772,7 +1874,233 @@ impl Editor {
             .w_full()
             .flex()
             .flex_col()
-            .children(self.render_workspace_nodes(&self.workspace.state.outline_tree, 0, theme, editor))
+            .child(self.render_workspace_outline_toolbar(theme, strings, editor))
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.0))
+                    .children(self.render_workspace_outline_nodes(
+                        &self.workspace.state.outline_tree,
+                        0,
+                        theme,
+                        editor,
+                    )),
+            )
+            .into_any_element()
+    }
+
+    fn render_workspace_outline_toolbar(
+        &self,
+        theme: &Theme,
+        strings: &I18nStrings,
+        editor: &WeakEntity<Editor>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let t = &theme.typography;
+        let fully_expanded = self.workspace_outline_fully_expanded();
+        let expand_icon = if fully_expanded {
+            COLLAPSE_ALL_ICON
+        } else {
+            EXPAND_ALL_ICON
+        };
+        let expand_editor = editor.clone();
+
+        div()
+            .id("workspace-outline-toolbar")
+            .w_full()
+            .px(px(4.0))
+            .pt(px(2.0))
+            .pb(px(6.0))
+            .mb(px(2.0))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(6.0))
+            .border_b(px(1.0))
+            .border_color(c.dialog_border.opacity(0.55))
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.0))
+                    .child(
+                        svg()
+                            .path(OUTLINE_TAB_ICON)
+                            .size(px(OUTLINE_TOOLBAR_ICON_SIZE))
+                            .flex_shrink_0()
+                            .text_color(c.dialog_muted),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(t.text_size * 0.78))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c.dialog_muted)
+                            .child(strings.workspace_tab_outline.clone()),
+                    ),
+            )
+            .child(
+                workspace_root_action_button("workspace-outline-expand-toggle", expand_icon, theme)
+                    .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(move |_event, _window, cx| {
+                        cx.stop_propagation();
+                        let _ = expand_editor.update(cx, |editor, cx| {
+                            editor.toggle_workspace_outline_expand_all(cx);
+                        });
+                    }),
+            )
+            .into_any_element()
+    }
+
+    fn render_workspace_outline_nodes(
+        &self,
+        nodes: &[WorkspaceTreeNode],
+        depth: usize,
+        theme: &Theme,
+        editor: &WeakEntity<Editor>,
+    ) -> Vec<AnyElement> {
+        let mut elements = Vec::new();
+        for node in nodes {
+            elements.push(self.render_workspace_outline_node(node, depth, theme, editor));
+            if !node.children.is_empty() && self.workspace.state.expanded.contains(&node.id) {
+                elements.extend(self.render_workspace_outline_nodes(
+                    &node.children,
+                    depth + 1,
+                    theme,
+                    editor,
+                ));
+            }
+        }
+        elements
+    }
+
+    fn render_workspace_outline_node(
+        &self,
+        node: &WorkspaceTreeNode,
+        depth: usize,
+        theme: &Theme,
+        editor: &WeakEntity<Editor>,
+    ) -> AnyElement {
+        let WorkspaceTreeKind::Heading { line, level } = node.kind else {
+            return div().into_any_element();
+        };
+
+        let c = &theme.colors;
+        let t = &theme.typography;
+        let is_expanded = self.workspace.state.expanded.contains(&node.id);
+        let has_children = !node.children.is_empty();
+        let selected = matches!(
+            &self.workspace.state.selected,
+            Some(WorkspaceSelection::Outline(selected)) if selected == &node.id
+        );
+        let (icon, accent_color, font_weight) = outline_heading_style(level, theme, selected);
+
+        let node_id = node.id.clone();
+        let click_editor = editor.clone();
+        let arrow_node_id = node.id.clone();
+        let arrow_editor = editor.clone();
+        let chevron_color = if has_children {
+            if is_expanded {
+                c.text_default.opacity(0.72)
+            } else {
+                c.dialog_muted
+            }
+        } else {
+            c.dialog_muted.opacity(0.35)
+        };
+
+        let mut arrow_el = div()
+            .w(px(WORKSPACE_CHEVRON_SIZE))
+            .h(px(WORKSPACE_CHEVRON_SIZE))
+            .flex_shrink_0();
+        if has_children {
+            let chevron_icon = if is_expanded {
+                CHEVRON_DOWN_ICON
+            } else {
+                CHEVRON_RIGHT_ICON
+            };
+            arrow_el = arrow_el
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(2.0))
+                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                .cursor_pointer()
+                .child(
+                    svg()
+                        .path(chevron_icon)
+                        .size(px(WORKSPACE_CHEVRON_SIZE))
+                        .text_color(chevron_color),
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    let _ = arrow_editor.update(cx, |editor, cx| {
+                        editor.toggle_workspace_node(&arrow_node_id, cx);
+                    });
+                    cx.stop_propagation();
+                });
+        }
+
+        let label_color = if selected {
+            c.text_default
+        } else {
+            accent_color
+        };
+        let icon_color = if selected {
+            c.text_default
+        } else {
+            accent_color.opacity(0.92)
+        };
+
+        div()
+            .id(("workspace-outline-node", stable_node_hash(&node.id)))
+            .h(px(OUTLINE_NODE_HEIGHT))
+            .w_full()
+            .overflow_hidden()
+            .flex()
+            .items_center()
+            .gap(px(5.0))
+            .pl(px(2.0 + depth as f32 * OUTLINE_NODE_INDENT))
+            .pr(px(4.0))
+            .rounded(px(5.0))
+            .bg(if selected {
+                c.selection
+            } else {
+                hsla(0.0, 0.0, 0.0, 0.0)
+            })
+            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+            .cursor_pointer()
+            .child(arrow_el)
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(OUTLINE_ICON_SIZE))
+                    .flex_shrink_0()
+                    .text_color(icon_color),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .truncate()
+                    .text_size(px(t.text_size * OUTLINE_TEXT_SCALE))
+                    .line_height(px(t.text_size * OUTLINE_TEXT_SCALE * 1.2))
+                    .font_weight(font_weight)
+                    .text_color(label_color)
+                    .child(node.label.clone()),
+            )
+            .on_click(move |_event, _window, cx| {
+                let node_id = node_id.clone();
+                let _ = click_editor.update(cx, |editor, cx| {
+                    editor.select_outline_node(node_id, line, cx);
+                });
+            })
             .into_any_element()
     }
 
@@ -1839,8 +2167,8 @@ impl Editor {
                 div()
                     .id(("workspace-tag", index))
                     .w_full()
+                    .h(px(WORKSPACE_NODE_HEIGHT))
                     .px(px(6.0))
-                    .py(px(4.0))
                     .flex()
                     .items_center()
                     .justify_between()
@@ -1913,7 +2241,7 @@ impl Editor {
                 .w_full()
                 .flex()
                 .flex_col()
-                .gap(px(2.0))
+                .gap(px(1.0))
                 .children(tag_rows)
                 .into_any_element(),
         ];
@@ -2179,16 +2507,18 @@ impl Editor {
         depth: usize,
         theme: &Theme,
         editor: &WeakEntity<Editor>,
+        strings: &I18nStrings,
     ) -> Vec<AnyElement> {
         let mut elements = Vec::new();
         for node in nodes {
-            elements.push(self.render_workspace_node(node, depth, theme, editor));
+            elements.push(self.render_workspace_node(node, depth, theme, editor, strings));
             if !node.children.is_empty() && self.workspace.state.expanded.contains(&node.id) {
                 elements.extend(self.render_workspace_nodes(
                     &node.children,
                     depth + 1,
                     theme,
                     editor,
+                    strings,
                 ));
             }
         }
@@ -2201,11 +2531,16 @@ impl Editor {
         depth: usize,
         theme: &Theme,
         editor: &WeakEntity<Editor>,
+        _strings: &I18nStrings,
     ) -> AnyElement {
         let c = &theme.colors;
         let t = &theme.typography;
         let is_expanded = self.workspace.state.expanded.contains(&node.id);
         let has_children = !node.children.is_empty();
+        let is_tree_root = match &node.kind {
+            WorkspaceTreeKind::Directory(path) => self.workspace_is_tree_root(path),
+            _ => false,
+        };
         let selected = match (&self.workspace.state.selected, &node.kind) {
             (Some(WorkspaceSelection::File(selected)), WorkspaceTreeKind::MarkdownFile(path)) => {
                 selected == path
@@ -2269,7 +2604,7 @@ impl Editor {
             c.dialog_muted
         };
 
-        div()
+        let mut row = div()
             .id(("workspace-node", stable_node_hash(&node.id)))
             .h(px(WORKSPACE_NODE_HEIGHT))
             .w_full()
@@ -2306,8 +2641,21 @@ impl Editor {
                     .line_height(px(t.text_size * 1.15))
                     .text_color(label_color)
                     .child(node.label.clone()),
-            )
-            .on_click(move |_event, window, cx| {
+            );
+
+        if is_tree_root {
+            let file_count = workspace_directory_file_count(node);
+            row = row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(t.text_size * 0.72))
+                    .text_color(c.dialog_muted.opacity(0.85))
+                    .child(file_count.to_string()),
+            );
+            row = row.child(self.render_workspace_root_actions(node, theme, editor));
+        }
+
+        row.on_click(move |_event, window, cx| {
                 let node_id = node_id.clone();
                 let click_kind = click_kind.clone();
                 let _ = click_editor.update(cx, |editor, cx| match click_kind {
@@ -2345,6 +2693,198 @@ impl Editor {
                     })
             })
             .into_any_element()
+    }
+
+    fn render_workspace_root_actions(
+        &self,
+        node: &WorkspaceTreeNode,
+        theme: &Theme,
+        editor: &WeakEntity<Editor>,
+    ) -> impl IntoElement {
+        let root_path = match &node.kind {
+            WorkspaceTreeKind::Directory(path) => path.clone(),
+            _ => return div(),
+        };
+        let fully_expanded = self.workspace_tree_fully_expanded();
+        let expand_icon = if fully_expanded {
+            COLLAPSE_ALL_ICON
+        } else {
+            EXPAND_ALL_ICON
+        };
+
+        let new_file_editor = editor.clone();
+        let new_folder_editor = editor.clone();
+        let expand_editor = editor.clone();
+        let sort_editor = editor.clone();
+        let root_for_new = root_path.clone();
+
+        div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(px(1.0))
+            .occlude()
+            .child(
+                workspace_root_action_button(
+                    "workspace-root-new-file",
+                    FILE_PLUS_ICON,
+                    theme,
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click(move |_event, window, cx| {
+                    cx.stop_propagation();
+                    let parent = root_for_new.clone();
+                    let _ = new_file_editor.update(cx, |editor, cx| {
+                        editor.workspace_create_new_markdown_in(parent, window, cx);
+                    });
+                }),
+            )
+            .child(
+                workspace_root_action_button(
+                    "workspace-root-new-folder",
+                    FOLDER_PLUS_ICON,
+                    theme,
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click(move |_event, window, cx| {
+                    cx.stop_propagation();
+                    let parent = root_path.clone();
+                    let _ = new_folder_editor.update(cx, |editor, cx| {
+                        editor.workspace_create_new_folder_in(parent, window, cx);
+                    });
+                }),
+            )
+            .child(
+                workspace_root_action_button(
+                    "workspace-root-expand-toggle",
+                    expand_icon,
+                    theme,
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click(move |_event, _window, cx| {
+                    cx.stop_propagation();
+                    let _ = expand_editor.update(cx, |editor, cx| {
+                        editor.toggle_workspace_tree_expand_all(cx);
+                    });
+                }),
+            )
+            .child(
+                workspace_root_action_button(
+                    "workspace-root-sort",
+                    SORT_ICON,
+                    theme,
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click(move |event, _window, cx| {
+                    cx.stop_propagation();
+                    let position = event.position();
+                    let _ = sort_editor.update(cx, |editor, cx| {
+                        editor.open_workspace_file_sort_menu(position, cx);
+                    });
+                }),
+            )
+    }
+
+    pub(super) fn render_workspace_file_sort_menu_overlay(
+        &self,
+        theme: &Theme,
+        strings: &I18nStrings,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let menu = self.workspace.file_sort_menu.as_ref()?;
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let current_sort = self.workspace.state.file_sort;
+        let editor = cx.entity().downgrade();
+
+        let sort_item = |id: &'static str, label: String, sort: WorkspaceFileSort| {
+            let active = current_sort == sort;
+            let sort_editor = editor.clone();
+            div()
+                .id(id)
+                .h(px(d.menu_item_height))
+                .px(px(d.menu_item_padding_x))
+                .flex()
+                .items_center()
+                .rounded(px(d.menu_item_radius))
+                .bg(if active {
+                    c.selection.opacity(0.45)
+                } else {
+                    c.dialog_surface
+                })
+                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                .active(|this| this.opacity(0.92))
+                .cursor_pointer()
+                .text_size(px(d.menu_text_size))
+                .font_weight(t.dialog_body_weight.to_font_weight())
+                .text_color(c.dialog_secondary_button_text)
+                .child(label)
+                .on_click(move |_event, _window, cx| {
+                    let _ = sort_editor.update(cx, |editor, cx| {
+                        editor.set_workspace_file_sort(sort, cx);
+                    });
+                })
+                .into_any_element()
+        };
+
+        let panel_x = menu.position.x;
+        let panel_y = menu.position.y;
+        let panel_width = px(d.context_menu_panel_width.max(168.0));
+
+        Some(
+            div()
+                .id("workspace-file-sort-menu-overlay")
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .occlude()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(Self::on_dismiss_workspace_file_sort_menu),
+                )
+                .child(
+                    div()
+                        .id("workspace-file-sort-menu-panel")
+                        .absolute()
+                        .left(panel_x)
+                        .top(panel_y)
+                        .w(panel_width)
+                        .p(px(d.menu_panel_padding))
+                        .flex()
+                        .flex_col()
+                        .gap(px(d.menu_panel_gap))
+                        .bg(c.dialog_surface)
+                        .border(px(d.dialog_border_width))
+                        .border_color(c.dialog_border)
+                        .rounded(px(d.menu_panel_radius))
+                        .shadow_lg()
+                        .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                            cx.stop_propagation()
+                        })
+                        .child(sort_item(
+                            "workspace-file-sort-by-name",
+                            strings.workspace_files_sort_by_name.clone(),
+                            WorkspaceFileSort::ByName,
+                        ))
+                        .child(sort_item(
+                            "workspace-file-sort-by-time",
+                            strings.workspace_files_sort_by_time.clone(),
+                            WorkspaceFileSort::ByModifiedTime,
+                        )),
+                )
+                .into_any_element(),
+        )
     }
 }
 
@@ -2442,7 +2982,7 @@ fn workspace_search_result_detail(result: &WorkspaceSearchResult) -> String {
         .unwrap_or_default()
 }
 
-fn scan_workspace_dir(path: &Path) -> Result<WorkspaceTreeNode> {
+fn scan_workspace_dir(path: &Path, sort: WorkspaceFileSort) -> Result<WorkspaceTreeNode> {
     let mut children = Vec::new();
     for entry in
         fs::read_dir(path).with_context(|| format!("failed to read '{}'", path.display()))?
@@ -2451,7 +2991,7 @@ fn scan_workspace_dir(path: &Path) -> Result<WorkspaceTreeNode> {
         let entry_path = entry.path();
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
-            children.push(scan_workspace_dir(&entry_path)?);
+            children.push(scan_workspace_dir(&entry_path, sort)?);
         } else if file_type.is_file() && is_markdown_file(&entry_path) {
             children.push(WorkspaceTreeNode {
                 id: file_node_id(&entry_path),
@@ -2462,13 +3002,7 @@ fn scan_workspace_dir(path: &Path) -> Result<WorkspaceTreeNode> {
         }
     }
 
-    children.sort_by(|left, right| {
-        let left_dir = matches!(left.kind, WorkspaceTreeKind::Directory(_));
-        let right_dir = matches!(right.kind, WorkspaceTreeKind::Directory(_));
-        right_dir
-            .cmp(&left_dir)
-            .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
-    });
+    sort_workspace_children(&mut children, sort);
 
     Ok(WorkspaceTreeNode {
         id: file_node_id(path),
@@ -2476,6 +3010,143 @@ fn scan_workspace_dir(path: &Path) -> Result<WorkspaceTreeNode> {
         kind: WorkspaceTreeKind::Directory(path.to_path_buf()),
         children,
     })
+}
+
+fn sort_workspace_children(children: &mut [WorkspaceTreeNode], sort: WorkspaceFileSort) {
+    children.sort_by(|left, right| compare_workspace_nodes(left, right, sort));
+}
+
+fn compare_workspace_nodes(
+    left: &WorkspaceTreeNode,
+    right: &WorkspaceTreeNode,
+    sort: WorkspaceFileSort,
+) -> std::cmp::Ordering {
+    let left_dir = matches!(left.kind, WorkspaceTreeKind::Directory(_));
+    let right_dir = matches!(right.kind, WorkspaceTreeKind::Directory(_));
+    right_dir
+        .cmp(&left_dir)
+        .then_with(|| match sort {
+            WorkspaceFileSort::ByName => left
+                .label
+                .to_lowercase()
+                .cmp(&right.label.to_lowercase()),
+            WorkspaceFileSort::ByModifiedTime => {
+                let left_time = workspace_node_path(left).and_then(path_modified_time);
+                let right_time = workspace_node_path(right).and_then(path_modified_time);
+                right_time
+                    .cmp(&left_time)
+                    .then_with(|| {
+                        left.label
+                            .to_lowercase()
+                            .cmp(&right.label.to_lowercase())
+                    })
+            }
+        })
+}
+
+fn workspace_node_path(node: &WorkspaceTreeNode) -> Option<&Path> {
+    match &node.kind {
+        WorkspaceTreeKind::Directory(path) | WorkspaceTreeKind::MarkdownFile(path) => {
+            Some(path.as_path())
+        }
+        WorkspaceTreeKind::Heading { .. } => None,
+    }
+}
+
+fn path_modified_time(path: &Path) -> Option<std::time::SystemTime> {
+    fs::metadata(path).and_then(|meta| meta.modified()).ok()
+}
+
+fn workspace_directory_file_count(node: &WorkspaceTreeNode) -> usize {
+    node.children
+        .iter()
+        .filter(|child| matches!(child.kind, WorkspaceTreeKind::MarkdownFile(_)))
+        .count()
+}
+
+fn collect_directory_node_ids(node: &WorkspaceTreeNode, ids: &mut Vec<String>) {
+    if matches!(node.kind, WorkspaceTreeKind::Directory(_)) {
+        ids.push(node.id.clone());
+        for child in &node.children {
+            collect_directory_node_ids(child, ids);
+        }
+    }
+}
+
+fn collect_expandable_outline_node_ids(nodes: &[WorkspaceTreeNode], ids: &mut Vec<String>) {
+    for node in nodes {
+        if !node.children.is_empty() {
+            ids.push(node.id.clone());
+            collect_expandable_outline_node_ids(&node.children, ids);
+        }
+    }
+}
+
+fn outline_heading_style(level: u8, theme: &Theme, selected: bool) -> (&'static str, Hsla, FontWeight) {
+    let c = &theme.colors;
+    let t = &theme.typography;
+    let (icon, color, weight) = match level {
+        1 => (
+            HEADING_1_ICON,
+            c.text_h1,
+            t.h1_weight.to_font_weight(),
+        ),
+        2 => (
+            HEADING_2_ICON,
+            c.text_h2,
+            t.h2_weight.to_font_weight(),
+        ),
+        3 => (
+            HEADING_3_ICON,
+            c.text_h3,
+            t.h3_weight.to_font_weight(),
+        ),
+        4 => (
+            OUTLINE_HEADING_ICON,
+            c.text_h4,
+            t.h4_weight.to_font_weight(),
+        ),
+        5 => (
+            OUTLINE_HEADING_ICON,
+            c.text_h5,
+            t.h5_weight.to_font_weight(),
+        ),
+        _ => (
+            OUTLINE_HEADING_ICON,
+            c.text_h6,
+            t.h6_weight.to_font_weight(),
+        ),
+    };
+    if selected {
+        (icon, c.text_default, weight)
+    } else {
+        (icon, color, weight)
+    }
+}
+
+fn workspace_root_action_button(
+    id: &'static str,
+    icon: &'static str,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let c = &theme.colors;
+    div()
+        .id(id)
+        .size(px(WORKSPACE_ROOT_ACTION_ICON_SIZE + 4.0))
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .rounded(px(3.0))
+        .occlude()
+        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+        .cursor_pointer()
+        .child(
+            svg()
+                .path(icon)
+                .size(px(WORKSPACE_ROOT_ACTION_ICON_SIZE))
+                .text_color(c.dialog_muted),
+        )
 }
 
 fn file_label(path: &Path) -> String {
@@ -3195,9 +3866,9 @@ impl EntityInputHandler for Editor {
 #[cfg(test)]
 mod tests {
     use super::{
-        WorkspaceSelection, WorkspaceState, WorkspaceTreeKind, build_outline_tree,
-        prune_outline_state, scan_workspace_dir, search_markdown_files,
-        workspace_panel_width_for_viewport,
+        WorkspaceFileSort, WorkspaceSelection, WorkspaceState, WorkspaceTreeKind,
+        build_outline_tree, collect_expandable_outline_node_ids, prune_outline_state,
+        scan_workspace_dir, search_markdown_files, workspace_panel_width_for_viewport,
     };
     use std::fs;
 
@@ -3210,7 +3881,7 @@ mod tests {
         fs::write(root.join("a.txt"), "ignored").expect("write txt");
         fs::write(root.join("nested").join("b.md"), "b").expect("write nested md");
 
-        let tree = scan_workspace_dir(&root).expect("scan tree");
+        let tree = scan_workspace_dir(&root, WorkspaceFileSort::default()).expect("scan tree");
         let labels = tree
             .children
             .iter()
@@ -3240,6 +3911,14 @@ mod tests {
         assert_eq!(outline[0].children[0].label, "Child");
         assert_eq!(outline[0].children[0].children[0].label, "Grandchild");
         assert_eq!(outline[1].label, "Next");
+    }
+
+    #[test]
+    fn outline_expandable_node_ids_include_only_nodes_with_children() {
+        let outline = build_outline_tree("# Root\n\n## Child\n\n### Leaf\n\n# Next");
+        let mut ids = Vec::new();
+        collect_expandable_outline_node_ids(&outline, &mut ids);
+        assert_eq!(ids, vec!["outline:0", "outline:2"]);
     }
 
     #[test]

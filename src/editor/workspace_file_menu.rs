@@ -33,6 +33,11 @@ pub(super) struct WorkspaceFileContextMenuState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct WorkspaceFileSortMenuState {
+    pub(super) position: Point<Pixels>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum WorkspaceNameDialogKind {
     NewFolder { parent: PathBuf },
     NewMarkdown { parent: PathBuf },
@@ -114,6 +119,7 @@ impl Editor {
         }
 
         self.close_workspace_file_context_menu(cx);
+        self.close_workspace_file_sort_menu(cx);
         self.close_workspace_name_dialog(cx);
         self.close_single_line_input_context_menu(cx);
         self.context_menu = None;
@@ -126,6 +132,75 @@ impl Editor {
         if self.workspace.file_context_menu.take().is_some() {
             cx.notify();
         }
+    }
+
+    pub(super) fn open_workspace_file_sort_menu(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_files_panel_active() {
+            return;
+        }
+
+        self.close_workspace_file_sort_menu(cx);
+        self.close_workspace_file_context_menu(cx);
+        self.close_workspace_name_dialog(cx);
+        self.workspace.file_sort_menu = Some(WorkspaceFileSortMenuState { position });
+        cx.notify();
+    }
+
+    pub(super) fn close_workspace_file_sort_menu(&mut self, cx: &mut Context<Self>) {
+        if self.workspace.file_sort_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub(super) fn on_dismiss_workspace_file_sort_menu(
+        &mut self,
+        _: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_workspace_file_sort_menu(cx);
+    }
+
+    pub(super) fn workspace_create_new_markdown_in(
+        &mut self,
+        parent: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let default_name = cx
+            .global::<I18nManager>()
+            .strings()
+            .workspace_default_file_name
+            .clone();
+        self.open_workspace_name_dialog(
+            WorkspaceNameDialogKind::NewMarkdown { parent },
+            default_name,
+            window,
+            cx,
+        );
+    }
+
+    pub(super) fn workspace_create_new_folder_in(
+        &mut self,
+        parent: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let default_name = cx
+            .global::<I18nManager>()
+            .strings()
+            .workspace_default_folder_name
+            .clone();
+        self.open_workspace_name_dialog(
+            WorkspaceNameDialogKind::NewFolder { parent },
+            default_name,
+            window,
+            cx,
+        );
     }
 
     pub(super) fn close_workspace_name_dialog(&mut self, cx: &mut Context<Self>) {
@@ -183,6 +258,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.close_workspace_file_context_menu(cx);
+        self.close_workspace_file_sort_menu(cx);
         let mut input = SingleLineFieldState::new();
         input.query = default_name;
         let len = input.text_len();

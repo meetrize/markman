@@ -1,5 +1,6 @@
 //! Runtime context synchronization for blocks, references, images, and focus.
 
+use super::ai_context;
 use super::*;
 
 impl Editor {
@@ -267,6 +268,17 @@ impl Editor {
     pub(super) fn focused_edit_target(&self, window: &Window, cx: &App) -> Option<Entity<Block>> {
         self.focused_edit_target_entity_id(window, cx)
             .and_then(|entity_id| self.focusable_entity_by_id(entity_id))
+    }
+
+    pub(super) fn selection_anchor_block(&self, window: &Window, cx: &App) -> Option<Entity<Block>> {
+        if let Some(block) = self.focused_edit_target(window, cx)
+            && ai_context::block_has_visible_text_selection(block.read(cx))
+        {
+            return Some(block);
+        }
+        self.active_entity_id
+            .and_then(|entity_id| self.document.block_entity_by_id(entity_id))
+            .filter(|block| ai_context::block_has_visible_text_selection(block.read(cx)))
     }
 
     pub(super) fn table_cell_binding(&self, entity_id: EntityId) -> Option<TableCellBinding> {
