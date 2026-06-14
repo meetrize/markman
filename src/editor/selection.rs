@@ -159,6 +159,11 @@ impl Editor {
             if !block.focus_handle.is_focused(window) {
                 block.focus_handle.focus(window);
             }
+            if event.click_count >= 2
+                && block.try_handle_link_double_click(event.position, window, cx)
+            {
+                return true;
+            }
             block.try_select_word_or_line_at_click_count(
                 event.position,
                 event.click_count,

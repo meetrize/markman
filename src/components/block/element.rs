@@ -2272,13 +2272,20 @@ impl Element for BlockTextElement {
             move |event: &MouseUpEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble
                     || event.button != MouseButton::Left
-                    || event.click_count != 1
                     || !link_click_bounds.contains(&event.position)
                 {
                     return;
                 }
                 input_entity_for_wiki.update(cx, |block, cx| {
-                    block.try_handle_link_single_click(event.position, window, cx);
+                    match event.click_count {
+                        1 => {
+                            block.try_handle_link_single_click(event.position, window, cx);
+                        }
+                        2 => {
+                            block.try_handle_link_double_click(event.position, window, cx);
+                        }
+                        _ => {}
+                    }
                 });
             }
         });

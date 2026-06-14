@@ -1018,6 +1018,18 @@ impl Block {
             self.code_block_collapsed_override = None;
         }
         if event.click_count >= 2
+            && self.try_handle_link_double_click(event.position, window, cx)
+        {
+            cx.stop_propagation();
+            self.is_selecting = false;
+            if !was_focused {
+                self.focus_handle.focus(window);
+                cx.emit(BlockEvent::RequestFocus);
+            }
+            return;
+        }
+
+        if event.click_count >= 2
             && self.try_select_word_or_line_at_click_count(
                 event.position,
                 event.click_count,
@@ -1129,6 +1141,11 @@ impl Block {
         true
     }
 
+    fn cancel_pending_wiki_link_picker_open(&mut self) {
+        self.wiki_link_picker_single_click_generation =
+            self.wiki_link_picker_single_click_generation.wrapping_add(1);
+    }
+
     /// Returns `true` when a single click on wiki link text was handled.
     pub(crate) fn try_handle_link_single_click(
         &mut self,
@@ -1181,8 +1198,80 @@ impl Block {
             cx.emit(BlockEvent::RequestFocus);
         }
 
-        cx.emit(BlockEvent::RequestOpenWikiLinkPicker { path });
+        self.cancel_pending_wiki_link_picker_open();
+        let generation = self.wiki_link_picker_single_click_generation;
+        let block = cx.entity().downgrade();
+        cx.spawn(async move |_this: WeakEntity<Block>, cx: &mut AsyncApp| {
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
+            let _ = block.update(cx, |block, cx| {
+                if block.wiki_link_picker_single_click_generation != generation {
+                    return;
+                }
+                cx.emit(BlockEvent::RequestOpenWikiLinkPicker { path });
+            });
+        })
+        .detach();
+
         cx.stop_propagation();
+        true
+    }
+
+    /// Returns `true` when a double click on wiki link text should open the file.
+    pub(crate) fn try_handle_link_double_click(
+        &mut self,
+        position: Point<Pixels>,
+        _window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.is_source_raw_mode() {
+            return false;
+        }
+
+        let text_bounds = match self.last_bounds.or(self.interaction_bounds) {
+            Some(bounds) => bounds,
+            None => return false,
+        };
+        let lines = match self.last_layout.as_ref() {
+            Some(lines) => lines,
+            None => return false,
+        };
+
+        if super::element::link_action_icon_at_position(
+            self,
+            lines,
+            text_bounds,
+            self.last_line_height,
+            position,
+        )
+        .is_some()
+        {
+            return false;
+        }
+
+        let Some(link) = super::element::link_text_at_position(
+            self,
+            lines,
+            text_bounds,
+            self.last_line_height,
+            position,
+        ) else {
+            return false;
+        };
+        if !link.is_workspace_file {
+            return false;
+        }
+
+        let prompt_target = link.prompt_target.clone();
+        let open_target = link.open_target.clone();
+        self.cancel_pending_wiki_link_picker_open();
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestOpenLink {
+            prompt_target,
+            open_target,
+            is_workspace_file: true,
+        });
         true
     }
 
@@ -1241,6 +1330,9 @@ impl Block {
                 })
                 .cloned();
             if let Some(link) = link {
+                if link.is_workspace_file {
+                    self.cancel_pending_wiki_link_picker_open();
+                }
                 cx.stop_propagation();
                 cx.emit(BlockEvent::RequestOpenLink {
                     prompt_target: link.prompt_target,
@@ -1267,6 +1359,11 @@ impl Block {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if event.click_count >= 2
+            && self.try_handle_link_double_click(event.position, window, cx)
+        {
+            return true;
+        }
         self.try_select_word_or_line_at_click_count(event.position, event.click_count, window, cx)
     }
 
