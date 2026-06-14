@@ -167,7 +167,7 @@ impl Editor {
             .knowledge_graph_view
             .as_ref()
             .map(|state| state.physics_collisions)
-            .unwrap_or(false);
+            .unwrap_or(true);
         self.knowledge_graph_view = Some(KnowledgeGraphViewState::new(raw_graph, filter));
         if let Some(state) = self.knowledge_graph_view.as_mut() {
             state.mutual_repulsion = mutual_repulsion;
@@ -178,6 +178,13 @@ impl Editor {
         }
         self.workspace.state.graph_revision = Some(revision);
         self.start_knowledge_graph_animation(cx);
+        if self
+            .knowledge_graph_view
+            .as_ref()
+            .is_some_and(|state| state.physics_collisions)
+        {
+            self.ensure_knowledge_graph_physics_loop(cx);
+        }
         cx.notify();
     }
 

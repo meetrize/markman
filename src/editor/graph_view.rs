@@ -119,7 +119,7 @@ impl KnowledgeGraphViewState {
             drag: GraphInteractionDrag::default(),
             last_bounds: Bounds::default(),
             mutual_repulsion: false,
-            physics_collisions: false,
+            physics_collisions: true,
         }
     }
 
@@ -753,6 +753,7 @@ impl Element for KnowledgeGraphElement {
             .editor
             .update(cx, |editor, cx| {
                 editor.ensure_knowledge_graph_active_node_pulse(cx);
+                editor.ensure_knowledge_graph_physics_loop(cx);
                 (
                     editor.knowledge_graph_view.clone(),
                     editor.active_knowledge_graph_document_node_id(),
