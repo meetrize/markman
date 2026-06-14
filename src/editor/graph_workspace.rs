@@ -359,9 +359,6 @@ impl Editor {
         let resolve_collisions = state.mutual_repulsion;
         uncross_graph_layout(simulation, resolve_collisions);
         state.layout = simulation.to_layout();
-        if state.last_bounds.size.width > px(0.0) && state.last_bounds.size.height > px(0.0) {
-            state.reset_viewport_fit(state.last_bounds.size);
-        }
         cx.notify();
     }
 
