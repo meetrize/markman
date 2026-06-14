@@ -24,7 +24,7 @@ use crate::components::{
     TableData, TableRuntime, UndoCaptureKind, minimum_table_column_width,
     serialize_table_cell_markdown,
 };
-use crate::theme::ThemeManager;
+use crate::theme::{DocumentZoom, ThemeManager};
 use crate::input::text_norm::normalize_line_endings_lf;
 mod ai_chat;
 mod ai_chat_input;
@@ -128,6 +128,7 @@ pub struct Editor {
     scroll_handle: ScrollHandle,
     /// Zoom multiplier for document content (typography and block layout).
     document_zoom: f32,
+    document_zoom_persist_task: Option<Task<()>>,
     last_scroll_viewport_size: Option<Size<Pixels>>,
     close_guard_installed: bool,
     show_unsaved_changes_dialog: bool,
@@ -336,6 +337,11 @@ impl Editor {
         let mut document = DocumentTree::new(roots);
         document.rebuild_metadata_and_snapshot(cx);
         let pending_focus = document.first_root().map(|block| block.entity_id());
+        let document_zoom = crate::config::read_app_preferences()
+            .map(|preferences| {
+                DocumentZoom::multiplier_from_zoom_x100(preferences.document_zoom_x100)
+            })
+            .unwrap_or(1.0);
 
         let mut editor = Self {
             document,
@@ -357,7 +363,8 @@ impl Editor {
             document_dirty: false,
             file_path,
             scroll_handle: ScrollHandle::new(),
-            document_zoom: 1.0,
+            document_zoom,
+            document_zoom_persist_task: None,
             last_scroll_viewport_size: None,
             close_guard_installed: false,
             show_unsaved_changes_dialog: false,

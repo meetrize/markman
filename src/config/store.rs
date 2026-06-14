@@ -79,6 +79,8 @@ pub(crate) struct AppPreferences {
     pub(crate) source_line_height_x100: u8,
     pub(crate) ai: AiPreferences,
     pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
+    /// Document zoom stored as hundredths (`120` = 1.20×).
+    pub(crate) document_zoom_x100: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +128,7 @@ impl Default for AppPreferences {
             source_line_height_x100: default_source_line_height_x100(),
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
+            document_zoom_x100: crate::theme::DEFAULT_DOCUMENT_ZOOM_X100,
         }
     }
 }
@@ -141,6 +144,12 @@ struct PreferencesFile {
     fonts: FontPreferencesFile,
     ai: AiPreferencesFile,
     format_toolbar: Vec<FormatToolbarButtonConfigFile>,
+    editor: EditorPreferencesFile,
+}
+
+#[derive(Serialize)]
+struct EditorPreferencesFile {
+    document_zoom_x100: u16,
 }
 
 #[derive(Serialize)]
@@ -239,6 +248,9 @@ impl From<&AppPreferences> for PreferencesFile {
                 .iter()
                 .map(FormatToolbarButtonConfigFile::from)
                 .collect(),
+            editor: EditorPreferencesFile {
+                document_zoom_x100: value.document_zoom_x100,
+            },
         }
     }
 }
@@ -367,6 +379,14 @@ fn app_preferences_from_toml_value(
         .unwrap_or_else(default_source_line_height_x100);
     let ai = ai_preferences_from_toml_value(value);
     let format_toolbar = format_toolbar_buttons_from_toml(Some(value));
+    let document_zoom_x100 = value
+        .get("editor")
+        .and_then(|section| section.get("document_zoom_x100"))
+        .and_then(|value| value.as_integer())
+        .map(|value| {
+            value.clamp(50, 300) as u16
+        })
+        .unwrap_or(crate::theme::DEFAULT_DOCUMENT_ZOOM_X100);
 
     AppPreferences {
         startup_open,
@@ -384,6 +404,7 @@ fn app_preferences_from_toml_value(
         source_line_height_x100,
         ai,
         format_toolbar,
+        document_zoom_x100,
     }
 }
 

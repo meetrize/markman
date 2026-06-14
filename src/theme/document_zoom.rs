@@ -28,6 +28,8 @@ pub const MIN_DOCUMENT_ZOOM: f32 = 0.5;
 pub const MAX_DOCUMENT_ZOOM: f32 = 3.0;
 /// Toolbar button zoom step.
 pub const DOCUMENT_ZOOM_STEP: f32 = 0.1;
+/// Default persisted zoom (`100` = 1.0×).
+pub const DEFAULT_DOCUMENT_ZOOM_X100: u16 = 100;
 /// Pinch / Ctrl+scroll zoom sensitivity (Y delta in pixels).
 const PINCH_ZOOM_SENSITIVITY: f32 = 0.002;
 
@@ -66,6 +68,20 @@ impl DocumentZoom {
 
     pub fn factor_from_pinch_delta_y(delta_y: f32) -> f32 {
         (1.0 - delta_y * PINCH_ZOOM_SENSITIVITY).clamp(0.92, 1.08)
+    }
+
+    pub fn multiplier_from_zoom_x100(x100: u16) -> f32 {
+        Self::clamp(f32::from(x100.clamp(
+            (MIN_DOCUMENT_ZOOM * 100.0) as u16,
+            (MAX_DOCUMENT_ZOOM * 100.0) as u16,
+        )) / 100.0)
+    }
+
+    pub fn zoom_x100_from_multiplier(multiplier: f32) -> u16 {
+        let clamped = Self::clamp(multiplier);
+        (clamped * 100.0)
+            .round()
+            .clamp(MIN_DOCUMENT_ZOOM * 100.0, MAX_DOCUMENT_ZOOM * 100.0) as u16
     }
 }
 

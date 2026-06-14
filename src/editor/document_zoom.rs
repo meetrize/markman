@@ -1,10 +1,15 @@
 //! Document zoom controls for the editor content area.
 
+use std::time::Duration;
+
 use gpui::*;
 
+use crate::config::update_app_preferences;
 use crate::theme::DocumentZoom;
 
 use super::Editor;
+
+const DOCUMENT_ZOOM_PERSIST_DEBOUNCE: Duration = Duration::from_millis(400);
 
 /// Applies pinch magnification to the active window when its root view is an [`Editor`].
 pub(crate) fn apply_magnification_to_active_editor(cx: &mut App, magnification_delta: f32) {
@@ -33,7 +38,27 @@ impl Editor {
             return;
         }
         self.document_zoom = zoom;
+        self.schedule_document_zoom_persist(cx);
         cx.notify();
+    }
+
+    fn schedule_document_zoom_persist(&mut self, cx: &mut Context<Self>) {
+        self.document_zoom_persist_task = None;
+        let weak_editor = cx.entity().downgrade();
+        self.document_zoom_persist_task = Some(cx.spawn(
+            async move |_this: WeakEntity<Editor>, cx: &mut AsyncApp| {
+                cx.background_executor()
+                    .timer(DOCUMENT_ZOOM_PERSIST_DEBOUNCE)
+                    .await;
+                let _ = weak_editor.update(cx, |editor, _cx| {
+                    editor.document_zoom_persist_task = None;
+                    let zoom_x100 = DocumentZoom::zoom_x100_from_multiplier(editor.document_zoom);
+                    let _ = update_app_preferences(|preferences| {
+                        preferences.document_zoom_x100 = zoom_x100;
+                    });
+                });
+            },
+        ));
     }
 
     pub(super) fn zoom_document_in(&mut self, cx: &mut Context<Self>) {
