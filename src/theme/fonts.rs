@@ -39,6 +39,35 @@ pub const FONT_PRESETS: &[FontPreset] = &[
     },
 ];
 
+/// Default preview line height stored as hundredths (`140` = 1.40).
+pub fn default_preview_line_height_x100() -> u8 {
+    140
+}
+
+/// Default source-mode line height stored as hundredths (`145` = 1.45).
+pub fn default_source_line_height_x100() -> u8 {
+    145
+}
+
+/// Converts a stored hundredths value into a line-height ratio.
+pub fn line_height_from_x100(value: u8) -> f32 {
+    (value.clamp(100, 250) as f32) / 100.0
+}
+
+/// Selectable preview line-height presets shown in preferences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineHeightPreset {
+    pub x100: u8,
+}
+
+pub const PREVIEW_LINE_HEIGHT_PRESETS: &[LineHeightPreset] = &[
+    LineHeightPreset { x100: 130 },
+    LineHeightPreset { x100: 140 },
+    LineHeightPreset { x100: 145 },
+    LineHeightPreset { x100: 155 },
+    LineHeightPreset { x100: 160 },
+];
+
 /// Default preview (rendered) font preference.
 pub fn default_preview_font_family() -> String {
     FONT_SYSTEM_MONO.into()

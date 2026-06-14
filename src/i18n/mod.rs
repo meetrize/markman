@@ -152,7 +152,7 @@ pub struct I18nStrings {
     pub config_import_failed_title: String,
     /// Preferences window title.
     pub preferences_window_title: String,
-    /// File preferences navigation label.
+    /// General preferences navigation label.
     pub preferences_nav_file: String,
     /// Theme preferences navigation label.
     pub preferences_nav_theme: String,
@@ -550,6 +550,10 @@ pub struct I18nStrings {
     pub preferences_font_system_mono: String,
     /// Label for the system UI font preset.
     pub preferences_font_system_ui: String,
+    /// Preferences label for preview line height.
+    pub preferences_preview_line_height_label: String,
+    /// Preferences label for source-mode line height.
+    pub preferences_source_line_height_label: String,
     pub quick_file_open_placeholder: String,
 }
 
@@ -850,6 +854,8 @@ struct I18nStringsDe {
     preferences_source_font_label: Option<String>,
     preferences_font_system_mono: Option<String>,
     preferences_font_system_ui: Option<String>,
+    preferences_preview_line_height_label: Option<String>,
+    preferences_source_line_height_label: Option<String>,
     quick_file_open_placeholder: Option<String>,
 }
 
@@ -1148,6 +1154,8 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_source_font_label",
     "preferences_font_system_mono",
     "preferences_font_system_ui",
+    "preferences_preview_line_height_label",
+    "preferences_source_line_height_label",
     "quick_file_open_placeholder",
 ];
 
@@ -1978,6 +1986,12 @@ impl I18nStringsDe {
             preferences_font_system_ui: self
                 .preferences_font_system_ui
                 .unwrap_or(defaults.preferences_font_system_ui),
+            preferences_preview_line_height_label: self
+                .preferences_preview_line_height_label
+                .unwrap_or(defaults.preferences_preview_line_height_label),
+            preferences_source_line_height_label: self
+                .preferences_source_line_height_label
+                .unwrap_or(defaults.preferences_source_line_height_label),
             quick_file_open_placeholder: self
                 .quick_file_open_placeholder
                 .unwrap_or(defaults.quick_file_open_placeholder),
@@ -2069,7 +2083,7 @@ impl I18nStrings {
             export_overwrite_confirm: "覆盖".into(),
             config_import_failed_title: "配置导入失败".into(),
             preferences_window_title: "偏好设置".into(),
-            preferences_nav_file: "文件".into(),
+            preferences_nav_file: "通用".into(),
             preferences_nav_theme: "主题".into(),
             preferences_nav_shortcuts: "快捷键".into(),
             preferences_startup_option: "启动选项".into(),
@@ -2301,6 +2315,8 @@ impl I18nStrings {
             preferences_source_font_label: "源码字体".into(),
             preferences_font_system_mono: "系统等宽字体".into(),
             preferences_font_system_ui: "系统界面字体".into(),
+            preferences_preview_line_height_label: "预览行距".into(),
+            preferences_source_line_height_label: "源码行距".into(),
             quick_file_open_placeholder: "搜索文件名…".into(),
         }
     }
@@ -2385,7 +2401,7 @@ impl I18nStrings {
             export_overwrite_confirm: "Replace".into(),
             config_import_failed_title: "Config Import Failed".into(),
             preferences_window_title: "Preferences".into(),
-            preferences_nav_file: "File".into(),
+            preferences_nav_file: "General".into(),
             preferences_nav_theme: "Theme".into(),
             preferences_nav_shortcuts: "Shortcuts".into(),
             preferences_startup_option: "Startup Option".into(),
@@ -2623,6 +2639,8 @@ impl I18nStrings {
             preferences_source_font_label: "Source font".into(),
             preferences_font_system_mono: "System monospace".into(),
             preferences_font_system_ui: "System UI".into(),
+            preferences_preview_line_height_label: "Preview line height".into(),
+            preferences_source_line_height_label: "Source line height".into(),
             quick_file_open_placeholder: "Search files by name…".into(),
         }
     }

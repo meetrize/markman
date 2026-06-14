@@ -22,7 +22,8 @@ use super::{MarkmanConfigDirs, read_recent_files};
 use crate::components::normalize_shortcut_config;
 use crate::i18n::language_id_for_locale_preferences;
 use crate::theme::{
-    default_preview_font_family, default_source_font_family, normalize_builtin_theme_id,
+    default_preview_font_family, default_preview_line_height_x100, default_source_font_family,
+    default_source_line_height_x100, normalize_builtin_theme_id,
 };
 
 pub(crate) const DEFAULT_THEME_ID: &str = "markman";
@@ -72,6 +73,10 @@ pub(crate) struct AppPreferences {
     pub(crate) preview_font_family: String,
     /// Font family id for source-mode editing.
     pub(crate) source_font_family: String,
+    /// Preview line height stored as hundredths (`140` = 1.40).
+    pub(crate) preview_line_height_x100: u8,
+    /// Source-mode line height stored as hundredths (`145` = 1.45).
+    pub(crate) source_line_height_x100: u8,
     pub(crate) ai: AiPreferences,
     pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
 }
@@ -117,6 +122,8 @@ impl Default for AppPreferences {
             code_block_show_line_numbers: true,
             preview_font_family: default_preview_font_family(),
             source_font_family: default_source_font_family(),
+            preview_line_height_x100: default_preview_line_height_x100(),
+            source_line_height_x100: default_source_line_height_x100(),
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         }
@@ -168,6 +175,8 @@ struct CodeBlockPreferencesFile {
 struct FontPreferencesFile {
     preview: String,
     source: String,
+    preview_line_height: u8,
+    source_line_height: u8,
 }
 
 #[derive(Serialize)]
@@ -207,6 +216,8 @@ impl From<&AppPreferences> for PreferencesFile {
             fonts: FontPreferencesFile {
                 preview: value.preview_font_family.clone(),
                 source: value.source_font_family.clone(),
+                preview_line_height: value.preview_line_height_x100,
+                source_line_height: value.source_line_height_x100,
             },
             ai: AiPreferencesFile {
                 provider: value.ai.provider.clone(),
@@ -342,6 +353,18 @@ fn app_preferences_from_toml_value(
         "source",
         &default_source_font_family(),
     );
+    let preview_line_height_x100 = value
+        .get("fonts")
+        .and_then(|section| section.get("preview_line_height"))
+        .and_then(|value| value.as_integer())
+        .map(|value| value.clamp(100, 250) as u8)
+        .unwrap_or_else(default_preview_line_height_x100);
+    let source_line_height_x100 = value
+        .get("fonts")
+        .and_then(|section| section.get("source_line_height"))
+        .and_then(|value| value.as_integer())
+        .map(|value| value.clamp(100, 250) as u8)
+        .unwrap_or_else(default_source_line_height_x100);
     let ai = ai_preferences_from_toml_value(value);
     let format_toolbar = format_toolbar_buttons_from_toml(Some(value));
 
@@ -357,6 +380,8 @@ fn app_preferences_from_toml_value(
         code_block_show_line_numbers,
         preview_font_family,
         source_font_family,
+        preview_line_height_x100,
+        source_line_height_x100,
         ai,
         format_toolbar,
     }
@@ -474,6 +499,8 @@ pub(crate) fn save_preferences_from_window(
     code_block_show_line_numbers: bool,
     preview_font_family: String,
     source_font_family: String,
+    preview_line_height_x100: u8,
+    source_line_height_x100: u8,
     ai: AiPreferences,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = MarkmanConfigDirs::from_system()?;
@@ -487,6 +514,8 @@ pub(crate) fn save_preferences_from_window(
         code_block_show_line_numbers,
         preview_font_family,
         source_font_family,
+        preview_line_height_x100,
+        source_line_height_x100,
         ai,
         &dirs,
     )
@@ -502,6 +531,8 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     code_block_show_line_numbers: bool,
     preview_font_family: String,
     source_font_family: String,
+    preview_line_height_x100: u8,
+    source_line_height_x100: u8,
     ai: AiPreferences,
     dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
@@ -516,6 +547,8 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preferences.code_block_show_line_numbers = code_block_show_line_numbers;
     preferences.preview_font_family = preview_font_family;
     preferences.source_font_family = source_font_family;
+    preferences.preview_line_height_x100 = preview_line_height_x100;
+    preferences.source_line_height_x100 = source_line_height_x100;
     preferences.ai = ai;
     preferences.ai.selection_toolbar =
         normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
@@ -543,7 +576,10 @@ mod tests {
         load_or_create_app_preferences_with_dirs_and_locales, read_app_preferences_with_dirs,
         save_app_preferences_with_dirs, save_preferences_from_window_with_dirs,
     };
-    use crate::theme::{default_preview_font_family, default_source_font_family};
+    use crate::theme::{
+        default_preview_font_family, default_preview_line_height_x100, default_source_font_family,
+        default_source_line_height_x100,
+    };
     use crate::config::MarkmanConfigDirs;
     use std::collections::BTreeMap;
 
@@ -710,6 +746,8 @@ mod tests {
             false,
             default_preview_font_family(),
             default_source_font_family(),
+            default_preview_line_height_x100(),
+            default_source_line_height_x100(),
             AiPreferences::default(),
             &dirs,
         )

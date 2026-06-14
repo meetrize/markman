@@ -18,6 +18,7 @@ use crate::config::{
 };
 
 use super::DocumentZoom;
+use super::document_zoom::DocumentBodyLineHeight;
 
 /// Serializable font weight that maps to GPUI's [`FontWeight`] constants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1364,7 +1365,7 @@ impl Theme {
             },
             typography: ThemeTypography {
                 text_size: 17.0,
-                text_line_height: 1.6,
+                text_line_height: 1.45,
                 h1_size: 32.0,
                 h1_weight: FontWeightDef::Bold,
                 h2_size: 24.0,
@@ -1614,6 +1615,7 @@ impl ThemeManager {
         let _ = manager.set_theme_by_id(&theme_id);
         cx.set_global(manager);
         cx.set_global(DocumentZoom::default());
+        cx.set_global(DocumentBodyLineHeight::default());
     }
 
     /// Returns the currently active theme.

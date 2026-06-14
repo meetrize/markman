@@ -1454,7 +1454,17 @@ impl Render for Editor {
         self.sync_scroll_viewport(viewport_size, cx);
 
         let theme = cx.global::<ThemeManager>().current_arc();
+        let preferences = crate::config::read_app_preferences().unwrap_or_default();
         cx.set_global(crate::theme::DocumentZoom::new(self.document_zoom));
+        let body_line_height = match self.view_mode {
+            ViewMode::Rendered => {
+                crate::theme::line_height_from_x100(preferences.preview_line_height_x100)
+            }
+            ViewMode::Source => {
+                crate::theme::line_height_from_x100(preferences.source_line_height_x100)
+            }
+        };
+        cx.set_global(crate::theme::DocumentBodyLineHeight::new(body_line_height));
         let document_theme = cx.global::<ThemeManager>().document_theme_arc(cx);
         let doc_d = &document_theme.dimensions;
         let strings = cx.global::<I18nManager>().strings_arc();

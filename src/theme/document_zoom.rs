@@ -6,6 +6,22 @@ use gpui::{App, Global};
 
 use super::{Theme, ThemeDimensions, ThemeManager, ThemeTypography};
 
+/// Runtime document body line height ratio for the editor content currently rendering.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DocumentBodyLineHeight {
+    pub ratio: f32,
+}
+
+impl Global for DocumentBodyLineHeight {}
+
+impl DocumentBodyLineHeight {
+    pub fn new(ratio: f32) -> Self {
+        Self {
+            ratio: ratio.clamp(1.0, 3.0),
+        }
+    }
+}
+
 /// Minimum document zoom multiplier.
 pub const MIN_DOCUMENT_ZOOM: f32 = 0.5;
 /// Maximum document zoom multiplier.
@@ -145,20 +161,38 @@ impl Theme {
         theme.dimensions.scale_document_layout(zoom);
         theme
     }
+
+    pub(crate) fn with_document_body_line_height(&self, ratio: f32) -> Self {
+        if (self.typography.text_line_height - ratio).abs() <= f32::EPSILON {
+            return self.clone();
+        }
+        let mut theme = self.clone();
+        theme.typography.text_line_height = ratio;
+        theme
+    }
 }
 
 impl ThemeManager {
-    /// Returns the active theme scaled for document content according to [`DocumentZoom`].
+    /// Returns the active theme scaled for document content according to [`DocumentZoom`]
+    /// and the current [`DocumentBodyLineHeight`] override.
     pub fn document_theme_arc(&self, app: &App) -> Arc<Theme> {
         let zoom = app
             .try_global::<DocumentZoom>()
             .map(|zoom| zoom.multiplier)
             .unwrap_or(1.0);
-        if (zoom - 1.0).abs() <= f32::EPSILON {
-            self.current_arc()
+        let line_height = app
+            .try_global::<DocumentBodyLineHeight>()
+            .map(|line_height| line_height.ratio)
+            .filter(|ratio| ratio.is_finite() && *ratio > 0.0);
+        let mut theme = if (zoom - 1.0).abs() <= f32::EPSILON {
+            self.current().clone()
         } else {
-            Arc::new(self.current().with_document_zoom(zoom))
+            self.current().with_document_zoom(zoom)
+        };
+        if let Some(ratio) = line_height {
+            theme = theme.with_document_body_line_height(ratio);
         }
+        Arc::new(theme)
     }
 }
 
