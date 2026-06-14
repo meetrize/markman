@@ -5,6 +5,10 @@ edition = "2024"
 repository = "https://github.com/meetrize/markman"
 license = "Apache-2.0"
 
+[lints.rust]
+# objc 0.2.x expands to `#[cfg(feature = "cargo-clippy")]` inside sel_impl/msg_send!.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
 [lints.clippy]
 # Allow stylistic patterns the project doesn't enforce. These mirror the
 # spirit of gpui-component's workspace lints — categorically silence

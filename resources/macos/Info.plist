@@ -32,6 +32,11 @@
       <string>Editor</string>
       <key>LSHandlerRank</key>
       <string>Owner</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>md</string>
+        <string>markdown</string>
+      </array>
       <key>LSItemContentTypes</key>
       <array>
         <string>net.daringfireball.markdown</string>

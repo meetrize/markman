@@ -24,38 +24,6 @@ pub(super) enum FormatToolbarControl {
 }
 
 impl FormatToolbarControl {
-    pub(super) fn config_id(self) -> Option<&'static str> {
-        match self {
-            Self::Undo => Some("undo"),
-            Self::Redo => Some("redo"),
-            Self::Format(MarkdownToolbarAction::Bold) => Some("bold"),
-            Self::Format(MarkdownToolbarAction::Italic) => Some("italic"),
-            Self::Format(MarkdownToolbarAction::Heading1) => Some("heading1"),
-            Self::Format(MarkdownToolbarAction::Heading2) => Some("heading2"),
-            Self::Format(MarkdownToolbarAction::Heading3) => Some("heading3"),
-            Self::Format(MarkdownToolbarAction::OrderedList) => Some("ordered_list"),
-            Self::Format(MarkdownToolbarAction::UnorderedList) => Some("unordered_list"),
-            Self::Format(MarkdownToolbarAction::Code) => Some("code"),
-            Self::Format(MarkdownToolbarAction::CodeBlock) => Some("code_block"),
-            Self::Format(MarkdownToolbarAction::Link) => Some("link"),
-            Self::Format(MarkdownToolbarAction::Quote) => Some("quote"),
-            Self::Format(MarkdownToolbarAction::Todo) => Some("todo"),
-            Self::Format(MarkdownToolbarAction::Image) => Some("image"),
-            Self::Format(MarkdownToolbarAction::HorizontalRule) => Some("horizontal_rule"),
-            Self::Format(MarkdownToolbarAction::TableOfContents) => Some("table_of_contents"),
-            Self::Format(MarkdownToolbarAction::Table) => Some("table"),
-            Self::MermaidTemplate => Some("mermaid"),
-            Self::Ai => Some("ai"),
-            Self::DocumentSearch => Some("document_search"),
-            Self::Save => Some("save"),
-            Self::AutoSave => Some("auto_save"),
-            Self::ZoomOut => Some("zoom_out"),
-            Self::ZoomIn => Some("zoom_in"),
-            Self::ViewMode => Some("view_mode"),
-            Self::HistorySeparator | Self::FormatSeparator => None,
-        }
-    }
-
     pub(super) fn from_config_id(id: &str) -> Option<Self> {
         match id {
             "undo" => Some(Self::Undo),
@@ -94,6 +62,7 @@ pub(super) struct FormatToolbarLayout {
     pub overflow: Vec<FormatToolbarControl>,
 }
 
+#[cfg(test)]
 pub(super) fn default_format_toolbar_controls() -> Vec<FormatToolbarControl> {
     format_toolbar_controls_from_config(&crate::config::format_toolbar::default_format_toolbar_button_configs())
 }

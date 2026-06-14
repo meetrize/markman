@@ -93,6 +93,15 @@ fn open_file_in_new_window(cx: &mut App, path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Opens Markdown files requested by the OS (Open With, file-manager handoff, etc.).
+pub(crate) fn open_markdown_files_from_external(cx: &mut App, paths: &[PathBuf]) {
+    for path in paths {
+        if let Err(err) = open_file_in_new_window(cx, path) {
+            eprintln!("failed to open '{}': {err:#}", path.display());
+        }
+    }
+}
+
 fn record_recent_file_and_refresh(path: &Path, cx: &mut App) {
     if let Err(err) = record_recent_file(path) {
         eprintln!("failed to update recent file history: {err}");

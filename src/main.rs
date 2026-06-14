@@ -316,9 +316,10 @@ fn main() {
         return;
     }
 
-    Application::new()
-        .with_assets(VelotypeAssets)
-        .run(move |cx: &mut App| {
+    let application = Application::new().with_assets(VelotypeAssets);
+    platform::install_open_external_files(&application);
+
+    application.run(move |cx: &mut App| {
             app_icon::install();
             let preferences = config::load_or_create_app_preferences().unwrap_or_else(|err| {
                 eprintln!("failed to initialize app preferences: {err}");
@@ -328,6 +329,7 @@ fn main() {
             ThemeManager::init_with_theme_id(cx, &preferences.default_theme_id);
             net::install_http_client(cx);
             platform::init_document_gestures(cx);
+            platform::init_external_open_drain(cx);
             init_editor(cx, &preferences.keybindings);
             init_app_menu(cx);
             app_visibility::init(cx);

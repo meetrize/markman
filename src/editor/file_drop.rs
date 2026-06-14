@@ -11,7 +11,7 @@ use crate::i18n::I18nManager;
 use crate::input::text_norm::normalize_line_endings_lf;
 
 impl Editor {
-    pub(super) fn is_markdown_file_path(path: &Path) -> bool {
+    pub(crate) fn is_markdown_file_path(path: &Path) -> bool {
         path.is_file()
             && path.extension().is_some_and(|extension| {
                 extension.to_string_lossy().eq_ignore_ascii_case("md")
