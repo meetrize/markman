@@ -14,11 +14,16 @@ use super::document_search::{
     document_search_offset_to_utf16, document_search_range_from_utf16,
     document_search_range_to_utf16,
 };
+use super::markdown_files::{collect_markdown_files, is_markdown_file};
 use super::single_line_input::{
     SingleLineInputTarget, arrow_key_from_event, handle_mouse_down, handle_mouse_move,
     handle_mouse_up, index_for_mouse_position, move_caret_to, prepare_context_menu_selection,
     primary_shortcut_modifiers, select_caret_to, text_grapheme_boundary, SingleLineArrowKey,
 };
+use super::tag_index::{
+    build_workspace_tag_index, refresh_tag_index_for_file, TagOccurrence, WorkspaceTagIndex,
+};
+use crate::components::markdown::inline::normalize_tag_name;
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, FenceInfo, Home, MoveLeft, MoveRight, Paste, SelectAll,
@@ -35,6 +40,7 @@ const CHEVRON_RIGHT_ICON: &str = "icon/workspace/chevron-right.svg";
 const CHEVRON_DOWN_ICON: &str = "icon/workspace/chevron-down.svg";
 const FILES_TAB_ICON: &str = "icon/workspace/files.svg";
 const OUTLINE_TAB_ICON: &str = "icon/workspace/list-tree.svg";
+const TAGS_TAB_ICON: &str = "icon/workspace/tags.svg";
 const SEARCH_ICON: &str = "icon/workspace/search.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
 const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
@@ -61,6 +67,14 @@ pub(super) enum WorkspaceTab {
     #[default]
     Files,
     Outline,
+    Tags,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum WorkspaceTagSort {
+    #[default]
+    ByCountDesc,
+    ByNameAsc,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,6 +113,13 @@ pub(super) struct WorkspaceState {
     search_open: bool,
     search_input: SingleLineFieldState,
     search_results: Vec<WorkspaceSearchResult>,
+    tag_index: Option<WorkspaceTagIndex>,
+    tag_index_busy: bool,
+    tag_index_root: Option<PathBuf>,
+    /// Cached `(path, serialized markdown)` last merged into `tag_index`.
+    tag_index_live_source: Option<(PathBuf, String)>,
+    selected_tag: Option<String>,
+    tag_sort: WorkspaceTagSort,
 }
 
 impl Default for WorkspaceState {
@@ -118,6 +139,12 @@ impl Default for WorkspaceState {
             search_open: false,
             search_input: SingleLineFieldState::new(),
             search_results: Vec::new(),
+            tag_index: None,
+            tag_index_busy: false,
+            tag_index_root: None,
+            tag_index_live_source: None,
+            selected_tag: None,
+            tag_sort: WorkspaceTagSort::default(),
         }
     }
 }
@@ -184,6 +211,10 @@ impl Editor {
             self.workspace.state.file_error = None;
         }
         self.workspace.state.outline_source = None;
+        self.workspace.state.tag_index = None;
+        self.workspace.state.tag_index_root = None;
+        self.workspace.state.tag_index_busy = false;
+        self.workspace.state.tag_index_live_source = None;
         if self.workspace.state.is_open {
             self.sync_workspace_models(cx);
         }
@@ -192,6 +223,8 @@ impl Editor {
     fn sync_workspace_models(&mut self, cx: &mut Context<Self>) {
         self.sync_workspace_file_tree();
         self.sync_workspace_outline(cx);
+        self.sync_workspace_tag_index(cx);
+        self.sync_workspace_tag_index_for_active_file(cx);
     }
 
     fn workspace_root_for_current_file(&self) -> Option<PathBuf> {
@@ -222,6 +255,11 @@ impl Editor {
 
         let Some(root) = next_root else {
             self.workspace.state.selected = None;
+            self.workspace.state.selected_tag = None;
+            self.workspace.state.tag_index = None;
+            self.workspace.state.tag_index_root = None;
+            self.workspace.state.tag_index_busy = false;
+            self.workspace.state.tag_index_live_source = None;
             return;
         };
 
@@ -257,6 +295,105 @@ impl Editor {
         prune_outline_state(&mut self.workspace.state, &outline);
         self.workspace.state.outline_tree = outline;
         self.workspace.state.outline_source = Some(source);
+    }
+
+    fn sync_workspace_tag_index(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.effective_workspace_root() else {
+            self.workspace.state.tag_index = None;
+            self.workspace.state.tag_index_root = None;
+            self.workspace.state.tag_index_busy = false;
+            self.workspace.state.tag_index_live_source = None;
+            return;
+        };
+
+        if self.workspace.state.tag_index_root.as_deref() == Some(root.as_path())
+            && self.workspace.state.tag_index.is_some()
+        {
+            return;
+        }
+
+        self.workspace.state.tag_index = None;
+        self.workspace.state.tag_index_root = Some(root.clone());
+        self.workspace.state.tag_index_busy = true;
+        self.workspace.state.tag_index_live_source = None;
+
+        let editor = cx.entity().downgrade();
+        cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let index = build_workspace_tag_index(&root);
+            let _ = editor.update(cx, |editor, cx| {
+                if editor.effective_workspace_root().as_deref() != Some(root.as_path()) {
+                    return;
+                }
+                editor.workspace.state.tag_index = Some(index);
+                editor.workspace.state.tag_index_busy = false;
+                editor.workspace.state.tag_index_live_source = None;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Incrementally refresh the open file's tag entries in the workspace index.
+    fn sync_workspace_tag_index_for_active_file(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.effective_workspace_root() else {
+            self.workspace.state.tag_index_live_source = None;
+            return;
+        };
+        let Some(path) = self.file_path.clone() else {
+            return;
+        };
+        if !path.starts_with(&root) {
+            return;
+        }
+        if self.workspace.state.tag_index.is_none() || self.workspace.state.tag_index_busy {
+            return;
+        }
+        if self.workspace.state.tag_index_root.as_deref() != Some(root.as_path()) {
+            return;
+        }
+
+        let source = self.serialized_document_text(cx);
+        if self.workspace.state.tag_index_live_source.as_ref()
+            == Some(&(path.clone(), source.clone()))
+        {
+            return;
+        }
+
+        if let Some(index) = self.workspace.state.tag_index.as_mut() {
+            refresh_tag_index_for_file(index, &path, &source);
+            self.workspace.state.tag_index_live_source = Some((path, source));
+            cx.notify();
+        }
+    }
+
+    pub(super) fn refresh_workspace_tag_index_for_saved_file(
+        &mut self,
+        path: &Path,
+        content: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(root) = self.effective_workspace_root() else {
+            return;
+        };
+        if !path.starts_with(&root) {
+            return;
+        }
+
+        if self.workspace.state.tag_index.is_none() {
+            self.sync_workspace_tag_index(cx);
+            return;
+        }
+
+        if self.workspace.state.tag_index_root.as_deref() != Some(root.as_path()) {
+            self.sync_workspace_tag_index(cx);
+            return;
+        }
+
+        if let Some(index) = self.workspace.state.tag_index.as_mut() {
+            refresh_tag_index_for_file(index, path, content);
+            self.workspace.state.tag_index_live_source = Some((path.to_path_buf(), content.to_string()));
+            cx.notify();
+        }
     }
 
     pub(super) fn workspace_files_panel_active(&self) -> bool {
@@ -1055,6 +1192,68 @@ impl Editor {
         self.open_workspace_search_result(path, None, String::new(), None, None, window, cx);
     }
 
+    pub(super) fn filter_workspace_by_tag(
+        &mut self,
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        let canonical = normalize_tag_name(&name);
+        self.close_menu_bar(cx);
+        self.dismiss_contextual_overlays(cx);
+
+        let was_open = self.workspace.state.is_open;
+        self.workspace.state.is_open = true;
+        if !was_open {
+            self.sync_workspace_models(cx);
+        }
+
+        self.workspace.state.active_tab = WorkspaceTab::Tags;
+        self.workspace.state.search_open = false;
+        self.workspace.state.selected_tag = Some(canonical);
+        cx.notify();
+    }
+
+    fn open_workspace_tag_occurrence(
+        &mut self,
+        path: PathBuf,
+        occurrence: TagOccurrence,
+        tag_name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let query = format!("#{tag_name}");
+        self.workspace.state.selected = Some(WorkspaceSelection::File(path.clone()));
+        self.workspace.pending_search_jump = Some(PendingWorkspaceSearchJump {
+            line: occurrence.line,
+            query,
+            preview: occurrence.preview,
+            match_start_byte: Some(occurrence.match_start_byte),
+            raw_file_len: Some(occurrence.raw_file_len),
+        });
+
+        if !self.document_dirty && self.file_path.as_deref() == Some(path.as_path()) {
+            self.apply_pending_workspace_search_jump(cx);
+            window.activate_window();
+            cx.notify();
+            return;
+        }
+
+        self.request_dropped_markdown_replace(path, window, cx);
+    }
+
+    fn toggle_workspace_tag_sort(&mut self, cx: &mut Context<Self>) {
+        self.workspace.state.tag_sort = match self.workspace.state.tag_sort {
+            WorkspaceTagSort::ByCountDesc => WorkspaceTagSort::ByNameAsc,
+            WorkspaceTagSort::ByNameAsc => WorkspaceTagSort::ByCountDesc,
+        };
+        cx.notify();
+    }
+
+    fn select_workspace_tag(&mut self, tag: String, cx: &mut Context<Self>) {
+        self.workspace.state.selected_tag = Some(tag);
+        cx.notify();
+    }
+
     fn open_workspace_search_result(
         &mut self,
         path: PathBuf,
@@ -1182,6 +1381,7 @@ impl Editor {
             let tab_id = match tab {
                 WorkspaceTab::Files => "workspace-tab-files",
                 WorkspaceTab::Outline => "workspace-tab-outline",
+                WorkspaceTab::Tags => "workspace-tab-tags",
             };
             let icon_color = tab_icon_color(active);
             div()
@@ -1343,6 +1543,7 @@ impl Editor {
                 WorkspaceTab::Outline => {
                     self.render_workspace_outline_tree(theme, strings, &editor)
                 }
+                WorkspaceTab::Tags => self.render_workspace_tags_panel(theme, strings, &editor),
             }
         };
 
@@ -1387,6 +1588,12 @@ impl Editor {
                                     OUTLINE_TAB_ICON,
                                     WorkspaceTab::Outline,
                                     self.workspace.state.active_tab == WorkspaceTab::Outline,
+                                ))
+                                .child(tab(
+                                    strings.workspace_tab_tags.clone(),
+                                    TAGS_TAB_ICON,
+                                    WorkspaceTab::Tags,
+                                    self.workspace.state.active_tab == WorkspaceTab::Tags,
                                 ))
                                 .child(search_button),
                         )
@@ -1511,6 +1718,255 @@ impl Editor {
             .flex()
             .flex_col()
             .children(self.render_workspace_nodes(&self.workspace.state.outline_tree, 0, theme, editor))
+            .into_any_element()
+    }
+
+    fn render_workspace_tags_panel(
+        &self,
+        theme: &Theme,
+        strings: &I18nStrings,
+        editor: &WeakEntity<Editor>,
+    ) -> AnyElement {
+        if self.effective_workspace_root().is_none() {
+            return self.render_workspace_empty_state(
+                "",
+                &strings.workspace_search_no_root,
+                theme,
+            );
+        }
+
+        let Some(index) = self.workspace.state.tag_index.as_ref() else {
+            if self.workspace.state.tag_index_busy {
+                return self.render_workspace_empty_state("", &strings.workspace_empty_tags, theme);
+            }
+            return self.render_workspace_empty_state("", &strings.workspace_empty_tags, theme);
+        };
+
+        if index.counts.is_empty() {
+            return self.render_workspace_empty_state("", &strings.workspace_empty_tags, theme);
+        }
+
+        let c = &theme.colors;
+        let t = &theme.typography;
+        let root = self.effective_workspace_root();
+        let sort_editor = editor.clone();
+        let sort_label = match self.workspace.state.tag_sort {
+            WorkspaceTagSort::ByCountDesc => strings.workspace_tag_sort_by_name.clone(),
+            WorkspaceTagSort::ByNameAsc => strings.workspace_tag_sort_by_count.clone(),
+        };
+
+        let mut tags: Vec<(String, usize)> = index
+            .counts
+            .iter()
+            .map(|(name, count)| (name.clone(), *count))
+            .collect();
+        match self.workspace.state.tag_sort {
+            WorkspaceTagSort::ByCountDesc => {
+                tags.sort_by(|left, right| {
+                    right
+                        .1
+                        .cmp(&left.1)
+                        .then_with(|| left.0.cmp(&right.0))
+                });
+            }
+            WorkspaceTagSort::ByNameAsc => {
+                tags.sort_by(|left, right| left.0.cmp(&right.0));
+            }
+        }
+
+        let selected_tag = self.workspace.state.selected_tag.clone();
+        let mut tag_rows = Vec::new();
+        for (index, (tag, count)) in tags.iter().enumerate() {
+            let active = selected_tag.as_deref() == Some(tag.as_str());
+            let select_tag = tag.clone();
+            let select_editor = editor.clone();
+            tag_rows.push(
+                div()
+                    .id(("workspace-tag", index))
+                    .w_full()
+                    .px(px(6.0))
+                    .py(px(4.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(8.0))
+                    .rounded(px(4.0))
+                    .bg(if active {
+                        c.selection
+                    } else {
+                        hsla(0.0, 0.0, 0.0, 0.0)
+                    })
+                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                    .cursor_pointer()
+                    .on_click(move |_event, _window, cx| {
+                        let tag = select_tag.clone();
+                        let _ = select_editor.update(cx, |editor, cx| {
+                            editor.select_workspace_tag(tag, cx);
+                        });
+                    })
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .truncate()
+                            .text_size(px(t.text_size * 0.82))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c.text_tag)
+                            .child(format!("#{tag}")),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(px(t.text_size * 0.78))
+                            .text_color(c.dialog_muted)
+                            .child(count.to_string()),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        let mut children: Vec<AnyElement> = vec![
+            div()
+                .w_full()
+                .px(px(4.0))
+                .pb(px(4.0))
+                .flex()
+                .items_center()
+                .justify_end()
+                .child(
+                    div()
+                        .id("workspace-tag-sort-toggle")
+                        .px(px(6.0))
+                        .py(px(2.0))
+                        .rounded(px(4.0))
+                        .text_size(px(t.text_size * 0.75))
+                        .text_color(c.dialog_muted)
+                        .hover(|this| {
+                            this.bg(c.dialog_secondary_button_hover)
+                                .text_color(c.text_default)
+                        })
+                        .cursor_pointer()
+                        .child(sort_label)
+                        .on_click(move |_event, _window, cx| {
+                            let _ = sort_editor.update(cx, |editor, cx| {
+                                editor.toggle_workspace_tag_sort(cx);
+                            });
+                        }),
+                )
+                .into_any_element(),
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .children(tag_rows)
+                .into_any_element(),
+        ];
+
+        if let Some(selected_tag) = selected_tag {
+            if let Some(occurrences) = index.by_tag.get(&selected_tag) {
+                let title = strings
+                    .workspace_tag_occurrences_title
+                    .replace("{tag}", &format!("#{selected_tag}"));
+                children.push(
+                    div()
+                        .w_full()
+                        .mt(px(8.0))
+                        .pt(px(8.0))
+                        .border_t(px(1.0))
+                        .border_color(c.dialog_border.opacity(0.75))
+                        .child(
+                            div()
+                                .px(px(6.0))
+                                .pb(px(4.0))
+                                .text_size(px(t.text_size * 0.78))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(c.dialog_muted)
+                                .child(title),
+                        )
+                        .into_any_element(),
+                );
+
+                let mut occurrence_rows = Vec::new();
+                for (index, occurrence) in occurrences.iter().enumerate() {
+                    let result = WorkspaceSearchResult {
+                        path: occurrence.path.clone(),
+                        line: Some(occurrence.line),
+                        preview: occurrence.preview.clone(),
+                        match_start_byte: Some(occurrence.match_start_byte),
+                        raw_file_len: Some(occurrence.raw_file_len),
+                    };
+                    let label = workspace_search_result_label(root.as_deref(), &result);
+                    let detail = workspace_search_result_detail(&result);
+                    let path = occurrence.path.clone();
+                    let open_occurrence = occurrence.clone();
+                    let tag_name = selected_tag.clone();
+                    let open_editor = editor.clone();
+                    occurrence_rows.push(
+                        div()
+                            .id(("workspace-tag-occurrence", index))
+                            .w_full()
+                            .px(px(6.0))
+                            .py(px(5.0))
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .rounded(px(4.0))
+                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                            .cursor_pointer()
+                            .on_click(move |_event, window, cx| {
+                                let open_path = path.clone();
+                                let open_occurrence = open_occurrence.clone();
+                                let tag_name = tag_name.clone();
+                                let _ = open_editor.update(cx, |editor, cx| {
+                                    editor.open_workspace_tag_occurrence(
+                                        open_path,
+                                        open_occurrence,
+                                        &tag_name,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            })
+                            .child(
+                                div()
+                                    .w_full()
+                                    .truncate()
+                                    .text_size(px(t.text_size * 0.82))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(c.text_default)
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .w_full()
+                                    .truncate()
+                                    .text_size(px(t.text_size * 0.78))
+                                    .text_color(c.dialog_muted)
+                                    .child(detail),
+                            )
+                            .into_any_element(),
+                    );
+                }
+
+                children.push(
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .children(occurrence_rows)
+                        .into_any_element(),
+                );
+            }
+        }
+
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .children(children)
             .into_any_element()
     }
 
@@ -1826,22 +2282,6 @@ impl Editor {
     }
 }
 
-fn collect_markdown_files(root: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match fs::read_dir(root) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_markdown_files(&path, files);
-        } else if is_markdown_file(&path) {
-            files.push(path);
-        }
-    }
-}
-
 fn keyword_byte_offset_in_line(line: &str, query: &str) -> usize {
     super::search_match::find_case_insensitive_start(line, query)
 }
@@ -1934,11 +2374,6 @@ fn workspace_search_result_detail(result: &WorkspaceSearchResult) -> String {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
-}
-
-fn is_markdown_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("md"))
 }
 
 fn scan_workspace_dir(path: &Path) -> Result<WorkspaceTreeNode> {

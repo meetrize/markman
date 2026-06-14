@@ -82,6 +82,7 @@ fn expanded_code_cursor_offset_stays_before_closing_backtick() {
         footnote: None,
         math: None,
         emoji: None,
+        tag: None,
     }];
 
     assert_eq!(expanded_display_offset_for_clean(&fragments, 0), 1);
@@ -101,6 +102,7 @@ fn expanded_code_cursor_offset_keeps_plain_text_boundaries() {
             footnote: None,
             math: None,
             emoji: None,
+            tag: None,
         },
         InlineFragment {
             text: "bc".to_string(),
@@ -113,6 +115,7 @@ fn expanded_code_cursor_offset_keeps_plain_text_boundaries() {
             footnote: None,
             math: None,
             emoji: None,
+            tag: None,
         },
     ];
 
@@ -139,6 +142,7 @@ fn typing_inside_manual_backticks_keeps_cursor_inside_code_span() {
             footnote: None,
             math: None,
             emoji: None,
+            tag: None,
         }]
     );
 

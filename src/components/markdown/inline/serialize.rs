@@ -584,6 +584,8 @@ pub(crate) fn can_use_markdown_script_delimiters(
         && fragment.math.is_none()
         && previous.emoji.is_none()
         && fragment.emoji.is_none()
+        && previous.tag.is_none()
+        && fragment.tag.is_none()
         && styles_match_ignoring_script(previous.style, fragment.style)
 }
 

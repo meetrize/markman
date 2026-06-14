@@ -1,22 +1,22 @@
 {
   "1": {
     "title": "inline 数据模型与 hashtag 解析器",
-    "status": "pending"
+    "status": "done"
   },
   "2": {
     "title": "序列化、主题色与渲染 pill 样式",
-    "status": "pending"
+    "status": "done"
   },
   "3": {
     "title": "HTML 导出与 Phase 1 收尾测试",
-    "status": "pending"
+    "status": "done"
   },
   "4": {
     "title": "工作区标签索引引擎",
-    "status": "pending"
+    "status": "done"
   },
   "5": {
     "title": "侧栏 Tags 面板、跳转与收尾",
-    "status": "pending"
+    "status": "in_progress"
   }
 }

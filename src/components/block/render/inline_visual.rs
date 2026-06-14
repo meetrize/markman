@@ -113,9 +113,18 @@ impl Block {
 
         for span in cache.spans() {
             if cursor < span.range.start {
+                let gap_span = crate::components::InlineSpan {
+                    range: cursor..span.range.start,
+                    style: crate::components::InlineStyle::default(),
+                    html_style: None,
+                    link: None,
+                    footnote: None,
+                    math: None,
+                    tag: None,
+                };
                 children.push(self.render_inline_text_segment(
                     &text[cursor..span.range.start],
-                    span,
+                    &gap_span,
                     theme,
                     base_color,
                     font_size,
@@ -149,6 +158,7 @@ impl Block {
                 link: None,
                 footnote: None,
                 math: None,
+                tag: None,
             };
             children.push(self.render_inline_text_segment(
                 &text[cursor..],
@@ -176,7 +186,9 @@ impl Block {
             return div().into_any_element();
         }
 
-        let mut color = if span.link.is_some() || span.footnote.is_some() {
+        let mut color = if span.tag.is_some() {
+            theme.colors.text_tag
+        } else if span.link.is_some() || span.footnote.is_some() {
             theme.colors.text_link
         } else {
             base_color
@@ -217,7 +229,13 @@ impl Block {
         if span.style.underline || span.link.is_some() || span.footnote.is_some() {
             element = element.underline();
         }
-        if span.style.code {
+        if span.tag.is_some() {
+            element = element
+                .rounded(px(theme.dimensions.code_bg_radius))
+                .px(px(theme.dimensions.code_bg_pad_x))
+                .py(px(theme.dimensions.code_bg_pad_y))
+                .bg(theme.colors.tag_background);
+        } else if span.style.code {
             element = element
                 .rounded(px(theme.dimensions.code_bg_radius))
                 .px(px(theme.dimensions.code_bg_pad_x))

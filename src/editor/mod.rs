@@ -40,6 +40,8 @@ mod history;
 mod overlays;
 mod persistence;
 mod file_search;
+mod markdown_files;
+mod tag_index;
 mod quick_file_open;
 mod wiki_link_picker;
 mod render;

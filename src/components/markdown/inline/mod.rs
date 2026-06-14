@@ -19,6 +19,7 @@ use crate::input::text_norm::normalize_line_endings_lf;
 mod delimiter;
 mod emoji;
 mod fragment;
+mod hashtag;
 mod html;
 mod link_image;
 mod math;
@@ -29,8 +30,11 @@ mod style;
 
 pub use fragment::{
     InlineFragment, InlineInsertionAttributes, InlineLink, InlineLinkHit, InlineMath, InlineSpan,
-    TextCursor,
+    InlineTagHit, TextCursor,
 };
+#[allow(unused_imports)]
+pub use fragment::InlineTag;
+pub(crate) use hashtag::{locate_hashtag_in_str, normalize_tag_name};
 pub use style::{InlineScript, InlineStyle};
 pub(crate) use style::StyleFlag;
 pub(crate) use serialize::can_use_markdown_script_delimiters;
@@ -74,6 +78,10 @@ impl InlineRenderCache {
                         .as_ref()
                         .and_then(InlineFootnoteReference::hit),
                     math: fragment.math.clone(),
+                    tag: fragment.tag.as_ref().map(|tag| InlineTagHit {
+                        name: tag.name.clone(),
+                        source: tag.source.clone(),
+                    }),
                 });
             }
 
@@ -182,6 +190,7 @@ impl InlineTextTree {
             footnote: None,
             math: None,
             emoji: None,
+            tag: None,
         }])
     }
 
@@ -391,6 +400,30 @@ impl InlineTextTree {
                 continue;
             }
 
+            if let Some(tag) = self.fragments[index].tag.clone() {
+                let raw_markdown = tag.source;
+                let raw_len = raw_markdown.len();
+                let run_visible_len = self.fragments[index].text.len();
+                let run_start = output.len();
+                output.push_str(&raw_markdown);
+                let run_end = output.len();
+
+                for local_visible in 0..=run_visible_len {
+                    visible_to_markdown[visible_cursor + local_visible] =
+                        run_start + local_visible.min(raw_len);
+                }
+
+                markdown_to_visible.resize(run_end + 1, visible_cursor);
+                for local_markdown in 0..=raw_len {
+                    markdown_to_visible[run_start + local_markdown] =
+                        visible_cursor + local_markdown.min(run_visible_len);
+                }
+
+                visible_cursor += run_visible_len;
+                index += 1;
+                continue;
+            }
+
             if let Some(math) = self.fragments[index].math.clone() {
                 let raw_markdown = math.source;
                 let raw_len = raw_markdown.len();
@@ -422,6 +455,7 @@ impl InlineTextTree {
                 && self.fragments[end].footnote.is_none()
                 && self.fragments[end].math.is_none()
                 && self.fragments[end].emoji.is_none()
+                && self.fragments[end].tag.is_none()
             {
                 end += 1;
             }
@@ -526,6 +560,7 @@ impl InlineTextTree {
                         footnote: fragment.footnote.clone(),
                         math: None,
                         emoji: None,
+                        tag: None,
                     });
                 }
                 if split_offset < fragment_len {
@@ -537,6 +572,7 @@ impl InlineTextTree {
                         footnote: fragment.footnote.clone(),
                         math: None,
                         emoji: None,
+                        tag: None,
                     });
                 }
             }
@@ -697,6 +733,7 @@ impl InlineTextTree {
                 footnote: inserted_attributes.footnote,
                 math: inserted_attributes.math,
                 emoji: None,
+                tag: None,
             });
         }
         temp.append_tree(after);
@@ -728,6 +765,7 @@ impl InlineTextTree {
                 footnote: inserted_attributes.footnote,
                 math: inserted_attributes.math,
                 emoji: None,
+                tag: None,
             });
         }
         temp.append_tree(after);
@@ -817,6 +855,8 @@ impl InlineTextTree {
                 && fragment.math.is_none()
                 && last.emoji.is_none()
                 && fragment.emoji.is_none()
+                && last.tag.is_none()
+                && fragment.tag.is_none()
             {
                 last.text.push_str(&fragment.text);
                 continue;
@@ -1744,6 +1784,7 @@ mod tests {
                 footnote: None,
                 math: None,
                 emoji: None,
+                tag: None,
             }]);
             let serialized = tree.serialize_markdown();
             let reparsed = InlineTextTree::from_markdown(&serialized);

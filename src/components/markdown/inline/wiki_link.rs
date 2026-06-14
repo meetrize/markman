@@ -49,6 +49,7 @@ pub(crate) fn parse_wiki_link(
         footnote: None,
         math: None,
         emoji: None,
+        tag: None,
     };
 
     let normalized_start = builder.normalized_len;
@@ -83,6 +84,7 @@ pub(crate) fn parse_wiki_link(
         && last.footnote.is_none()
         && last.math.is_none()
         && fragment.emoji.is_none()
+        && last.tag.is_none()
     {
         last.text.push_str(&fragment.text);
     } else {

@@ -91,6 +91,7 @@ fn render_markdown_fragment(markdown: &str, theme: &Theme, base_dir: Option<&Pat
     let rewritten = rewrite_display_math_blocks(&rewritten, theme);
     let rewritten = rewrite_inline_math(&rewritten, theme);
     let rewritten = rewrite_wiki_links(&rewritten);
+    let rewritten = rewrite_hashtags(&rewritten);
     let rewritten = rewrite_mermaid_blocks(&rewritten);
     let rewritten = rewrite_columns_blocks(&rewritten, theme, base_dir);
     let parser = gfm_parser(&rewritten).map(|event| rewrite_local_image_event(event, base_dir));
@@ -222,6 +223,65 @@ fn rewrite_wiki_links_line(line: &str) -> String {
             output.push_str("](");
             output.push_str(&path);
             output.push(')');
+            index = end;
+            continue;
+        }
+
+        let Some(ch) = line[index..].chars().next() else {
+            break;
+        };
+        output.push(ch);
+        index += ch.len_utf8();
+    }
+    output
+}
+
+fn rewrite_hashtags(markdown: &str) -> String {
+    let mut rewritten = Vec::new();
+    let mut active_fence: Option<(char, usize)> = None;
+    for line in markdown.split('\n') {
+        if let Some((marker, run_len)) = active_fence {
+            rewritten.push(line.to_string());
+            if is_closing_fence_marker(line, marker, run_len) {
+                active_fence = None;
+            }
+            continue;
+        }
+
+        if let Some(fence) = opening_fence_marker(line) {
+            active_fence = Some(fence);
+            rewritten.push(line.to_string());
+            continue;
+        }
+
+        rewritten.push(rewrite_hashtags_line(line));
+    }
+
+    rewritten.join("\n")
+}
+
+fn rewrite_hashtags_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut index = 0usize;
+    while index < line.len() {
+        if line[index..].starts_with('`') {
+            let run_len = line[index..]
+                .bytes()
+                .take_while(|byte| *byte == b'`')
+                .count();
+            if let Some(close) = find_backtick_run(line, index + run_len, run_len) {
+                output.push_str(&line[index..close + run_len]);
+                index = close + run_len;
+                continue;
+            }
+        }
+
+        if let Some((_start, end, tag)) =
+            crate::components::markdown::inline::locate_hashtag_in_str(line, index)
+        {
+            output.push_str("<span class=\"mm-tag\">");
+            output.push_str(&escape_html_text(&tag.source));
+            output.push_str("</span>");
             index = end;
             continue;
         }
@@ -1292,6 +1352,45 @@ mod tests {
         assert!(html.contains(
             "<a href=\"docs/README.zh-CN.md\">docs/README.zh-CN.md</a>"
         ));
+    }
+
+    #[test]
+    fn exports_inline_hashtags_with_tag_span() {
+        let markdown = "See #rust and #project/alpha here.";
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert!(html.contains("<span class=\"mm-tag\">#rust</span>"));
+        assert!(html.contains("<span class=\"mm-tag\">#project/alpha</span>"));
+    }
+
+    #[test]
+    fn exports_heading_without_wrapping_title_in_tag_span() {
+        let markdown = "# Title\n\nTail #rust";
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert!(html.contains("<h1"));
+        assert!(html.contains("Title"));
+        assert!(html.contains("<span class=\"mm-tag\">#rust</span>"));
+        assert!(!html.contains("mm-tag\"># Title"));
+    }
+
+    #[test]
+    fn does_not_rewrite_hashtags_inside_fenced_code() {
+        let markdown = "```\nuse #tag\n```";
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert!(!html.contains("mm-tag"));
+        assert!(html.contains("#tag"));
+    }
+
+    #[test]
+    fn does_not_rewrite_hex_colors_as_hashtags() {
+        let markdown = "color #fff and #1a2b3c ok";
+        let html = render_html(markdown, &Theme::default_theme(), "Doc");
+
+        assert!(!html.contains("mm-tag"));
+        assert!(html.contains("#fff"));
+        assert!(html.contains("#1a2b3c"));
     }
 
     #[test]

@@ -562,6 +562,10 @@ impl Editor {
             BlockEvent::RequestOpenWikiLinkPicker { path } => {
                 self.request_open_wiki_link_picker(binding.cell.entity_id(), path.clone(), cx);
             }
+            BlockEvent::RequestFilterByTag { name } => {
+                // Table cells do not drive workspace tag filtering.
+                let _ = name;
+            }
             BlockEvent::RequestJumpToFootnoteDefinition { id, .. } => {
                 let _ = self.jump_to_footnote_definition(id, cx);
             }
@@ -1300,6 +1304,10 @@ impl Editor {
             }
             BlockEvent::RequestOpenWikiLinkPicker { path } => {
                 self.request_open_wiki_link_picker(block.entity_id(), path.clone(), cx);
+            }
+            BlockEvent::RequestFilterByTag { name } => {
+                self.filter_workspace_by_tag(name.clone(), cx);
+                cx.notify();
             }
             BlockEvent::RequestJumpToFootnoteDefinition { id, .. } => {
                 let _ = self.jump_to_footnote_definition(id, cx);

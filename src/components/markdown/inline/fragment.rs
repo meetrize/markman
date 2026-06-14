@@ -19,6 +19,23 @@ pub struct InlineFragment {
     pub footnote: Option<InlineFootnoteReference>,
     pub math: Option<InlineMath>,
     pub emoji: Option<InlineEmoji>,
+    pub tag: Option<InlineTag>,
+}
+
+/// Source-preserving inline hashtag metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlineTag {
+    /// Canonical tag name without leading `#`, e.g. `project/alpha`.
+    pub name: String,
+    /// Full Markdown source including `#`, e.g. `#project/alpha`.
+    pub source: String,
+}
+
+/// Hashtag metadata used by hit-testing and tag navigation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlineTagHit {
+    pub name: String,
+    pub source: String,
 }
 
 /// Source-preserving emoji shortcode metadata.
@@ -95,6 +112,7 @@ pub struct InlineSpan {
     pub link: Option<InlineLinkHit>,
     pub footnote: Option<InlineFootnoteHit>,
     pub math: Option<InlineMath>,
+    pub tag: Option<InlineTagHit>,
 }
 
 /// Fragment attributes inherited by inserted text at a caret position.

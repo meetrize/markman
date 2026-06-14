@@ -68,6 +68,10 @@ pub struct ThemeColors {
     pub text_default: Hsla,
     /// Inline link text colour in rendered mode.
     pub text_link: Hsla,
+    /// Inline hashtag text colour in rendered mode.
+    pub text_tag: Hsla,
+    /// Inline hashtag pill background in rendered mode.
+    pub tag_background: Hsla,
     /// Placeholder text shown in empty focused blocks.
     pub text_placeholder: Hsla,
     /// H1 heading text colour.
@@ -542,6 +546,8 @@ struct ThemeColorsDe {
     comment_bg: Option<Hsla>,
     text_default: Hsla,
     text_link: Option<Hsla>,
+    text_tag: Option<Hsla>,
+    tag_background: Option<Hsla>,
     text_placeholder: Hsla,
     text_h1: Hsla,
     text_h2: Hsla,
@@ -642,6 +648,12 @@ impl<'de> Deserialize<'de> for ThemeColors {
             text_link: raw
                 .text_link
                 .unwrap_or_else(|| Hsla::from(rgba(0x60a5faff))),
+            text_tag: raw
+                .text_tag
+                .unwrap_or_else(|| Hsla::from(rgba(0x86efacff))),
+            tag_background: raw
+                .tag_background
+                .unwrap_or_else(|| Hsla::from(rgba(0x16653466))),
             text_placeholder: raw.text_placeholder,
             text_h1: raw.text_h1,
             text_h2: raw.text_h2,
@@ -1113,6 +1125,8 @@ impl Theme {
                 comment_bg: Hsla::from(rgba(0xfbbf2426)),
                 text_default: Hsla::from(rgba(0xf0efedff)),
                 text_link: Hsla::from(rgba(0x60a5faff)),
+                text_tag: Hsla::from(rgba(0x86efacff)),
+                tag_background: Hsla::from(rgba(0x16653466)),
                 text_placeholder: hsla(0., 0., 0.6, 1.0),
                 text_h1: Hsla::from(rgba(0xf0efedff)),
                 text_h2: Hsla::from(rgba(0xf0efedff)),
@@ -1361,6 +1375,8 @@ impl Theme {
                 comment_bg: Hsla::from(rgba(0xfef3c766)),
                 text_default: Hsla::from(rgba(0x1f2937ff)),
                 text_link: Hsla::from(rgba(0x2563ebff)),
+                text_tag: Hsla::from(rgba(0x15803dff)),
+                tag_background: Hsla::from(rgba(0x16a34a1f)),
                 text_placeholder: Hsla::from(rgba(0x6b7280cc)),
                 text_h1: Hsla::from(rgba(0x111827ff)),
                 text_h2: Hsla::from(rgba(0x111827ff)),
@@ -2082,6 +2098,13 @@ mod tests {
     }
 
     #[test]
+    fn default_theme_includes_tag_colors() {
+        let theme = Theme::default_theme();
+        assert_eq!(theme.colors.text_tag, rgba(0x86efacff).into());
+        assert_eq!(theme.colors.tag_background, rgba(0x16653466).into());
+    }
+
+    #[test]
     fn important_callout_defaults_use_purple_palette() {
         let theme = Theme::default_theme();
         assert_eq!(theme.colors.callout_important_bg, rgba(0xa78bfa1f).into());
@@ -2109,6 +2132,8 @@ mod tests {
         assert_eq!(light.colors.editor_background, rgba(0xf7f8fbff).into());
         assert_eq!(light.colors.text_default, rgba(0x1f2937ff).into());
         assert_eq!(light.colors.text_link, rgba(0x2563ebff).into());
+        assert_eq!(light.colors.text_tag, rgba(0x15803dff).into());
+        assert_eq!(light.colors.tag_background, rgba(0x16a34a1f).into());
         assert_eq!(light.colors.code_bg, rgba(0xf1f5f9ff).into());
         assert_eq!(
             light.colors.code_language_input_border,

@@ -728,6 +728,8 @@ pub enum BlockEvent {
     },
     /// Open the wiki-link file picker for `[[path]]` at the current caret.
     RequestOpenWikiLinkPicker { path: String },
+    /// Open the workspace Tags tab filtered to the clicked inline hashtag.
+    RequestFilterByTag { name: String },
     /// Jump from a rendered footnote reference to the corresponding
     /// in-place footnote definition block.
     RequestJumpToFootnoteDefinition { id: String },

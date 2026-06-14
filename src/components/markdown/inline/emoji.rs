@@ -237,6 +237,7 @@ fn emit_emoji_fragment(
             source: source.to_string(),
             glyph: glyph.to_string(),
         }),
+        tag: None,
     });
 }
 

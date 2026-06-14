@@ -57,6 +57,9 @@ impl AssetSource for VelotypeAssets {
             "icon/workspace/list-tree.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/workspace/list-tree.svg"
             )))),
+            "icon/workspace/tags.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/workspace/tags.svg"
+            )))),
             "icon/workspace/search.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/workspace/search.svg"
             )))),

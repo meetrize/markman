@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::*;
 
-use super::{Block, InlineFootnoteHit, InlineLinkHit, code_highlight_color};
+use super::{Block, InlineFootnoteHit, InlineLinkHit, InlineTagHit, code_highlight_color};
 use crate::components::{HtmlCssColor, InlineTextTree};
 use crate::theme::{ThemeColors, ThemeManager};
 
@@ -90,6 +90,8 @@ fn build_text_runs(
     base_run: &TextRun,
     underline_thickness: Pixels,
     link_color: Hsla,
+    tag_text_color: Hsla,
+    tag_bg: Hsla,
     code_bg: Hsla,
     search_highlight_bg: Hsla,
     search_highlight_active_bg: Hsla,
@@ -117,7 +119,6 @@ fn build_text_runs(
     let search_highlight_ranges = &input.search_highlight_ranges;
     let search_highlight_active_range = input.search_highlight_active_range.as_ref();
     let mut runs = Vec::new();
-    let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
         let start = boundary_pair[0];
         let end = boundary_pair[1];
@@ -125,19 +126,15 @@ fn build_text_runs(
             continue;
         }
 
-        // Spans are stored in ascending order and boundaries are sorted, so
-        // we can advance a single index instead of re-scanning per boundary.
-        while span_idx < spans.len() && spans[span_idx].range.end <= start {
-            span_idx += 1;
-        }
         let active_span = spans
-            .get(span_idx)
-            .filter(|span| span.range.start <= start && start < span.range.end);
+            .iter()
+            .find(|span| span.range.start <= start && start < span.range.end);
 
         let inline_style = active_span.map(|s| s.style).unwrap_or_default();
         let html_style = active_span.and_then(|s| s.html_style);
         let is_link = active_span.map(|s| s.link.is_some()).unwrap_or(false);
         let is_footnote = active_span.map(|s| s.footnote.is_some()).unwrap_or(false);
+        let is_tag = active_span.map(|s| s.tag.is_some()).unwrap_or(false);
         let is_marked = marked_range
             .map(|range| start < range.end && range.start < end)
             .unwrap_or(false);
@@ -156,6 +153,8 @@ fn build_text_runs(
 
         let mut run_color = if is_link || is_footnote {
             link_color
+        } else if is_tag {
+            tag_text_color
         } else {
             base_run.color
         };
@@ -176,16 +175,17 @@ fn build_text_runs(
             thickness: underline_thickness,
         });
 
-        let mut background_color = if show_inline_code_backgrounds && inline_style.code {
+        let mut background_color = if is_active_search_highlight {
+            Some(search_highlight_active_bg)
+        } else if is_search_highlight {
+            Some(search_highlight_bg)
+        } else if is_tag {
+            Some(tag_bg)
+        } else if show_inline_code_backgrounds && inline_style.code {
             Some(code_bg)
         } else {
             base_run.background_color
         };
-        if is_active_search_highlight {
-            background_color = Some(search_highlight_active_bg);
-        } else if is_search_highlight {
-            background_color = Some(search_highlight_bg);
-        }
         if let Some(style) = html_style
             && let Some(color) = style.background_color
         {
@@ -1631,6 +1631,45 @@ pub(crate) fn footnote_at_position<'a>(
     None
 }
 
+pub(crate) fn tag_at_position<'a>(
+    input: &'a Block,
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    position: Point<Pixels>,
+) -> Option<&'a InlineTagHit> {
+    if input.is_source_raw_mode()
+        || input.display_text().is_empty()
+        || lines.is_empty()
+        || position.y < bounds.top()
+        || position.y >= bounds.bottom()
+    {
+        return None;
+    }
+
+    let text = input.display_text();
+    let align = input.text_align();
+
+    for span in input.inline_spans() {
+        let Some(tag) = span.tag.as_ref() else {
+            continue;
+        };
+        if span.range.is_empty() {
+            continue;
+        }
+
+        for tag_bounds in
+            range_segment_bounds(lines, bounds, line_height, text, span.range.clone(), align)
+        {
+            if point_inside_bounds(tag_bounds, position) {
+                return Some(tag);
+            }
+        }
+    }
+
+    None
+}
+
 type BlockTextLayoutState = Rc<RefCell<Option<(SharedString, Pixels, Vec<WrappedLine>)>>>;
 
 fn shape_block_display_lines(
@@ -1687,6 +1726,8 @@ fn shape_block_display_lines(
                 &run,
                 px(theme.dimensions.underline_thickness),
                 theme.colors.text_link,
+                theme.colors.text_tag,
+                theme.colors.tag_background,
                 theme.colors.code_bg,
                 search_highlight_bg,
                 search_highlight_active_bg,
@@ -1836,6 +1877,8 @@ impl Element for BlockTextElement {
                     &run,
                     px(theme.dimensions.underline_thickness),
                     theme.colors.text_link,
+                    theme.colors.text_tag,
+                    theme.colors.tag_background,
                     theme.colors.code_bg,
                     search_highlight_bg,
                     search_highlight_active_bg,
@@ -2441,6 +2484,8 @@ fn build_inline_tree_preview_runs(
     base_run: &TextRun,
     underline_thickness: Pixels,
     link_color: Hsla,
+    tag_text_color: Hsla,
+    tag_bg: Hsla,
     code_bg: Hsla,
 ) -> Vec<TextRun> {
     let cache = tree.render_cache();
@@ -2454,7 +2499,6 @@ fn build_inline_tree_preview_runs(
     boundaries.dedup();
 
     let mut runs = Vec::new();
-    let mut span_idx = 0usize;
     for boundary_pair in boundaries.windows(2) {
         let start = boundary_pair[0];
         let end = boundary_pair[1];
@@ -2462,12 +2506,9 @@ fn build_inline_tree_preview_runs(
             continue;
         }
 
-        while span_idx < spans.len() && spans[span_idx].range.end <= start {
-            span_idx += 1;
-        }
         let active_span = spans
-            .get(span_idx)
-            .filter(|span| span.range.start <= start && start < span.range.end);
+            .iter()
+            .find(|span| span.range.start <= start && start < span.range.end);
 
         let inline_style = active_span.map(|span| span.style).unwrap_or_default();
         let html_style = active_span.and_then(|span| span.html_style);
@@ -2476,6 +2517,9 @@ fn build_inline_tree_preview_runs(
             .unwrap_or(false);
         let is_footnote = active_span
             .map(|span| span.footnote.is_some())
+            .unwrap_or(false);
+        let is_tag = active_span
+            .map(|span| span.tag.is_some())
             .unwrap_or(false);
 
         let mut font = base_run.font.clone();
@@ -2488,6 +2532,8 @@ fn build_inline_tree_preview_runs(
 
         let mut run_color = if is_link || is_footnote {
             link_color
+        } else if is_tag {
+            tag_text_color
         } else {
             base_run.color
         };
@@ -2506,7 +2552,9 @@ fn build_inline_tree_preview_runs(
             thickness: underline_thickness,
         });
 
-        let mut background_color = if inline_style.code {
+        let mut background_color = if is_tag {
+            Some(tag_bg)
+        } else if inline_style.code {
             Some(code_bg)
         } else {
             base_run.background_color
@@ -2617,6 +2665,8 @@ impl Element for InlineTreePreviewTextElement {
             &base_run,
             px(theme.dimensions.underline_thickness),
             theme.colors.text_link,
+            theme.colors.text_tag,
+            theme.colors.tag_background,
             theme.colors.code_bg,
         );
 
@@ -3191,6 +3241,8 @@ mod tests {
                 &base_run,
                 px(1.0),
                 Hsla::from(rgba(0x0066ccff)),
+                Hsla::from(rgba(0x00ff00ff)),
+                Hsla::from(rgba(0x00ff0011)),
                 Hsla::from(rgba(0x111111ff)),
                 Hsla::from(rgba(0xffff0033)),
                 Hsla::from(rgba(0xffff0066)),

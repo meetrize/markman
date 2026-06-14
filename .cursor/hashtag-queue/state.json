@@ -1,6 +1,6 @@
 {
   "enabled": false,
-  "nextStep": 1,
+  "nextStep": 6,
   "totalSteps": 5,
   "planDoc": "docs/hashtag-tag-hook-steps.zh-CN.md"
 }

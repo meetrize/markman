@@ -17,6 +17,7 @@ use super::link_image::{parse_autolink, parse_inline_link, tokens_to_string};
 use super::math::parse_inline_math;
 use super::style::InlineStyle;
 use super::wiki_link::{locate_wiki_link, parse_wiki_link};
+use super::hashtag::parse_hashtag;
 
 pub(crate) struct CharToken {
     pub(crate) ch: char,
@@ -99,6 +100,7 @@ impl NormalizeBuilder {
             && last.footnote.is_none()
             && last.math.is_none()
             && last.emoji.is_none()
+            && last.tag.is_none()
         {
             last.text.push_str(&text);
             return;
@@ -112,6 +114,7 @@ impl NormalizeBuilder {
             footnote: None,
             math: None,
             emoji: None,
+            tag: None,
         });
     }
 
@@ -147,6 +150,7 @@ impl NormalizeBuilder {
             footnote: None,
             math: Some(math),
             emoji: None,
+            tag: None,
         });
     }
 }
@@ -327,6 +331,14 @@ pub(crate) fn parse_until(
                 continue;
             }
 
+            if tokens[index].ch == '#'
+                && let Some(next_index) =
+                    parse_hashtag(tokens, index, extra_style, extra_html_style, builder)
+            {
+                index = next_index;
+                continue;
+            }
+
             if let Some(delimiter) = match_open_delimiter(tokens, index) {
                 if has_closing_delimiter(tokens, index, delimiter) {
                     for token in &tokens[index..index + delimiter.token_len()] {
@@ -424,6 +436,7 @@ pub(crate) fn parse_footnote_reference(
         }),
         math: None,
         emoji: None,
+        tag: None,
     }];
 
     let normalized_start = builder.normalized_len;
@@ -448,6 +461,8 @@ pub(crate) fn parse_footnote_reference(
             && fragment.math.is_none()
             && last.emoji.is_none()
             && fragment.emoji.is_none()
+            && last.tag.is_none()
+            && fragment.tag.is_none()
         {
             last.text.push_str(&fragment.text);
         } else {
@@ -701,6 +716,7 @@ pub(crate) fn escaped_sequence_token_len(tokens: &[CharToken], index: usize) -> 
         || matches_sequence(tokens, next_index, "]")
         || matches_sequence(tokens, next_index, "`")
         || matches_sequence(tokens, next_index, "^")
+        || matches_sequence(tokens, next_index, "#")
     {
         Some(1)
     } else {

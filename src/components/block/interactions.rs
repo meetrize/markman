@@ -1007,6 +1007,14 @@ impl Block {
             return;
         }
 
+        if event.click_count == 1
+            && self.try_handle_tag_click(event.position, window, cx)
+        {
+            self.is_selecting = false;
+            cx.stop_propagation();
+            return;
+        }
+
         let was_focused = self.focus_handle.is_focused(window);
         let columns_preview_active = self.is_columns_raw_markdown()
             && parse_columns_markdown(self.display_text()).is_some()
@@ -1137,6 +1145,44 @@ impl Block {
             prompt_target: link.prompt_target,
             open_target: link.open_target,
             is_workspace_file: link.is_workspace_file,
+        });
+        true
+    }
+
+    /// Returns `true` when a single click on an inline hashtag was handled.
+    pub(crate) fn try_handle_tag_click(
+        &mut self,
+        position: Point<Pixels>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.is_source_raw_mode() {
+            return false;
+        }
+
+        let text_bounds = match self.last_bounds.or(self.interaction_bounds) {
+            Some(bounds) => bounds,
+            None => return false,
+        };
+        let lines = match self.last_layout.as_ref() {
+            Some(lines) => lines,
+            None => return false,
+        };
+
+        let tag = match super::element::tag_at_position(
+            self,
+            lines,
+            text_bounds,
+            self.last_line_height,
+            position,
+        ) {
+            Some(tag) => tag.clone(),
+            None => return false,
+        };
+
+        cx.stop_propagation();
+        cx.emit(BlockEvent::RequestFilterByTag {
+            name: tag.name.clone(),
         });
         true
     }

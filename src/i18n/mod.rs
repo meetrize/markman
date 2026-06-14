@@ -234,6 +234,16 @@ pub struct I18nStrings {
     pub workspace_tab_files: String,
     /// Workspace drawer Outline tab.
     pub workspace_tab_outline: String,
+    /// Workspace drawer Tags tab.
+    pub workspace_tab_tags: String,
+    /// Message shown when the workspace tag index is empty.
+    pub workspace_empty_tags: String,
+    /// Toggle label to sort tags by name ascending.
+    pub workspace_tag_sort_by_name: String,
+    /// Toggle label to sort tags by count descending.
+    pub workspace_tag_sort_by_count: String,
+    /// Title above tag occurrence references; `{tag}` is replaced with `#name`.
+    pub workspace_tag_occurrences_title: String,
     /// Workspace search input placeholder.
     pub workspace_search_placeholder: String,
     /// Message shown when workspace search finds no matches.
@@ -576,6 +586,11 @@ struct I18nStringsDe {
     preferences_shortcut_open_workspace_search: Option<String>,
     workspace_tab_files: Option<String>,
     workspace_tab_outline: Option<String>,
+    workspace_tab_tags: Option<String>,
+    workspace_empty_tags: Option<String>,
+    workspace_tag_sort_by_name: Option<String>,
+    workspace_tag_sort_by_count: Option<String>,
+    workspace_tag_occurrences_title: Option<String>,
     workspace_search_placeholder: Option<String>,
     workspace_search_no_results: Option<String>,
     workspace_search_no_root: Option<String>,
@@ -816,6 +831,11 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_open_workspace_search",
     "workspace_tab_files",
     "workspace_tab_outline",
+    "workspace_tab_tags",
+    "workspace_empty_tags",
+    "workspace_tag_sort_by_name",
+    "workspace_tag_sort_by_count",
+    "workspace_tag_occurrences_title",
     "workspace_search_placeholder",
     "workspace_search_no_results",
     "workspace_search_no_root",
@@ -1286,6 +1306,21 @@ impl I18nStringsDe {
             workspace_tab_outline: self
                 .workspace_tab_outline
                 .unwrap_or(defaults.workspace_tab_outline),
+            workspace_tab_tags: self
+                .workspace_tab_tags
+                .unwrap_or(defaults.workspace_tab_tags),
+            workspace_empty_tags: self
+                .workspace_empty_tags
+                .unwrap_or(defaults.workspace_empty_tags),
+            workspace_tag_sort_by_name: self
+                .workspace_tag_sort_by_name
+                .unwrap_or(defaults.workspace_tag_sort_by_name),
+            workspace_tag_sort_by_count: self
+                .workspace_tag_sort_by_count
+                .unwrap_or(defaults.workspace_tag_sort_by_count),
+            workspace_tag_occurrences_title: self
+                .workspace_tag_occurrences_title
+                .unwrap_or(defaults.workspace_tag_occurrences_title),
             workspace_search_placeholder: self
                 .workspace_search_placeholder
                 .unwrap_or(defaults.workspace_search_placeholder),
@@ -1733,6 +1768,11 @@ impl I18nStrings {
             preferences_shortcut_open_workspace_search: "打开全局搜索".into(),
             workspace_tab_files: "文件".into(),
             workspace_tab_outline: "大纲".into(),
+            workspace_tab_tags: "标签".into(),
+            workspace_empty_tags: "工作区中没有行内标签".into(),
+            workspace_tag_sort_by_name: "按名称排序".into(),
+            workspace_tag_sort_by_count: "按引用数排序".into(),
+            workspace_tag_occurrences_title: "{tag} 的引用".into(),
             workspace_search_placeholder: "搜索文件名或内容…".into(),
             workspace_search_no_results: "未找到匹配项".into(),
             workspace_search_no_root: "请先打开文件夹或 Markdown 文件".into(),
@@ -1992,6 +2032,11 @@ impl I18nStrings {
             preferences_shortcut_open_workspace_search: "Open Global Search".into(),
             workspace_tab_files: "Files".into(),
             workspace_tab_outline: "Outline".into(),
+            workspace_tab_tags: "Tags".into(),
+            workspace_empty_tags: "No inline tags in this workspace".into(),
+            workspace_tag_sort_by_name: "Sort by name".into(),
+            workspace_tag_sort_by_count: "Sort by count".into(),
+            workspace_tag_occurrences_title: "References to {tag}".into(),
             workspace_search_placeholder: "Search file names or content…".into(),
             workspace_search_no_results: "No matches found".into(),
             workspace_search_no_root: "Open a folder or Markdown file first".into(),
