@@ -232,6 +232,8 @@ const HIGHLIGHT_NAMES: &[&str] = &[
 #[cfg(feature = "code-highlight-core")]
 struct CodeHighlightRegistry {
     configs: HashMap<CodeLanguageKey, HighlightConfiguration>,
+    #[cfg(feature = "code-highlight-official")]
+    markdown_inline: Option<HighlightConfiguration>,
 }
 
 #[cfg(feature = "code-highlight-core")]
@@ -302,11 +304,37 @@ impl CodeHighlightRegistry {
         maybe_insert_config(&mut configs, CodeLanguageKey::Yaml, build_yaml_config());
         #[cfg(feature = "code-highlight-config")]
         maybe_insert_config(&mut configs, CodeLanguageKey::Toml, build_toml_config());
-        Self { configs }
+        Self {
+            configs,
+            #[cfg(feature = "code-highlight-official")]
+            markdown_inline: build_markdown_inline_config(),
+        }
     }
 
     fn config_for(&self, key: CodeLanguageKey) -> Option<&HighlightConfiguration> {
         self.configs.get(&key)
+    }
+
+    fn config_for_injection(&self, language_name: &str) -> Option<&HighlightConfiguration> {
+        if language_name == "markdown_inline" {
+            #[cfg(feature = "code-highlight-official")]
+            {
+                return self.markdown_inline.as_ref();
+            }
+            #[cfg(not(feature = "code-highlight-official"))]
+            {
+                return None;
+            }
+        }
+
+        if let Some(key) = resolve_code_language_key(Some(language_name)) {
+            return self.config_for(key);
+        }
+
+        match language_name {
+            "c_sharp" => self.config_for(CodeLanguageKey::CSharp),
+            _ => None,
+        }
     }
 }
 
@@ -413,6 +441,16 @@ fn build_markdown_config() -> Option<HighlightConfiguration> {
         "markdown",
         tree_sitter_md::HIGHLIGHT_QUERY_BLOCK,
         tree_sitter_md::INJECTION_QUERY_BLOCK,
+        "",
+    )
+}
+
+fn build_markdown_inline_config() -> Option<HighlightConfiguration> {
+    configure_highlights(
+        tree_sitter_md::INLINE_LANGUAGE.into(),
+        "markdown_inline",
+        tree_sitter_md::HIGHLIGHT_QUERY_INLINE,
+        tree_sitter_md::INJECTION_QUERY_INLINE,
         "",
     )
 }
@@ -576,8 +614,14 @@ pub(crate) fn highlight_code_block(
 
     #[cfg(feature = "code-highlight-core")]
     if let Some(config) = CODE_HIGHLIGHT_REGISTRY.config_for(key) {
+        let registry = &*CODE_HIGHLIGHT_REGISTRY;
         let mut highlighter = Highlighter::new();
-        let events = match highlighter.highlight(config, source.as_bytes(), None, |_| None) {
+        let events = match highlighter.highlight(
+            config,
+            source.as_bytes(),
+            None,
+            |language_name| registry.config_for_injection(language_name),
+        ) {
             Ok(events) => events,
             Err(_) => {
                 return Some(CodeHighlightResult {
@@ -759,6 +803,26 @@ mod tests {
             .expect("plain text should still produce a result");
         assert_eq!(text.language, CodeLanguageKey::PlainText);
         assert!(text.spans.is_empty());
+    }
+
+    #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]
+    #[test]
+    fn markdown_fenced_code_block_has_nested_highlight_spans() {
+        use super::{CodeHighlightClass, CodeLanguageKey};
+
+        let source = "# Title\n\n```rust\nfn main() {}\n```\n";
+        let result = highlight_code_block(Some("markdown"), source)
+            .expect("markdown should produce a result");
+        assert_eq!(result.language, CodeLanguageKey::Markdown);
+        let has_keyword = result.spans.iter().any(|span| {
+            span.class == CodeHighlightClass::Keyword
+                && source[span.range.clone()].contains("fn")
+        });
+        assert!(
+            has_keyword,
+            "expected nested rust highlighting in markdown fenced block, spans: {:?}",
+            result.spans
+        );
     }
 
     #[cfg(all(feature = "code-highlight-core", feature = "code-highlight-official"))]

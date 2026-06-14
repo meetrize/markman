@@ -1184,7 +1184,7 @@ impl Theme {
                 task_checkbox_checked_bg: Hsla::from(rgba(0xf0efedff)),
                 task_checkbox_check: Hsla::from(rgba(0x18181bff)),
                 separator_color: Hsla::from(rgba(0x71717aff)),
-                code_bg: Hsla::from(rgba(0x23272eff)),
+                code_bg: Hsla::from(rgba(0x1f2329ff)),
                 code_text: Hsla::from(rgba(0xe5e7ebff)),
                 code_language_input_bg: Hsla::from(rgba(0x343941ff)),
                 code_language_input_border: Hsla::from(rgba(0x4b5563cc)),
@@ -1438,7 +1438,7 @@ impl Theme {
                 task_checkbox_checked_bg: Hsla::from(rgba(0x2563ebff)),
                 task_checkbox_check: Hsla::from(rgba(0xffffffff)),
                 separator_color: Hsla::from(rgba(0xcbd5e1ff)),
-                code_bg: Hsla::from(rgba(0xf1f5f9ff)),
+                code_bg: Hsla::from(rgba(0xe9edf2ff)),
                 code_text: Hsla::from(rgba(0x111827ff)),
                 code_language_input_bg: Hsla::from(rgba(0xffffffff)),
                 code_language_input_border: Hsla::from(rgba(0xcbd5e1ff)),
@@ -2150,7 +2150,7 @@ mod tests {
         assert_eq!(theme.dimensions.block_gap, 6.0);
         assert_eq!(theme.colors.footnote_bg, rgba(0x212124ff).into());
         assert_eq!(theme.dimensions.footnote_padding_x, 10.0);
-        assert_eq!(theme.colors.code_bg, rgba(0x23272eff).into());
+        assert_eq!(theme.colors.code_bg, rgba(0x1f2329ff).into());
         assert_eq!(theme.colors.code_language_input_bg, rgba(0x343941ff).into());
         assert_eq!(
             theme.colors.code_language_input_border,
@@ -2169,7 +2169,7 @@ mod tests {
         assert_eq!(light.colors.text_link, rgba(0x2563ebff).into());
         assert_eq!(light.colors.text_tag, rgba(0x15803dff).into());
         assert_eq!(light.colors.tag_background, rgba(0x16a34a1f).into());
-        assert_eq!(light.colors.code_bg, rgba(0xf1f5f9ff).into());
+        assert_eq!(light.colors.code_bg, rgba(0xe9edf2ff).into());
         assert_eq!(
             light.colors.code_language_input_border,
             rgba(0xcbd5e1ff).into()
