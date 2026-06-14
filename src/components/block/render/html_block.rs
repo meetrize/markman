@@ -337,7 +337,7 @@ impl Block {
             .flex_col()
             .items_start()
             .gap(px(block_gap))
-            .line_height(rems(body_line_height))
+            .line_height(relative(body_line_height))
             .children(
                 document
                     .nodes
@@ -413,7 +413,7 @@ impl Block {
                         .px(px(4.0))
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
-                        .line_height(rems(body_line_height))
+                        .line_height(relative(body_line_height))
                         .children(
                             node
                                 .children
@@ -433,7 +433,7 @@ impl Block {
                     .flex()
                     .text_size(px(node_style.computed.font_size))
                     .text_color(node_style.computed.color)
-                    .line_height(rems(body_line_height))
+                    .line_height(relative(body_line_height))
                     .children([
                         div().child("\u{201C}").into_any_element(),
                         div()
@@ -464,7 +464,7 @@ impl Block {
                     .text_size(px(size))
                     .text_color(node_style.computed.color)
                     .font_weight(weight)
-                    .line_height(rems(html_heading_line_height(for_column)))
+                    .line_height(relative(html_heading_line_height(for_column)))
                     .child(if for_column && html_children_are_plain_text(&node.children) {
                         div()
                             .w_full()
@@ -511,7 +511,7 @@ impl Block {
                         .items_start()
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
-                        .line_height(rems(body_line_height))
+                        .line_height(relative(body_line_height))
                         .children(self.render_html_compact_children(
                             &node.children,
                             theme,
@@ -550,7 +550,7 @@ impl Block {
                     .flex_col()
                     .text_size(px(node_style.computed.font_size))
                     .text_color(node_style.computed.color)
-                    .line_height(rems(list_line_height));
+                    .line_height(relative(list_line_height));
                 if list_gap > 0.0 {
                     element = element.gap(px(list_gap));
                 }
@@ -609,7 +609,7 @@ impl Block {
                         .border_color(c.border_quote)
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
-                        .line_height(rems(body_line_height))
+                        .line_height(relative(body_line_height))
                         .children(
                             node
                                 .children
@@ -643,7 +643,7 @@ impl Block {
                         .items_start()
                         .text_size(px(node_style.computed.font_size))
                         .text_color(node_style.computed.color)
-                        .line_height(rems(table_line_height))
+                        .line_height(relative(table_line_height))
                         .children(html_table_child_nodes(&node.children).map(|child| {
                             self.render_html_node(child, theme, node_style.computed, for_column, cx)
                         }));
@@ -687,7 +687,7 @@ impl Block {
                                 .items_start()
                                 .text_size(px(node_style.computed.font_size))
                                 .text_color(node_style.computed.color)
-                                .line_height(rems(body_line_height))
+                                .line_height(relative(body_line_height))
                                 .children(self.render_html_compact_children(
                                     &node.children,
                                     theme,
@@ -764,7 +764,7 @@ impl Block {
                     .gap(px(d.block_gap * 0.25))
                     .text_size(px(node_style.computed.font_size))
                     .text_color(node_style.computed.color)
-                    .line_height(rems(body_line_height))
+                    .line_height(relative(body_line_height))
                     .children(
                         node
                             .children
@@ -817,7 +817,7 @@ impl Block {
             .text_size(px(node_style.computed.font_size))
             .text_color(node_style.computed.color)
             .font_weight(weight)
-            .line_height(rems(body_line_height))
+            .line_height(relative(body_line_height))
             .children(
                 node.children
                     .iter()
@@ -861,7 +861,7 @@ impl Block {
                 .min_w(px(0.0))
                 .text_size(px(font_size))
                 .text_color(color)
-                .line_height(rems(body_line_height))
+                .line_height(relative(body_line_height))
                 .child(SharedString::from(html_collect_visible_text(children)))
                 .into_any_element();
         }
@@ -874,7 +874,7 @@ impl Block {
             .items_start()
             .text_size(px(font_size))
             .text_color(color)
-            .line_height(rems(body_line_height))
+            .line_height(relative(body_line_height))
             .children(self.render_html_compact_children(
                 children,
                 theme,
@@ -954,13 +954,13 @@ impl Block {
             .gap(px(d.list_marker_gap))
             .text_size(px(node_style.computed.font_size))
             .text_color(node_style.computed.color)
-            .line_height(rems(body_line_height))
+            .line_height(relative(body_line_height))
             .child(
                 div()
                     .min_w(px(marker_width))
                     .flex_shrink_0()
                     .text_color(theme.colors.dialog_muted)
-                    .line_height(rems(body_line_height))
+                    .line_height(relative(body_line_height))
                     .child(marker),
             )
             .child(
@@ -1079,7 +1079,7 @@ impl Block {
                         .flex_shrink_0()
                         .text_size(px(inherited_style.font_size))
                         .text_color(inherited_style.color)
-                        .line_height(rems(body_line_height))
+                        .line_height(relative(body_line_height))
                         .text_align(inherited_style.text_align)
                         .child(SharedString::from(text.clone()))
                         .into_any_element();
@@ -1104,7 +1104,7 @@ impl Block {
             .items_start()
             .text_size(px(inherited_style.font_size))
             .text_color(inherited_style.color)
-            .line_height(rems(body_line_height))
+            .line_height(relative(body_line_height))
             .text_align(inherited_style.text_align)
             .children(segments.iter().map(|segment| match segment {
                 HtmlTextLineSegment::Text(text) => div()
@@ -1138,7 +1138,7 @@ impl Block {
         div()
             .flex_shrink_0()
             .text_size(px(inherited_style.font_size))
-            .line_height(rems(body_line_height))
+            .line_height(relative(body_line_height))
             .text_color(c.text_link)
             .cursor_pointer()
             .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
@@ -1255,7 +1255,7 @@ impl Block {
             .border_color(theme.colors.table_border)
             .text_size(px(node_style.computed.font_size))
             .text_color(node_style.computed.color)
-            .line_height(rems(table_line_height))
+            .line_height(relative(table_line_height))
             .children(rows.iter().map(|row| {
                 self.render_html_table_row_with_layout(
                     row,
@@ -1353,7 +1353,7 @@ impl Block {
                     .items_start()
                     .text_size(px(node_style.computed.font_size))
                     .text_color(node_style.computed.color)
-                    .line_height(rems(body_line_height))
+                    .line_height(relative(body_line_height))
                     .children(self.render_html_compact_children(
                         &cell.children,
                         theme,

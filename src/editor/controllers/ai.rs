@@ -2136,7 +2136,7 @@ impl Editor {
                                                 .flex_col()
                                                 .gap(px(2.0))
                                                 .text_size(px(t.dialog_body_size))
-                                                .line_height(rems(t.text_line_height))
+                                                .line_height(relative(t.text_line_height))
                                                 .text_color(c.code_text)
                                                 .children(body_lines.into_iter().map(|line| {
                                                     div()

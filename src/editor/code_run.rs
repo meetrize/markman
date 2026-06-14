@@ -728,7 +728,7 @@ impl Editor {
                             div()
                                 .text_size(px(t.dialog_body_size))
                                 .font_weight(t.dialog_body_weight.to_font_weight())
-                                .line_height(rems(t.text_line_height))
+                                .line_height(relative(t.text_line_height))
                                 .text_color(c.dialog_body)
                                 .child(message),
                         )

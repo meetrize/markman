@@ -220,4 +220,18 @@ mod tests {
             theme.dimensions.format_toolbar_button_height
         );
     }
+
+    #[test]
+    fn relative_line_height_scales_with_font_size() {
+        use gpui::{AbsoluteLength, DefiniteLength, px, relative, rems};
+
+        let font_size = AbsoluteLength::Pixels(px(24.0));
+        let rem_size = px(16.0);
+        let relative_height = relative(1.4).to_pixels(font_size, rem_size);
+        let absolute_rems_height =
+            DefiniteLength::Absolute(rems(1.4).into()).to_pixels(font_size, rem_size);
+
+        assert!((f32::from(relative_height) - 33.6).abs() < f32::EPSILON);
+        assert!((f32::from(absolute_rems_height) - 22.4).abs() < f32::EPSILON);
+    }
 }

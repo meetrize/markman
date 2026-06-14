@@ -107,7 +107,7 @@ impl Block {
                 .items_center()
                 .gap(px(6.0))
                 .text_size(px(theme.typography.text_size))
-                .line_height(rems(theme.typography.text_line_height))
+                .line_height(relative(theme.typography.text_line_height))
                 .children(children)
                 .into_any_element(),
         )
@@ -225,7 +225,7 @@ impl Block {
                 .items_center()
                 .gap(px(6.0))
                 .text_size(px(theme.typography.text_size))
-                .line_height(rems(theme.typography.text_line_height))
+                .line_height(relative(theme.typography.text_line_height))
                 .children(children)
                 .into_any_element(),
         )
@@ -272,7 +272,7 @@ impl Block {
                         .bg(c.table_header_bg)
                         .text_size(px(t.text_size))
                         .text_color(c.text_default)
-                        .line_height(rems(t.text_line_height))
+                        .line_height(relative(t.text_line_height))
                         .font_weight(FontWeight::MEDIUM)
                         .child(self.render_table_preview_cell_content(
                             cell,
@@ -321,7 +321,7 @@ impl Block {
                             .bg(c.table_cell_bg)
                             .text_size(px(t.text_size))
                             .text_color(c.text_default)
-                            .line_height(rems(t.text_line_height))
+                            .line_height(relative(t.text_line_height))
                             .child(self.render_table_preview_cell_content(
                                 cell,
                                 alignment,
@@ -720,7 +720,7 @@ impl Block {
                     return focused_base
                         .text_size(px(t.text_size))
                         .text_color(c.text_default)
-                        .line_height(rems(t.text_line_height))
+                        .line_height(relative(t.text_line_height))
                         .child(self.render_text_or_mixed_inline_visuals(
                             &theme,
                             focused,

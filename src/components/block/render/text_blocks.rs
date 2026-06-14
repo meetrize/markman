@@ -170,7 +170,7 @@ impl Block {
                 .bg(bg)
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(rems(t.text_line_height)),
+                .line_height(relative(t.text_line_height)),
                 position,
                 extent,
                 border_color,
@@ -267,7 +267,7 @@ impl Block {
                 )
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(rems(t.text_line_height));
+                .line_height(relative(t.text_line_height));
 
             let source_base = if self.kind() == BlockKind::Comment {
                 source_base.bg(c.comment_bg).rounded_sm()
@@ -439,7 +439,7 @@ impl Block {
             BlockKind::BulletedListItem => focused_base
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(rems(t.text_line_height))
+                .line_height(relative(t.text_line_height))
                 .w_full()
                 .flex()
                 .flex_row()
@@ -500,7 +500,7 @@ impl Block {
                 focused_base
                     .text_size(px(t.text_size))
                     .text_color(c.text_default)
-                    .line_height(rems(t.text_line_height))
+                    .line_height(relative(t.text_line_height))
                     .w_full()
                     .flex()
                     .flex_row()
@@ -593,7 +593,7 @@ impl Block {
             BlockKind::NumberedListItem => focused_base
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(rems(t.text_line_height))
+                .line_height(relative(t.text_line_height))
                 .w_full()
                 .flex()
                 .flex_row()
@@ -654,7 +654,7 @@ impl Block {
             BlockKind::Quote => focused_base
                 .text_size(px(t.text_size))
                 .text_color(c.text_quote)
-                .line_height(rems(t.text_line_height))
+                .line_height(relative(t.text_line_height))
                 .child(self.render_text_or_mixed_inline_visuals(
                     &theme,
                     focused,
@@ -811,7 +811,7 @@ impl Block {
                 focused_base
                     .text_size(px(t.text_size))
                     .text_color(c.text_default)
-                    .line_height(rems(t.text_line_height))
+                    .line_height(relative(t.text_line_height))
                     .child(self.render_html_document(&html, &theme, false, cx))
                     .into_any_element()
             }
@@ -861,7 +861,7 @@ impl Block {
             | BlockKind::Heading { .. } => focused_base
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(rems(t.text_line_height))
+                .line_height(relative(t.text_line_height))
                 .child(self.render_text_or_mixed_inline_visuals(
                     &theme,
                     focused,

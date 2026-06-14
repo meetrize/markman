@@ -87,7 +87,7 @@ impl Block {
             .items_center()
             .gap(px(0.0))
             .text_size(px(font_size))
-            .line_height(rems(theme.typography.text_line_height))
+            .line_height(relative(theme.typography.text_line_height))
             .children(self.render_inline_tree_children(
                 tree,
                 theme,
@@ -213,7 +213,7 @@ impl Block {
         let mut element = div()
             .min_w(px(0.0))
             .text_size(px(display_font_size))
-            .line_height(rems(theme.typography.text_line_height))
+            .line_height(relative(theme.typography.text_line_height))
             .text_color(color)
             .font_weight(if span.style.bold {
                 FontWeight::BOLD

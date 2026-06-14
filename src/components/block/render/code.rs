@@ -443,7 +443,7 @@ impl Block {
             .px(px(d.code_block_padding_x))
             .py(px(d.code_block_padding_y))
             .text_size(px(font_size))
-            .line_height(rems(line_height))
+            .line_height(relative(line_height))
             .flex()
             .flex_col()
             .items_start()
@@ -726,7 +726,7 @@ impl Block {
                     .overflow_hidden()
                     .text_size(px(t.code_size))
                     .text_color(c.code_text)
-                    .line_height(rems(t.text_line_height))
+                    .line_height(relative(t.text_line_height))
                     .child(code_shell)
                     .into_any_element()
     }

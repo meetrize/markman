@@ -22,7 +22,7 @@ impl Block {
             return div()
                 .w_full()
                 .text_size(px(t.text_size))
-                .line_height(rems(t.text_line_height))
+                .line_height(relative(t.text_line_height))
                 .text_color(c.text_default)
                 .child(SharedString::from(raw.to_string()))
                 .into_any_element();
@@ -52,7 +52,7 @@ impl Block {
                 .px(px(d.block_padding_x))
                 .py(px(d.block_padding_y))
                 .text_size(px(t.text_size))
-                .line_height(rems(t.text_line_height))
+                .line_height(relative(t.text_line_height))
                 .text_color(c.text_default)
                 .child(SharedString::from(raw.to_string()))
                 .child(
