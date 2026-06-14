@@ -56,6 +56,7 @@ mod graph_view;
 mod graph_workspace;
 mod quick_file_open;
 mod wiki_link_picker;
+mod preview_freeze;
 mod render;
 mod runtime_context;
 mod document_search;
@@ -190,6 +191,8 @@ pub struct Editor {
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
     quick_file_open: quick_file_open::QuickFileOpenState,
     wiki_link_picker: wiki_link_picker::WikiLinkPickerState,
+    /// Preview freeze armed after first settled render on the graph tab (experiment).
+    preview_freeze_armed: bool,
     knowledge_graph_view: Option<graph_view::KnowledgeGraphViewState>,
     graph_animation_task: Option<Task<()>>,
     graph_physics_task: Option<Task<()>>,
@@ -419,6 +422,7 @@ impl Editor {
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
             wiki_link_picker: wiki_link_picker::WikiLinkPickerState::new(cx),
             knowledge_graph_view: None,
+            preview_freeze_armed: false,
             graph_animation_task: None,
             graph_physics_task: None,
             graph_only_window: false,

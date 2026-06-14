@@ -1,6 +1,6 @@
 //! GPUI rendering and interaction for the workspace knowledge graph.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use gpui::*;
@@ -23,6 +23,9 @@ const MAX_VIEWPORT_SCALE: f32 = 4.0;
 const MIN_SCREEN_NODE_RADIUS: f32 = 16.0;
 const MIN_SCREEN_LABEL_SIZE: f32 = 11.0;
 const NODE_LABEL_PADDING: f32 = 8.0;
+const NODE_TOOLTIP_PADDING: f32 = 6.0;
+const NODE_TOOLTIP_GAP: f32 = 6.0;
+const NODE_TOOLTIP_FONT_SIZE: f32 = 12.0;
 const CLICK_DRAG_THRESHOLD_PX: f32 = 4.0;
 const ZOOM_LINE_SCALE: f32 = 0.08;
 const GRAPH_EDGE_STROKE_BASE: f32 = 1.5;
@@ -72,7 +75,26 @@ impl GraphInteractionDrag {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone)]
+struct CachedGraphTooltipText {
+    shaped: ShapedLine,
+    font_size: Pixels,
+    text_width: Pixels,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct GraphNodeLabelCacheKey {
+    node_id: GraphNodeId,
+    max_label_width_bits: u32,
+    font_size_bits: u32,
+}
+
+#[derive(Clone)]
+struct CachedGraphNodeLabel {
+    shaped: ShapedLine,
+}
+
+#[derive(Clone)]
 pub(crate) struct KnowledgeGraphViewState {
     pub raw_graph: KnowledgeGraph,
     pub graph: KnowledgeGraph,
@@ -87,9 +109,16 @@ pub(crate) struct KnowledgeGraphViewState {
     pub drag: GraphInteractionDrag,
     pub last_bounds: Bounds<Pixels>,
     pub viewport_bounds_clamped: bool,
+    tooltip_text_cache: HashMap<GraphNodeId, CachedGraphTooltipText>,
+    node_label_cache: HashMap<GraphNodeLabelCacheKey, CachedGraphNodeLabel>,
 }
 
 impl KnowledgeGraphViewState {
+    fn clear_render_caches(&mut self) {
+        self.tooltip_text_cache.clear();
+        self.node_label_cache.clear();
+    }
+
     pub(crate) fn new(raw_graph: KnowledgeGraph, filter: GraphFilter) -> Self {
         let graph = apply_graph_filter(&raw_graph, filter);
         let mut simulation = LayoutSimulation::new(&graph, LayoutConfig::default());
@@ -109,6 +138,8 @@ impl KnowledgeGraphViewState {
             drag: GraphInteractionDrag::default(),
             last_bounds: Bounds::default(),
             viewport_bounds_clamped: false,
+            tooltip_text_cache: HashMap::new(),
+            node_label_cache: HashMap::new(),
         }
     }
 
@@ -155,6 +186,7 @@ impl KnowledgeGraphViewState {
         self.animating = true;
         self.animation_progress = 0.0;
         self.viewport_bounds_clamped = false;
+        self.clear_render_caches();
     }
 
     pub(crate) fn sync_layout_from_simulation(&mut self) {
@@ -332,7 +364,15 @@ struct GraphPrepaintState {
     edges: Vec<(Path<Pixels>, Hsla)>,
     nodes: Vec<PaintQuad>,
     labels: Vec<(ShapedLine, Point<Pixels>, Pixels)>,
+    node_tooltip: Option<GraphNodeTooltipState>,
     hitbox: Hitbox,
+}
+
+struct GraphNodeTooltipState {
+    background: PaintQuad,
+    label: ShapedLine,
+    origin: Point<Pixels>,
+    font_size: Pixels,
 }
 
 #[derive(Default)]
@@ -348,6 +388,7 @@ fn empty_graph_prepaint_state(
         edges: Vec::new(),
         nodes: Vec::new(),
         labels: Vec::new(),
+        node_tooltip: None,
         hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
     }
 }
@@ -442,6 +483,66 @@ fn edge_visible_for_render(
     edge.source == *hovered_node_id || edge.target == *hovered_node_id
 }
 
+fn build_graph_node_tooltip(
+    node: &GraphNode,
+    world: LayoutPoint,
+    viewport: &GraphViewport,
+    bounds: Bounds<Pixels>,
+    theme: &Theme,
+    window: &mut Window,
+    cache: &mut HashMap<GraphNodeId, CachedGraphTooltipText>,
+) -> GraphNodeTooltipState {
+    let world_radius = node_layout_radius(&node.kind);
+    let radius = viewport.world_radius_to_pixels(world_radius).max(px(4.0));
+    let center = viewport.world_to_screen(world, bounds);
+
+    let cached_text = cache.entry(node.id.clone()).or_insert_with(|| {
+        let label_text: SharedString = node_display_label(&node.kind).into();
+        let font_size = px(NODE_TOOLTIP_FONT_SIZE);
+        let window_style = window.text_style();
+        let runs = vec![TextRun {
+            len: label_text.len(),
+            font: window_style.font(),
+            color: theme.colors.text_default,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }];
+        let shaped = window
+            .text_system()
+            .shape_line(label_text, font_size, &runs, None);
+        CachedGraphTooltipText {
+            text_width: shaped.width,
+            shaped,
+            font_size,
+        }
+    });
+
+    let pad = px(NODE_TOOLTIP_PADDING);
+    let box_width = cached_text.text_width + pad * 2.0;
+    let box_height = cached_text.font_size + pad * 2.0;
+    let mut box_left = center.x - box_width / 2.0;
+    let mut box_top = center.y - radius - px(NODE_TOOLTIP_GAP) - box_height;
+
+    let min_left = bounds.left();
+    let max_left = (bounds.right() - box_width).max(min_left);
+    box_left = box_left.clamp(min_left, max_left);
+    box_top = box_top.max(bounds.top());
+
+    let bg_bounds = Bounds::new(point(box_left, box_top), size(box_width, box_height));
+    let mut background = fill(bg_bounds, theme.colors.dialog_surface);
+    background.corner_radii = Corners::all(px(4.0));
+    background.border_widths = Edges::all(px(1.0));
+    background.border_color = theme.colors.dialog_border.opacity(0.75);
+
+    GraphNodeTooltipState {
+        background,
+        label: cached_text.shaped.clone(),
+        origin: point(box_left + pad, box_top + pad),
+        font_size: cached_text.font_size,
+    }
+}
+
 fn prepaint_graph(
     bounds: Bounds<Pixels>,
     state: &mut KnowledgeGraphViewState,
@@ -511,6 +612,7 @@ fn prepaint_graph(
     let mut nodes = Vec::new();
     let mut labels = Vec::new();
     let window_style = window.text_style();
+    let render_node_labels = !matches!(state.drag.mode, GraphDragMode::Node);
 
     for node in &state.graph.nodes {
         let Some(world) = positions.get(&node.id) else {
@@ -551,34 +653,72 @@ fn prepaint_graph(
         };
         nodes.push(quad);
 
+        if !render_node_labels {
+            continue;
+        }
+
         let label_text: SharedString = node_display_label(&node.kind).into();
         let max_label_width = (radius * 2.0 * 0.82 - px(NODE_LABEL_PADDING)).max(px(8.0));
         let label_font_size = (f32::from(radius) * 0.48)
             .max(MIN_SCREEN_LABEL_SIZE);
         let font_size = px(label_font_size);
-        let mut runs = vec![TextRun {
-            len: label_text.len(),
-            font: window_style.font(),
-            color: white(),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }];
-        let shaped = if max_label_width > px(0.0) {
-            let mut wrapper = window.text_system().line_wrapper(window_style.font(), font_size);
-            wrapper.truncate_line(label_text, max_label_width, "…", &mut runs)
-        } else {
-            label_text
+        let cache_key = GraphNodeLabelCacheKey {
+            node_id: node.id.clone(),
+            max_label_width_bits: f32::to_bits(f32::from(max_label_width)),
+            font_size_bits: f32::to_bits(f32::from(font_size)),
         };
-        let shaped_line = window
-            .text_system()
-            .shape_line(shaped, font_size, &runs, None);
+        let shaped_line = if let Some(cached) = state.node_label_cache.get(&cache_key) {
+            cached.shaped.clone()
+        } else {
+            let mut runs = vec![TextRun {
+                len: label_text.len(),
+                font: window_style.font(),
+                color: white(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }];
+            let shaped = if max_label_width > px(0.0) {
+                let mut wrapper = window.text_system().line_wrapper(window_style.font(), font_size);
+                wrapper.truncate_line(label_text, max_label_width, "…", &mut runs)
+            } else {
+                label_text
+            };
+            let shaped_line = window
+                .text_system()
+                .shape_line(shaped, font_size, &runs, None);
+            state.node_label_cache.insert(
+                cache_key,
+                CachedGraphNodeLabel {
+                    shaped: shaped_line.clone(),
+                },
+            );
+            shaped_line
+        };
         let label_origin = point(
             center.x - px(f32::from(shaped_line.width) / 2.0),
             center.y - font_size / 2.0,
         );
         labels.push((shaped_line, label_origin, font_size));
     }
+
+    let node_tooltip = if state.drag.active() {
+        None
+    } else {
+        state.hovered_node_id.as_ref().and_then(|hovered_id| {
+            let node = state.graph.nodes.iter().find(|node| &node.id == hovered_id)?;
+            let world = *positions.get(&node.id)?;
+            Some(build_graph_node_tooltip(
+                node,
+                world,
+                viewport,
+                bounds,
+                theme,
+                window,
+                &mut state.tooltip_text_cache,
+            ))
+        })
+    };
 
     let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
 
@@ -587,6 +727,7 @@ fn prepaint_graph(
         edges,
         nodes,
         labels,
+        node_tooltip,
         hitbox,
     }
 }
@@ -771,6 +912,11 @@ impl Element for KnowledgeGraphElement {
             let _ = line.paint(origin, font_size, window, cx);
         }
 
+        if let Some(tooltip) = prepaint.node_tooltip.take() {
+            window.paint_quad(tooltip.background);
+            let _ = tooltip.label.paint(tooltip.origin, tooltip.font_size, window, cx);
+        }
+
         if prepaint.hitbox.is_hovered(window) {
             if let Ok(Some(cursor)) = self
                 .editor
@@ -839,6 +985,7 @@ impl Editor {
 
         if let Some(node) = hit_test_graph_node(&state.graph, &state.layout, &state.viewport, screen)
         {
+            state.hovered_node_id = None;
             state.drag.mode = GraphDragMode::Node;
             state.drag.node_id = Some(node.id.clone());
             state.pinned.insert(node.id.clone());
@@ -865,15 +1012,19 @@ impl Editor {
 
         let screen = pointer_to_screen_local(event.position, state.last_bounds);
         if !state.drag.active() {
-            state.hovered_node_id = hit_test_graph_node(
+            let next_hovered = hit_test_graph_node(
                 &state.graph,
                 &state.layout,
                 &state.viewport,
                 screen,
             )
             .map(|node| node.id.clone());
+            let hover_changed = state.hovered_node_id != next_hovered;
+            state.hovered_node_id = next_hovered;
             state.drag.last_screen = screen;
-            cx.notify();
+            if hover_changed {
+                cx.notify();
+            }
             return;
         }
 
@@ -1015,6 +1166,7 @@ impl Editor {
         let factor = (1.0 - f32::from(delta.y) * ZOOM_LINE_SCALE).clamp(0.8, 1.25);
         let focus = pointer_to_screen_local(event.position, state.last_bounds);
         state.viewport.zoom_at(factor, focus);
+        state.clear_render_caches();
         cx.notify();
     }
 

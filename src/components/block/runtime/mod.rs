@@ -2310,6 +2310,10 @@ impl Block {
     ///
     /// The blink task is automatically cancelled when the block loses focus
     /// (the task handle is dropped in [`Block::render`]).
+    pub(crate) fn suspend_cursor_blink(&mut self) {
+        self.cursor_blink_task = None;
+    }
+
     pub(super) fn start_cursor_blink(&mut self, cx: &mut Context<Self>) {
         self.cursor_blink_epoch = Instant::now();
         self.cursor_blink_task = Some(cx.spawn(

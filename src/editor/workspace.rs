@@ -336,8 +336,15 @@ impl Editor {
             return;
         }
 
+        let outline_was_reset = self.workspace.state.outline_source.is_none();
+        let previous_outline = self.workspace.state.outline_tree.clone();
         let outline = build_outline_tree(&source);
-        prune_outline_state(&mut self.workspace.state, &outline);
+        prune_outline_state(
+            &mut self.workspace.state,
+            &previous_outline,
+            &outline,
+            outline_was_reset,
+        );
         self.workspace.state.outline_tree = outline;
         self.workspace.state.outline_source = Some(source);
     }
@@ -522,6 +529,11 @@ impl Editor {
         self.workspace.state.is_open && matches!(self.workspace.state.active_tab, WorkspaceTab::Ai)
     }
 
+    pub(super) fn workspace_graph_tab_active(&self) -> bool {
+        self.workspace.state.is_open
+            && matches!(self.workspace.state.active_tab, WorkspaceTab::Graph)
+    }
+
     pub(in crate::editor) fn open_ai_chat_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.workspace.state.is_open {
             self.workspace.state.is_open = true;
@@ -532,6 +544,9 @@ impl Editor {
     fn set_workspace_tab(&mut self, tab: WorkspaceTab, window: &mut Window, cx: &mut Context<Self>) {
         if self.workspace.state.active_tab == tab && !self.workspace.state.search_open {
             return;
+        }
+        if !matches!(tab, WorkspaceTab::Graph) {
+            self.invalidate_preview_content_cache();
         }
         self.workspace.state.active_tab = tab;
         self.workspace.state.search_open = false;
@@ -3279,7 +3294,12 @@ pub(super) fn workspace_panel_width_for_viewport(
     }
 }
 
-fn prune_outline_state(workspace: &mut WorkspaceState, outline: &[WorkspaceTreeNode]) {
+fn prune_outline_state(
+    workspace: &mut WorkspaceState,
+    previous_outline: &[WorkspaceTreeNode],
+    outline: &[WorkspaceTreeNode],
+    outline_was_reset: bool,
+) {
     let mut current_ids = HashSet::new();
     collect_node_ids(outline, &mut current_ids);
     workspace
@@ -3291,6 +3311,16 @@ fn prune_outline_state(workspace: &mut WorkspaceState, outline: &[WorkspaceTreeN
         Some(WorkspaceSelection::Outline(id)) if !current_ids.contains(id)
     ) {
         workspace.selected = None;
+    }
+
+    let mut previous_outline_ids = HashSet::new();
+    collect_node_ids(previous_outline, &mut previous_outline_ids);
+    let mut expandable_ids = Vec::new();
+    collect_expandable_outline_node_ids(outline, &mut expandable_ids);
+    for id in expandable_ids {
+        if outline_was_reset || !previous_outline_ids.contains(&id) {
+            workspace.expanded.insert(id);
+        }
     }
 }
 
@@ -4008,11 +4038,11 @@ mod tests {
     }
 
     #[test]
-    fn outline_expansion_state_is_not_auto_populated_and_prunes_stale_ids() {
+    fn outline_expansion_state_defaults_to_expanded_and_prunes_stale_ids() {
         let outline = build_outline_tree("# Root\n\n## Child\n\n# Next");
         let mut fresh = WorkspaceState::default();
-        prune_outline_state(&mut fresh, &outline);
-        assert!(fresh.expanded.is_empty());
+        prune_outline_state(&mut fresh, &[], &outline, true);
+        assert!(fresh.expanded.contains("outline:0"));
 
         let mut existing = WorkspaceState::default();
         existing.expanded.insert("outline:0".to_string());
@@ -4022,12 +4052,24 @@ mod tests {
             .insert("workspace-dir:C:/docs".to_string());
         existing.selected = Some(WorkspaceSelection::Outline("outline:999".to_string()));
 
-        prune_outline_state(&mut existing, &outline);
+        prune_outline_state(&mut existing, &[], &outline, true);
 
         assert!(existing.expanded.contains("outline:0"));
         assert!(existing.expanded.contains("workspace-dir:C:/docs"));
         assert!(!existing.expanded.contains("outline:999"));
         assert_eq!(existing.selected, None);
+    }
+
+    #[test]
+    fn outline_expansion_preserves_user_collapsed_nodes_on_incremental_sync() {
+        let outline = build_outline_tree("# Root\n\n## Child\n\n# Next");
+        let mut workspace = WorkspaceState::default();
+        prune_outline_state(&mut workspace, &[], &outline, true);
+        workspace.expanded.remove("outline:0");
+
+        prune_outline_state(&mut workspace, &outline, &outline, false);
+
+        assert!(!workspace.expanded.contains("outline:0"));
     }
 
     #[test]

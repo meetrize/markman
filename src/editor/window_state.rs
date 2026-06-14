@@ -196,6 +196,7 @@ impl Editor {
     }
 
     pub(crate) fn toggle_view_mode(&mut self, cx: &mut Context<Self>) {
+        self.invalidate_preview_content_cache();
         self.end_block_pointer_selection_sessions(cx);
         let selection_snapshot = self.capture_source_selection_snapshot(cx);
         self.clear_cross_block_selection(cx);
@@ -240,6 +241,7 @@ impl Editor {
     /// Marks the document dirty and schedules window-title and edited-state
     /// refresh for the next render frame.
     pub(super) fn mark_dirty(&mut self, cx: &mut Context<Self>) {
+        self.invalidate_preview_content_cache();
         if !self.document_dirty {
             self.document_dirty = true;
             self.pending_window_edited = true;

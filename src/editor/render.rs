@@ -1469,7 +1469,11 @@ impl Render for Editor {
         let doc_d = &document_theme.dimensions;
         let strings = cx.global::<I18nManager>().strings_arc();
         self.sync_window_title(window, &strings);
-        self.sync_code_run_visuals(cx);
+        let freeze_preview = self.should_freeze_preview_for_graph();
+        let preview_rows_cached = freeze_preview && self.preview_freeze_armed;
+        if !preview_rows_cached {
+            self.sync_code_run_visuals(cx);
+        }
         self.sync_pending_wiki_link_picker(window, cx);
         self.sync_wiki_link_picker(window, cx);
 
@@ -1684,6 +1688,7 @@ impl Render for Editor {
             previous_row_spacing = Some(first_spacing);
             index += 1;
         }
+        self.arm_preview_freeze_if_needed(freeze_preview, cx);
 
         let scroll_content = div()
             .id("editor-scroll-inner")

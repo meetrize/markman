@@ -378,6 +378,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.invalidate_preview_content_cache();
         self.dismiss_menu_bar_from_body(cx);
         self.clear_table_axis_preview(cx);
         self.clear_table_axis_selection(cx);
