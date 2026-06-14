@@ -96,6 +96,7 @@ impl Editor {
                 let path_buf = path.to_path_buf();
                 self.apply_successful_save(path_buf.clone(), cx);
                 self.refresh_workspace_tag_index_for_saved_file(&path_buf, &markdown, cx);
+                self.refresh_workspace_link_index_for_saved_file(&path_buf, &markdown, cx);
                 window.set_window_edited(false);
                 true
             }

@@ -34,7 +34,9 @@ pub use fragment::{
 };
 #[allow(unused_imports)]
 pub use fragment::InlineTag;
+pub(crate) use normalize::clamp_to_char_boundary;
 pub(crate) use hashtag::{locate_hashtag_in_str, normalize_tag_name};
+pub(crate) use wiki_link::locate_wiki_link_in_str;
 pub use style::{InlineScript, InlineStyle};
 pub(crate) use style::StyleFlag;
 pub(crate) use serialize::can_use_markdown_script_delimiters;
@@ -878,14 +880,19 @@ pub struct InlineEditResult {
 
 impl InlineEditResult {
     pub fn map_offset(&self, offset: usize) -> usize {
-        self.visible_to_normalized
+        let mapped = self
+            .visible_to_normalized
             .get(offset.min(self.visible_to_normalized.len().saturating_sub(1)))
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        clamp_to_char_boundary(&self.tree.visible_text(), mapped)
     }
 
     pub fn map_range(&self, range: &Range<usize>) -> Range<usize> {
-        self.map_offset(range.start)..self.map_offset(range.end)
+        let text = self.tree.visible_text();
+        let start = clamp_to_char_boundary(&text, self.map_offset(range.start));
+        let end = clamp_to_char_boundary(&text, self.map_offset(range.end));
+        start..end.max(start)
     }
 }
 #[cfg(test)]
@@ -896,6 +903,18 @@ mod tests {
     };
     use super::fragment::InlineMathDelimiter;
     use crate::components::HtmlCssColor;
+
+    #[test]
+    fn map_offset_after_chinese_hashtag_stays_on_char_boundary() {
+        let tree = InlineTextTree::from_markdown("话题 #工作");
+        let result = tree.replace_visible_range(
+            "话题 #工作".len().. "话题 #工作".len(),
+            "。",
+            InlineInsertionAttributes::default(),
+        );
+        let mapped = result.map_offset("话题 #工作".len());
+        assert!(result.tree.visible_text().is_char_boundary(mapped));
+    }
 
     #[test]
     fn parses_supported_styles_and_serializes_canonically() {

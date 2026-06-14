@@ -7,6 +7,47 @@ use super::link_image::tokens_to_string;
 use super::normalize::{CharToken, NormalizeBuilder};
 use super::style::InlineStyle;
 
+/// Finds the next `[[...]]` in a line starting at `search_from`.
+///
+/// Returns `(start_byte, end_byte, path)` where `start_byte`/`end_byte` are UTF-8
+/// offsets into `line` spanning the full `[[path]]` source range.
+pub(crate) fn locate_wiki_link_in_str(
+    line: &str,
+    search_from: usize,
+) -> Option<(usize, usize, String)> {
+    if search_from > line.len() || !line.is_char_boundary(search_from) {
+        return None;
+    }
+
+    let mut index = search_from;
+    while index < line.len() {
+        if line[index..].starts_with("[[") {
+            let path_start = index + 2;
+            let mut cursor = path_start;
+            while cursor < line.len() {
+                if line[cursor..].starts_with("]]") {
+                    let path = line[path_start..cursor].trim().to_string();
+                    if path.is_empty() {
+                        index += 2;
+                        break;
+                    }
+                    return Some((index, cursor + 2, path));
+                }
+                cursor += line[cursor..].chars().next()?.len_utf8();
+            }
+
+            if cursor >= line.len() {
+                return None;
+            }
+            index += 2;
+        } else {
+            index += line[index..].chars().next().map_or(1, |c| c.len_utf8());
+        }
+    }
+
+    None
+}
+
 /// Returns `(path_token_start, closing_bracket_end_index)` when `[[...]]` is well-formed.
 pub(crate) fn locate_wiki_link(tokens: &[CharToken], index: usize) -> Option<(usize, usize)> {
     if tokens.get(index)?.ch != '[' || tokens.get(index + 1)?.ch != '[' {
@@ -126,5 +167,41 @@ mod tests {
             .spans()
             .iter()
             .all(|span| span.link.is_none()));
+    }
+
+    #[test]
+    fn locate_wiki_link_in_str_handles_cjk_prefix() {
+        use super::locate_wiki_link_in_str;
+
+        let line = "用户参考 [[note.md]] 结束";
+        assert_eq!(
+            locate_wiki_link_in_str(line, 0),
+            Some((13, 24, "note.md".to_string()))
+        );
+        assert!(locate_wiki_link_in_str(line, 1).is_none());
+    }
+
+    #[test]
+    fn locate_wiki_link_in_str_finds_multiple_links_on_one_line() {
+        use super::locate_wiki_link_in_str;
+
+        let line = "see [[a.md]] and [[b/c.md]]";
+        let first = locate_wiki_link_in_str(line, 0).expect("first link");
+        assert_eq!(first, (4, 12, "a.md".to_string()));
+
+        let second = locate_wiki_link_in_str(line, first.1).expect("second link");
+        assert_eq!(second, (17, 27, "b/c.md".to_string()));
+        assert!(locate_wiki_link_in_str(line, second.1).is_none());
+    }
+
+    #[test]
+    fn locate_wiki_link_in_str_skips_empty_brackets() {
+        use super::locate_wiki_link_in_str;
+
+        assert!(locate_wiki_link_in_str("broken [[ ]] link", 0).is_none());
+        assert_eq!(
+            locate_wiki_link_in_str("ok [[note.md]]", 0),
+            Some((3, 14, "note.md".to_string()))
+        );
     }
 }

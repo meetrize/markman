@@ -41,6 +41,7 @@ const CHEVRON_DOWN_ICON: &str = "icon/workspace/chevron-down.svg";
 const FILES_TAB_ICON: &str = "icon/workspace/files.svg";
 const OUTLINE_TAB_ICON: &str = "icon/workspace/list-tree.svg";
 const TAGS_TAB_ICON: &str = "icon/workspace/tags.svg";
+const GRAPH_TAB_ICON: &str = "icon/workspace/graph.svg";
 const SEARCH_ICON: &str = "icon/workspace/search.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
 const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
@@ -68,6 +69,7 @@ pub(super) enum WorkspaceTab {
     Files,
     Outline,
     Tags,
+    Graph,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -113,11 +115,16 @@ pub(super) struct WorkspaceState {
     search_open: bool,
     search_input: SingleLineFieldState,
     search_results: Vec<WorkspaceSearchResult>,
-    tag_index: Option<WorkspaceTagIndex>,
-    tag_index_busy: bool,
-    tag_index_root: Option<PathBuf>,
+    pub(super) tag_index: Option<WorkspaceTagIndex>,
+    pub(super) tag_index_busy: bool,
+    pub(super) tag_index_root: Option<PathBuf>,
     /// Cached `(path, serialized markdown)` last merged into `tag_index`.
-    tag_index_live_source: Option<(PathBuf, String)>,
+    pub(super) tag_index_live_source: Option<(PathBuf, String)>,
+    pub(super) link_index: Option<super::link_index::WorkspaceLinkIndex>,
+    pub(super) link_index_busy: bool,
+    pub(super) link_index_root: Option<PathBuf>,
+    pub(super) graph_revision: Option<u64>,
+    pub(super) graph_busy: bool,
     selected_tag: Option<String>,
     tag_sort: WorkspaceTagSort,
 }
@@ -143,6 +150,11 @@ impl Default for WorkspaceState {
             tag_index_busy: false,
             tag_index_root: None,
             tag_index_live_source: None,
+            link_index: None,
+            link_index_busy: false,
+            link_index_root: None,
+            graph_revision: None,
+            graph_busy: false,
             selected_tag: None,
             tag_sort: WorkspaceTagSort::default(),
         }
@@ -215,6 +227,7 @@ impl Editor {
         self.workspace.state.tag_index_root = None;
         self.workspace.state.tag_index_busy = false;
         self.workspace.state.tag_index_live_source = None;
+        self.clear_workspace_graph_state();
         if self.workspace.state.is_open {
             self.sync_workspace_models(cx);
         }
@@ -225,6 +238,8 @@ impl Editor {
         self.sync_workspace_outline(cx);
         self.sync_workspace_tag_index(cx);
         self.sync_workspace_tag_index_for_active_file(cx);
+        self.sync_workspace_link_index(cx);
+        self.sync_knowledge_graph(cx);
     }
 
     fn workspace_root_for_current_file(&self) -> Option<PathBuf> {
@@ -260,6 +275,7 @@ impl Editor {
             self.workspace.state.tag_index_root = None;
             self.workspace.state.tag_index_busy = false;
             self.workspace.state.tag_index_live_source = None;
+            self.clear_workspace_graph_state();
             return;
         };
 
@@ -303,6 +319,7 @@ impl Editor {
             self.workspace.state.tag_index_root = None;
             self.workspace.state.tag_index_busy = false;
             self.workspace.state.tag_index_live_source = None;
+            self.clear_workspace_graph_state();
             return;
         };
 
@@ -327,7 +344,7 @@ impl Editor {
                 editor.workspace.state.tag_index = Some(index);
                 editor.workspace.state.tag_index_busy = false;
                 editor.workspace.state.tag_index_live_source = None;
-                cx.notify();
+                editor.sync_knowledge_graph(cx);
             });
         })
         .detach();
@@ -362,7 +379,7 @@ impl Editor {
         if let Some(index) = self.workspace.state.tag_index.as_mut() {
             refresh_tag_index_for_file(index, &path, &source);
             self.workspace.state.tag_index_live_source = Some((path, source));
-            cx.notify();
+            self.sync_knowledge_graph(cx);
         }
     }
 
@@ -391,8 +408,10 @@ impl Editor {
 
         if let Some(index) = self.workspace.state.tag_index.as_mut() {
             refresh_tag_index_for_file(index, path, content);
-            self.workspace.state.tag_index_live_source = Some((path.to_path_buf(), content.to_string()));
-            cx.notify();
+            self.workspace.state.tag_index_live_source =
+                Some((path.to_path_buf(), content.to_string()));
+            self.refresh_workspace_link_index_for_saved_file(path, content, cx);
+            self.sync_knowledge_graph(cx);
         }
     }
 
@@ -477,6 +496,9 @@ impl Editor {
         self.workspace.state.active_tab = tab;
         self.workspace.state.search_open = false;
         self.sync_workspace_models(cx);
+        if matches!(tab, WorkspaceTab::Graph) {
+            self.start_knowledge_graph_animation(cx);
+        }
         cx.notify();
     }
 
@@ -1366,7 +1388,6 @@ impl Editor {
         let editor = cx.entity().downgrade();
         let c = &theme.colors;
         let d = &theme.dimensions;
-        let t = &theme.typography;
 
         let tab_icon_color = |active: bool| {
             if active {
@@ -1376,24 +1397,23 @@ impl Editor {
             }
         };
 
-        let tab = |label: String, icon: &'static str, tab: WorkspaceTab, active: bool| {
+        let tab = |icon: &'static str, tab: WorkspaceTab, active: bool| {
             let tab_editor = editor.clone();
             let tab_id = match tab {
                 WorkspaceTab::Files => "workspace-tab-files",
                 WorkspaceTab::Outline => "workspace-tab-outline",
                 WorkspaceTab::Tags => "workspace-tab-tags",
+                WorkspaceTab::Graph => "workspace-tab-graph",
             };
             let icon_color = tab_icon_color(active);
             div()
                 .id(tab_id)
+                .w(px(24.0))
                 .h(px(24.0))
-                .px(px(8.0))
                 .flex()
-                .flex_1()
-                .min_w(px(0.0))
+                .flex_shrink_0()
                 .items_center()
                 .justify_center()
-                .gap(px(4.0))
                 .rounded(px(4.0))
                 .bg(if active && !self.workspace.state.search_open {
                     c.selection
@@ -1402,20 +1422,12 @@ impl Editor {
                 })
                 .hover(|this| this.bg(c.dialog_secondary_button_hover))
                 .cursor_pointer()
-                .text_size(px(t.text_size * 0.82))
-                .text_color(icon_color)
                 .child(
                     svg()
                         .path(icon)
                         .size(px(WORKSPACE_TAB_ICON_SIZE))
                         .flex_shrink_0()
                         .text_color(icon_color),
-                )
-                .child(
-                    div()
-                        .min_w(px(0.0))
-                        .truncate()
-                        .child(label),
                 )
                 .on_click(move |_event, _window, cx| {
                     let _ = tab_editor.update(cx, |editor, cx| {
@@ -1535,6 +1547,8 @@ impl Editor {
             None
         };
 
+        let graph_tab_active = matches!(self.workspace.state.active_tab, WorkspaceTab::Graph);
+
         let body = if self.workspace.state.search_open {
             self.render_workspace_search_results(theme, strings, &editor)
         } else {
@@ -1544,6 +1558,7 @@ impl Editor {
                     self.render_workspace_outline_tree(theme, strings, &editor)
                 }
                 WorkspaceTab::Tags => self.render_workspace_tags_panel(theme, strings, &editor),
+                WorkspaceTab::Graph => self.render_workspace_graph_panel(theme, strings, &editor),
             }
         };
 
@@ -1578,27 +1593,39 @@ impl Editor {
                                 .border_b(px(d.dialog_border_width))
                                 .border_color(c.dialog_border)
                                 .child(tab(
-                                    strings.workspace_tab_files.clone(),
                                     FILES_TAB_ICON,
                                     WorkspaceTab::Files,
                                     self.workspace.state.active_tab == WorkspaceTab::Files,
                                 ))
                                 .child(tab(
-                                    strings.workspace_tab_outline.clone(),
                                     OUTLINE_TAB_ICON,
                                     WorkspaceTab::Outline,
                                     self.workspace.state.active_tab == WorkspaceTab::Outline,
                                 ))
                                 .child(tab(
-                                    strings.workspace_tab_tags.clone(),
                                     TAGS_TAB_ICON,
                                     WorkspaceTab::Tags,
                                     self.workspace.state.active_tab == WorkspaceTab::Tags,
                                 ))
+                                .child(tab(
+                                    GRAPH_TAB_ICON,
+                                    WorkspaceTab::Graph,
+                                    self.workspace.state.active_tab == WorkspaceTab::Graph,
+                                ))
                                 .child(search_button),
                         )
                         .children(search_bar)
-                        .child(
+                        .child(if graph_tab_active {
+                            div()
+                                .id("workspace-panel-scroll")
+                                .flex_1()
+                                .min_h(px(0.0))
+                                .overflow_hidden()
+                                .px(px(4.0))
+                                .py(px(4.0))
+                                .child(body)
+                                .into_any_element()
+                        } else {
                             div()
                                 .id("workspace-panel-scroll")
                                 .flex_1()
@@ -1606,8 +1633,9 @@ impl Editor {
                                 .overflow_y_scroll()
                                 .px(px(4.0))
                                 .py(px(4.0))
-                                .child(body),
-                        ),
+                                .child(body)
+                                .into_any_element()
+                        }),
                 )
                 .child(
                     div()
@@ -2070,7 +2098,7 @@ impl Editor {
             .into_any_element()
     }
 
-    fn render_workspace_empty_state(
+    pub(super) fn render_workspace_empty_state(
         &self,
         title: &str,
         message: &str,

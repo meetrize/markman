@@ -30,8 +30,8 @@ use super::{
     parse_standalone_image, resolve_image_source,
 };
 use crate::components::markdown::inline::{
-    InlineFragment, InlineInsertionAttributes, InlineLink, InlineRenderCache, InlineSpan,
-    InlineTextTree, StyleFlag,
+    clamp_to_char_boundary, InlineFragment, InlineInsertionAttributes, InlineLink,
+    InlineRenderCache, InlineSpan, InlineTextTree, StyleFlag,
 };
 use crate::components::{
     TableAxisHighlight, TableAxisMarker, TableCellPosition, TableColumnAlignment, TableRuntime,
@@ -1173,7 +1173,9 @@ impl Block {
         affinity: CollapsedCaretAffinity,
         preferred_x: Option<Pixels>,
     ) {
-        let clamped_offset = offset.min(self.visible_len());
+        let text = self.display_text();
+        let clamped_offset =
+            clamp_to_char_boundary(text, offset.min(text.len()));
         self.selected_range = clamped_offset..clamped_offset;
         self.selection_reversed = false;
         self.editor_selection_range = None;
@@ -1924,6 +1926,12 @@ impl Block {
         if self.kind().is_separator() && !self.uses_raw_text_editing() {
             return;
         }
+
+        let display = self.display_text();
+        let visible_start =
+            clamp_to_char_boundary(display, visible_range.start.min(display.len()));
+        let visible_end = clamp_to_char_boundary(display, visible_range.end.min(display.len()));
+        let visible_range = visible_start..visible_end.max(visible_start);
 
         let inserted_attributes = self.replacement_attributes_for_visible_range(&visible_range);
 

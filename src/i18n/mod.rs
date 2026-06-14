@@ -236,8 +236,22 @@ pub struct I18nStrings {
     pub workspace_tab_outline: String,
     /// Workspace drawer Tags tab.
     pub workspace_tab_tags: String,
+    /// Workspace drawer Graph tab.
+    pub workspace_tab_graph: String,
     /// Message shown when the workspace tag index is empty.
     pub workspace_empty_tags: String,
+    /// Message shown while the knowledge graph is building.
+    pub workspace_graph_building: String,
+    /// Message shown when the knowledge graph has nothing to display.
+    pub workspace_graph_empty: String,
+    /// Toolbar button to fit the graph viewport.
+    pub workspace_graph_fit_view: String,
+    /// Toolbar button to recompute graph layout.
+    pub workspace_graph_reset_layout: String,
+    /// Graph filter: show only connected nodes.
+    pub workspace_graph_filter_connected: String,
+    /// Graph filter: show all markdown nodes.
+    pub workspace_graph_filter_all: String,
     /// Toggle label to sort tags by name ascending.
     pub workspace_tag_sort_by_name: String,
     /// Toggle label to sort tags by count descending.
@@ -587,7 +601,14 @@ struct I18nStringsDe {
     workspace_tab_files: Option<String>,
     workspace_tab_outline: Option<String>,
     workspace_tab_tags: Option<String>,
+    workspace_tab_graph: Option<String>,
     workspace_empty_tags: Option<String>,
+    workspace_graph_building: Option<String>,
+    workspace_graph_empty: Option<String>,
+    workspace_graph_fit_view: Option<String>,
+    workspace_graph_reset_layout: Option<String>,
+    workspace_graph_filter_connected: Option<String>,
+    workspace_graph_filter_all: Option<String>,
     workspace_tag_sort_by_name: Option<String>,
     workspace_tag_sort_by_count: Option<String>,
     workspace_tag_occurrences_title: Option<String>,
@@ -832,7 +853,14 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_tab_files",
     "workspace_tab_outline",
     "workspace_tab_tags",
+    "workspace_tab_graph",
     "workspace_empty_tags",
+    "workspace_graph_building",
+    "workspace_graph_empty",
+    "workspace_graph_fit_view",
+    "workspace_graph_reset_layout",
+    "workspace_graph_filter_connected",
+    "workspace_graph_filter_all",
     "workspace_tag_sort_by_name",
     "workspace_tag_sort_by_count",
     "workspace_tag_occurrences_title",
@@ -1309,9 +1337,30 @@ impl I18nStringsDe {
             workspace_tab_tags: self
                 .workspace_tab_tags
                 .unwrap_or(defaults.workspace_tab_tags),
+            workspace_tab_graph: self
+                .workspace_tab_graph
+                .unwrap_or(defaults.workspace_tab_graph),
             workspace_empty_tags: self
                 .workspace_empty_tags
                 .unwrap_or(defaults.workspace_empty_tags),
+            workspace_graph_building: self
+                .workspace_graph_building
+                .unwrap_or(defaults.workspace_graph_building),
+            workspace_graph_empty: self
+                .workspace_graph_empty
+                .unwrap_or(defaults.workspace_graph_empty),
+            workspace_graph_fit_view: self
+                .workspace_graph_fit_view
+                .unwrap_or(defaults.workspace_graph_fit_view),
+            workspace_graph_reset_layout: self
+                .workspace_graph_reset_layout
+                .unwrap_or(defaults.workspace_graph_reset_layout),
+            workspace_graph_filter_connected: self
+                .workspace_graph_filter_connected
+                .unwrap_or(defaults.workspace_graph_filter_connected),
+            workspace_graph_filter_all: self
+                .workspace_graph_filter_all
+                .unwrap_or(defaults.workspace_graph_filter_all),
             workspace_tag_sort_by_name: self
                 .workspace_tag_sort_by_name
                 .unwrap_or(defaults.workspace_tag_sort_by_name),
@@ -1769,7 +1818,14 @@ impl I18nStrings {
             workspace_tab_files: "文件".into(),
             workspace_tab_outline: "大纲".into(),
             workspace_tab_tags: "标签".into(),
+            workspace_tab_graph: "图谱".into(),
             workspace_empty_tags: "工作区中没有行内标签".into(),
+            workspace_graph_building: "正在构建知识图谱…".into(),
+            workspace_graph_empty: "工作区中没有可显示的图谱节点".into(),
+            workspace_graph_fit_view: "适应窗口".into(),
+            workspace_graph_reset_layout: "重置布局".into(),
+            workspace_graph_filter_connected: "已连接".into(),
+            workspace_graph_filter_all: "全部".into(),
             workspace_tag_sort_by_name: "按名称排序".into(),
             workspace_tag_sort_by_count: "按引用数排序".into(),
             workspace_tag_occurrences_title: "{tag} 的引用".into(),
@@ -2033,7 +2089,14 @@ impl I18nStrings {
             workspace_tab_files: "Files".into(),
             workspace_tab_outline: "Outline".into(),
             workspace_tab_tags: "Tags".into(),
+            workspace_tab_graph: "Graph".into(),
             workspace_empty_tags: "No inline tags in this workspace".into(),
+            workspace_graph_building: "Building knowledge graph…".into(),
+            workspace_graph_empty: "No graph nodes to display in this workspace".into(),
+            workspace_graph_fit_view: "Fit view".into(),
+            workspace_graph_reset_layout: "Reset layout".into(),
+            workspace_graph_filter_connected: "Connected".into(),
+            workspace_graph_filter_all: "All".into(),
             workspace_tag_sort_by_name: "Sort by name".into(),
             workspace_tag_sort_by_count: "Sort by count".into(),
             workspace_tag_occurrences_title: "References to {tag}".into(),

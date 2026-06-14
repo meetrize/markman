@@ -1,0 +1,30 @@
+{
+  "1": {
+    "title": "Wiki 链接工作区索引",
+    "status": "done"
+  },
+  "2": {
+    "title": "KnowledgeGraph 图模型",
+    "status": "done"
+  },
+  "3": {
+    "title": "力导向布局引擎",
+    "status": "done"
+  },
+  "4": {
+    "title": "KnowledgeGraphElement 静态渲染",
+    "status": "done"
+  },
+  "5": {
+    "title": "拖拽、平移、缩放与点击",
+    "status": "done"
+  },
+  "6": {
+    "title": "侧栏 Graph Tab 与索引同步",
+    "status": "done"
+  },
+  "7": {
+    "title": "动画、过滤与性能收尾",
+    "status": "done"
+  }
+}

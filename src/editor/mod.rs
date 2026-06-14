@@ -42,6 +42,11 @@ mod persistence;
 mod file_search;
 mod markdown_files;
 mod tag_index;
+mod link_index;
+mod graph_model;
+mod graph_layout;
+mod graph_view;
+mod graph_workspace;
 mod quick_file_open;
 mod wiki_link_picker;
 mod render;
@@ -168,6 +173,8 @@ pub struct Editor {
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
     quick_file_open: quick_file_open::QuickFileOpenState,
     wiki_link_picker: wiki_link_picker::WikiLinkPickerState,
+    knowledge_graph_view: Option<graph_view::KnowledgeGraphViewState>,
+    graph_animation_task: Option<Task<()>>,
     ai: controllers::AiController,
 }
 
@@ -374,6 +381,8 @@ impl Editor {
             code_run_dialog: None,
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
             wiki_link_picker: wiki_link_picker::WikiLinkPickerState::new(cx),
+            knowledge_graph_view: None,
+            graph_animation_task: None,
             ai: controllers::AiController::new(cx),
         };
         editor.rebuild_table_runtimes(cx);

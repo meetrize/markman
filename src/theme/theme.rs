@@ -230,6 +230,14 @@ pub struct ThemeColors {
     pub dialog_danger_button_hover: Hsla,
     /// Danger button text colour.
     pub dialog_danger_button_text: Hsla,
+    /// Knowledge graph document node fill colour.
+    pub graph_node_document: Hsla,
+    /// Knowledge graph tag node fill colour.
+    pub graph_node_tag: Hsla,
+    /// Knowledge graph edge stroke colour.
+    pub graph_edge: Hsla,
+    /// Knowledge graph panel background colour.
+    pub graph_background: Hsla,
 }
 
 /// All configurable dimensions (paddings, gaps, sizes) for the editor UI.
@@ -627,6 +635,10 @@ struct ThemeColorsDe {
     dialog_danger_button_bg: Hsla,
     dialog_danger_button_hover: Hsla,
     dialog_danger_button_text: Hsla,
+    graph_node_document: Option<Hsla>,
+    graph_node_tag: Option<Hsla>,
+    graph_edge: Option<Hsla>,
+    graph_background: Option<Hsla>,
 }
 
 impl<'de> Deserialize<'de> for ThemeColors {
@@ -831,6 +843,18 @@ impl<'de> Deserialize<'de> for ThemeColors {
             dialog_danger_button_bg: raw.dialog_danger_button_bg,
             dialog_danger_button_hover: raw.dialog_danger_button_hover,
             dialog_danger_button_text: raw.dialog_danger_button_text,
+            graph_node_document: raw
+                .graph_node_document
+                .unwrap_or_else(|| Hsla::from(rgba(0x60a5faff))),
+            graph_node_tag: raw
+                .graph_node_tag
+                .unwrap_or_else(|| Hsla::from(rgba(0x86efacff))),
+            graph_edge: raw
+                .graph_edge
+                .unwrap_or_else(|| Hsla::from(rgba(0x71717a99))),
+            graph_background: raw
+                .graph_background
+                .unwrap_or_else(|| Hsla::from(rgba(0x141417ff))),
         })
     }
 }
@@ -1206,6 +1230,10 @@ impl Theme {
                 dialog_danger_button_bg: Hsla::from(rgba(0x7f1d1dff)),
                 dialog_danger_button_hover: Hsla::from(rgba(0x991b1bff)),
                 dialog_danger_button_text: Hsla::from(rgba(0xfef2f2ff)),
+                graph_node_document: Hsla::from(rgba(0x60a5faff)),
+                graph_node_tag: Hsla::from(rgba(0x86efacff)),
+                graph_edge: Hsla::from(rgba(0x71717a99)),
+                graph_background: Hsla::from(rgba(0x141417ff)),
             },
             dimensions: ThemeDimensions {
                 editor_padding: 8.0,
@@ -1456,6 +1484,10 @@ impl Theme {
                 dialog_danger_button_bg: Hsla::from(rgba(0xdc2626ff)),
                 dialog_danger_button_hover: Hsla::from(rgba(0xb91c1cff)),
                 dialog_danger_button_text: Hsla::from(rgba(0xffffffff)),
+                graph_node_document: Hsla::from(rgba(0x2563ebff)),
+                graph_node_tag: Hsla::from(rgba(0x15803dff)),
+                graph_edge: Hsla::from(rgba(0x94a3b899)),
+                graph_background: Hsla::from(rgba(0xeef2f7ff)),
             },
             dimensions: base.dimensions,
             typography: base.typography,

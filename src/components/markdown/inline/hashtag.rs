@@ -67,14 +67,18 @@ fn tag_body_len_in_str(text: &str, body_start: usize) -> usize {
 }
 
 pub(crate) fn locate_hashtag_in_str(line: &str, start: usize) -> Option<(usize, usize, InlineTag)> {
+    if start > line.len() || !line.is_char_boundary(start) {
+        return None;
+    }
+
     let mut index = start;
     while index < line.len() {
         if line.as_bytes().get(index) != Some(&b'#') {
-            index += 1;
+            index += line[index..].chars().next().map_or(1, |ch| ch.len_utf8());
             continue;
         }
         if index > 0 && line.as_bytes()[index - 1] == b'\\' {
-            index += 1;
+            index += line[index..].chars().next().map_or(1, |ch| ch.len_utf8());
             continue;
         }
 
@@ -83,13 +87,13 @@ pub(crate) fn locate_hashtag_in_str(line: &str, start: usize) -> Option<(usize, 
             return None;
         }
         if line[body_start..].starts_with(' ') {
-            index += 1;
+            index += line[index..].chars().next().map_or(1, |ch| ch.len_utf8());
             continue;
         }
 
         let body_len = tag_body_len_in_str(line, body_start);
         if body_len == 0 {
-            index += 1;
+            index += line[index..].chars().next().map_or(1, |ch| ch.len_utf8());
             continue;
         }
 
@@ -98,7 +102,7 @@ pub(crate) fn locate_hashtag_in_str(line: &str, start: usize) -> Option<(usize, 
             return Some((index, body_start + body_len, tag));
         }
 
-        index += 1;
+        index += line[index..].chars().next().map_or(1, |ch| ch.len_utf8());
     }
 
     None
@@ -305,6 +309,18 @@ mod tests {
         let tree = InlineTextTree::from_markdown("# Title");
         assert!(tree.fragments.iter().all(|fragment| fragment.tag.is_none()));
         assert_eq!(tree.visible_text(), "# Title");
+    }
+
+    #[test]
+    fn locate_hashtag_in_str_handles_cjk_prefix() {
+        let line = "用户笔记 #工作";
+        assert_eq!(
+            locate_hashtag_in_str(line, 0),
+            Some((13, 20, InlineTag {
+                name: "工作".to_string(),
+                source: "#工作".to_string(),
+            }))
+        );
     }
 
     #[test]
