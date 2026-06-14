@@ -2,6 +2,7 @@
 //! unsaved-changes overlay dialog, custom scrollbar, and deferred
 //! operations (focus, scroll, save, window title).
 
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use gpui::*;
@@ -476,23 +477,13 @@ impl Editor {
         };
 
         if link.is_document_relative_file {
-            if let Some(base_dir) = self.file_path.as_ref().and_then(|path| path.parent()) {
-                let path = base_dir.join(crate::components::markdown::link::link_destination_path_part(
-                    &link.open_target,
-                ));
-                if path.is_file() {
-                    self.open_workspace_path(path, window, cx);
+            if let Some(path) = self.resolve_document_relative_link_path(&link.open_target) {
+                if self.path_is_outside_workspace_root(&path) {
+                    self.prompt_open_local_path(path, link.prompt_target, true, window, cx);
                     return;
                 }
-            }
-            if let Some(root) = self.effective_workspace_root() {
-                let path = root.join(crate::components::markdown::link::link_destination_path_part(
-                    &link.open_target,
-                ));
-                if path.is_file() {
-                    self.open_workspace_path(path, window, cx);
-                    return;
-                }
+                self.open_workspace_path(path, window, cx);
+                return;
             }
         }
 
@@ -519,13 +510,84 @@ impl Editor {
             cx,
         );
         let window_handle = window.window_handle();
+        let open_target = link.open_target.clone();
         cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let Ok(choice) = prompt.await else {
                 return;
             };
             if choice == 0 {
                 let _ = cx.update_window(window_handle, |_view: AnyView, _window, cx| {
-                    cx.open_url(&link.open_target);
+                    cx.open_url(&open_target);
+                });
+            }
+        })
+        .detach();
+    }
+
+    fn resolve_document_relative_link_path(&self, destination: &str) -> Option<PathBuf> {
+        let part =
+            crate::components::markdown::link::link_destination_path_part(destination);
+        if let Some(base_dir) = self.file_path.as_ref().and_then(|path| path.parent()) {
+            let path = base_dir.join(part);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+        if let Some(root) = self.effective_workspace_root() {
+            let path = root.join(part);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    fn path_is_outside_workspace_root(&self, path: &Path) -> bool {
+        let Some(root) = self.effective_workspace_root() else {
+            return false;
+        };
+        match (path.canonicalize(), root.canonicalize()) {
+            (Ok(path), Ok(root)) => !path.starts_with(&root),
+            _ => true,
+        }
+    }
+
+    fn prompt_open_local_path(
+        &mut self,
+        path: PathBuf,
+        prompt_target: String,
+        outside_workspace: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let strings = cx.global::<I18nManager>().strings_arc();
+        let buttons = [
+            strings.open_link_open.as_str(),
+            strings.open_link_cancel.as_str(),
+        ];
+        let title = if outside_workspace {
+            &strings.open_link_outside_workspace_title
+        } else {
+            &strings.open_link_title
+        };
+        let message = if outside_workspace {
+            format!("{prompt_target}\n{}", path.display())
+        } else {
+            prompt_target
+        };
+        let prompt = window.prompt(PromptLevel::Info, title, Some(&message), &buttons, cx);
+        let window_handle = window.window_handle();
+        cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let Ok(choice) = prompt.await else {
+                return;
+            };
+            if choice == 0 {
+                let _ = cx.update_window(window_handle, |view, window, cx| {
+                    if let Ok(editor) = view.downcast::<Editor>() {
+                        editor.update(cx, |editor, cx| {
+                            editor.open_workspace_path(path, window, cx);
+                        });
+                    }
                 });
             }
         })

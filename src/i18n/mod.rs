@@ -350,6 +350,8 @@ pub struct I18nStrings {
     pub workspace_default_file_name: String,
     /// Title of the link-opening confirmation prompt.
     pub open_link_title: String,
+    /// Title when opening a file outside the current workspace root.
+    pub open_link_outside_workspace_title: String,
     /// Confirm button for the link-opening prompt.
     pub open_link_open: String,
     /// Cancel button for the link-opening prompt.
@@ -738,6 +740,7 @@ struct I18nStringsDe {
     workspace_default_folder_name: Option<String>,
     workspace_default_file_name: Option<String>,
     open_link_title: Option<String>,
+    open_link_outside_workspace_title: Option<String>,
     open_link_open: Option<String>,
     open_link_cancel: Option<String>,
     view_mode_source: Option<String>,
@@ -1030,6 +1033,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_default_folder_name",
     "workspace_default_file_name",
     "open_link_title",
+    "open_link_outside_workspace_title",
     "open_link_open",
     "open_link_cancel",
     "view_mode_source",
@@ -1666,6 +1670,9 @@ impl I18nStringsDe {
                 .workspace_default_file_name
                 .unwrap_or(defaults.workspace_default_file_name),
             open_link_title: self.open_link_title.unwrap_or(defaults.open_link_title),
+            open_link_outside_workspace_title: self
+                .open_link_outside_workspace_title
+                .unwrap_or(defaults.open_link_outside_workspace_title),
             open_link_open: self.open_link_open.unwrap_or(defaults.open_link_open),
             open_link_cancel: self.open_link_cancel.unwrap_or(defaults.open_link_cancel),
             view_mode_source: self.view_mode_source.unwrap_or(defaults.view_mode_source),
@@ -2156,6 +2163,7 @@ impl I18nStrings {
             workspace_default_folder_name: "新建文件夹".into(),
             workspace_default_file_name: "未命名.md".into(),
             open_link_title: "打开链接？".into(),
+            open_link_outside_workspace_title: "打开工作区外的文件？".into(),
             open_link_open: "打开".into(),
             open_link_cancel: "取消".into(),
             view_mode_source: "源码".into(),
@@ -2468,6 +2476,7 @@ impl I18nStrings {
             workspace_default_folder_name: "New Folder".into(),
             workspace_default_file_name: "Untitled.md".into(),
             open_link_title: "Open link?".into(),
+            open_link_outside_workspace_title: "Open file outside workspace?".into(),
             open_link_open: "Open".into(),
             open_link_cancel: "Cancel".into(),
             view_mode_source: "Source".into(),

@@ -142,6 +142,85 @@ pub(crate) fn link_destination_path_part(destination: &str) -> &str {
     destination.split(['#', '?']).next().unwrap_or(destination)
 }
 
+/// One parsed segment from a Markdown-like line inside an HTML text node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum HtmlTextLineSegment {
+    /// Plain text between links.
+    Text(String),
+    /// Inline link label with resolved open-link metadata.
+    Link {
+        label: String,
+        hit: crate::components::markdown::inline::InlineLinkHit,
+    },
+}
+
+/// Parses inline Markdown links and plain text from one HTML text line.
+pub(crate) fn parse_html_text_line_segments(line: &str) -> Vec<HtmlTextLineSegment> {
+    use crate::components::markdown::inline::InlineLink;
+
+    let mut segments = Vec::new();
+    let mut text_start = 0usize;
+    let mut cursor = 0usize;
+
+    while cursor < line.len() {
+        if line[cursor..].starts_with('[') && !line[cursor..].starts_with("![") {
+            if let Some((label, destination, title, end)) = parse_inline_link_at(line, cursor) {
+                if text_start < cursor {
+                    segments.push(HtmlTextLineSegment::Text(
+                        line[text_start..cursor].to_string(),
+                    ));
+                }
+                let link = InlineLink::Inline {
+                    destination,
+                    title,
+                };
+                segments.push(HtmlTextLineSegment::Link {
+                    label,
+                    hit: link.hit(),
+                });
+                cursor = end;
+                text_start = end;
+                continue;
+            }
+        }
+
+        cursor += line[cursor..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+    }
+
+    if text_start < line.len() {
+        segments.push(HtmlTextLineSegment::Text(line[text_start..].to_string()));
+    }
+
+    if segments.is_empty() {
+        vec![HtmlTextLineSegment::Text(String::new())]
+    } else {
+        segments
+    }
+}
+
+fn parse_inline_link_at(
+    line: &str,
+    start: usize,
+) -> Option<(String, String, Option<String>, usize)> {
+    if !line.get(start..)?.starts_with('[') || line[start..].starts_with("![") {
+        return None;
+    }
+
+    let label_end = find_unescaped_char(line, start + 1, b']')?;
+    let label = unescape_ascii_punctuation(&line[start + 1..label_end]);
+    if line.as_bytes().get(label_end + 1) != Some(&b'(') {
+        return None;
+    }
+
+    let close = find_unescaped_char(line, label_end + 2, b')')?;
+    let (destination, title) = parse_link_target(&line[label_end + 2..close])?;
+    Some((label, destination, title, close + 1))
+}
+
 /// True when `[label](destination)` should open a workspace file instead of a browser URL.
 pub(crate) fn is_local_file_link_destination(destination: &str) -> bool {
     let destination = destination.trim();
@@ -509,5 +588,41 @@ mod tests {
         assert!(!is_local_file_link_destination("https://example.com"));
         assert!(!is_local_file_link_destination("mailto:test@example.com"));
         assert!(!is_local_file_link_destination("#anchor"));
+    }
+
+    #[test]
+    fn parses_html_text_line_inline_links_and_text() {
+        use super::{HtmlTextLineSegment, parse_html_text_line_segments};
+        use crate::components::markdown::inline::InlineLinkHit;
+
+        let segments = parse_html_text_line_segments(
+            "[English](../README.md) | [中文](README.zh-CN.md)",
+        );
+        assert_eq!(segments.len(), 3);
+        assert_eq!(
+            segments[0],
+            HtmlTextLineSegment::Link {
+                label: "English".to_string(),
+                hit: InlineLinkHit {
+                    prompt_target: "../README.md".to_string(),
+                    open_target: "../README.md".to_string(),
+                    is_workspace_file: false,
+                    is_document_relative_file: true,
+                },
+            }
+        );
+        assert_eq!(segments[1], HtmlTextLineSegment::Text(" | ".to_string()));
+        assert_eq!(
+            segments[2],
+            HtmlTextLineSegment::Link {
+                label: "中文".to_string(),
+                hit: InlineLinkHit {
+                    prompt_target: "README.zh-CN.md".to_string(),
+                    open_target: "README.zh-CN.md".to_string(),
+                    is_workspace_file: false,
+                    is_document_relative_file: true,
+                },
+            }
+        );
     }
 }

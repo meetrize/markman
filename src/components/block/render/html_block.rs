@@ -8,9 +8,12 @@ use super::super::{Block, ImageRuntime};
 use super::code;
 use super::shared::html_css_color_to_hsla;
 use crate::components::{
-    HtmlDocument, HtmlNode, HtmlNodeKind, ImageReferenceDefinitions, TableColumnLayout, attr_value, parse_html_image_block, parse_standalone_image,
-    parse_standalone_link_wrapped_image, resolve_image_source, style_for_node,
+    BlockEvent, HtmlDocument, HtmlNode, HtmlNodeKind, ImageReferenceDefinitions, TableColumnLayout,
+    attr_value, parse_html_image_block, parse_standalone_image, parse_standalone_link_wrapped_image,
+    resolve_image_source, style_for_node,
 };
+use crate::components::markdown::inline::InlineLinkHit;
+use crate::components::markdown::link::{HtmlTextLineSegment, parse_html_text_line_segments};
 use crate::i18n::I18nManager;
 use crate::theme::{Theme, ThemeDimensions};
 
@@ -1025,17 +1028,13 @@ impl Block {
             ) {
                 elements.push(self.render_html_markdown_image_line(alt, src, theme, cx));
             } else {
-                elements.push(
-                    div()
-                        .min_w(px(0.0))
-                        .flex_shrink_0()
-                        .text_size(px(inherited_style.font_size))
-                        .text_color(inherited_style.color)
-                        .line_height(rems(body_line_height))
-                        .text_align(inherited_style.text_align)
-                        .child(SharedString::from(line.to_string()))
-                        .into_any_element(),
-                );
+                elements.push(self.render_html_markdown_text_line(
+                    line,
+                    theme,
+                    inherited_style,
+                    body_line_height,
+                    cx,
+                ));
             }
         }
 
@@ -1060,6 +1059,100 @@ impl Block {
         };
         constrain_html_block_for_column(container, for_column, false)
             .children(elements)
+            .into_any_element()
+    }
+
+    fn render_html_markdown_text_line(
+        &self,
+        line: &str,
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        body_line_height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let segments = parse_html_text_line_segments(line);
+        if segments.len() == 1 {
+            match &segments[0] {
+                HtmlTextLineSegment::Text(text) => {
+                    return div()
+                        .min_w(px(0.0))
+                        .flex_shrink_0()
+                        .text_size(px(inherited_style.font_size))
+                        .text_color(inherited_style.color)
+                        .line_height(rems(body_line_height))
+                        .text_align(inherited_style.text_align)
+                        .child(SharedString::from(text.clone()))
+                        .into_any_element();
+                }
+                HtmlTextLineSegment::Link { label, hit } => {
+                    return self.render_html_markdown_link(
+                        label,
+                        hit,
+                        theme,
+                        inherited_style,
+                        body_line_height,
+                        cx,
+                    );
+                }
+            }
+        }
+
+        div()
+            .min_w(px(0.0))
+            .flex()
+            .flex_wrap()
+            .items_start()
+            .text_size(px(inherited_style.font_size))
+            .text_color(inherited_style.color)
+            .line_height(rems(body_line_height))
+            .text_align(inherited_style.text_align)
+            .children(segments.iter().map(|segment| match segment {
+                HtmlTextLineSegment::Text(text) => div()
+                    .flex_shrink_0()
+                    .child(SharedString::from(text.clone()))
+                    .into_any_element(),
+                HtmlTextLineSegment::Link { label, hit } => self.render_html_markdown_link(
+                    label,
+                    hit,
+                    theme,
+                    inherited_style,
+                    body_line_height,
+                    cx,
+                ),
+            }))
+            .into_any_element()
+    }
+
+    fn render_html_markdown_link(
+        &self,
+        label: &str,
+        hit: &InlineLinkHit,
+        theme: &Theme,
+        inherited_style: HtmlComputedStyle,
+        body_line_height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let hit = hit.clone();
+        let block = cx.entity().downgrade();
+        div()
+            .flex_shrink_0()
+            .text_size(px(inherited_style.font_size))
+            .line_height(rems(body_line_height))
+            .text_color(c.text_link)
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
+                cx.stop_propagation();
+                let _ = block.update(cx, |_block, cx| {
+                    cx.emit(BlockEvent::RequestOpenLink {
+                        prompt_target: hit.prompt_target.clone(),
+                        open_target: hit.open_target.clone(),
+                        is_workspace_file: hit.is_workspace_file,
+                        is_document_relative_file: hit.is_document_relative_file,
+                    });
+                });
+            })
+            .child(SharedString::from(label.to_string()))
             .into_any_element()
     }
 
