@@ -430,14 +430,22 @@ pub(super) fn position_for_offset(
         let row_start = offsets[row_idx];
         let row_end = offsets[row_idx + 1];
         let is_start_of_wrapped_row = prefer_next_wrap_start && row_idx > 0 && offset == row_start;
-        if is_start_of_wrapped_row || (offset >= row_start && offset < row_end) {
+        let is_end_of_line = offset >= line.len();
+        let is_in_row = offset >= row_start && offset < row_end;
+        let is_end_of_last_row = is_end_of_line && row_end == line.len() && offset == line.len();
+        if is_start_of_wrapped_row || is_in_row || is_end_of_last_row {
             let row_start_x = line.unwrapped_layout.x_for_index(row_start);
-            let x = line.unwrapped_layout.x_for_index(offset) - row_start_x;
+            let x_index = if is_end_of_line {
+                line.unwrapped_layout.x_for_index(line.len())
+            } else {
+                line.unwrapped_layout.x_for_index(offset)
+            };
+            let x = x_index - row_start_x;
             return Some(point(x, line_height * row_idx as f32));
         }
     }
 
-    line.position_for_index(offset, line_height)
+    line.position_for_index(offset.min(line.len()), line_height)
 }
 
 pub(super) fn cursor_bounds_for_offset(
@@ -463,6 +471,68 @@ pub(super) fn cursor_bounds_for_offset(
     ))
 }
 
+pub(super) fn offset_for_mouse_position(
+    lines: &[WrappedLine],
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    text: &str,
+    align: TextAlign,
+    position: Point<Pixels>,
+    link_insets: &[LinkIconTextInset],
+) -> usize {
+    if text.is_empty() || lines.is_empty() {
+        return 0;
+    }
+
+    if position.y < bounds.top() {
+        return 0;
+    }
+    if position.y > bounds.bottom() {
+        return text.len();
+    }
+
+    let ranges = hard_line_ranges(text);
+    let relative_y = position.y - bounds.top();
+    let Some((line_idx, _y_in_line)) = wrapped_line_for_y(lines, line_height, relative_y) else {
+        return 0;
+    };
+
+    let layout = &lines[line_idx];
+    let hard_range = &ranges[line_idx];
+
+    // Match caret geometry from `cursor_bounds_for_offset` on the active hard line.
+    let mut best_offset = hard_range.start;
+    let mut best_distance = px(f32::MAX);
+    let y_tolerance = line_height * 0.6;
+    for abs_offset in hard_range.start..=hard_range.end.min(text.len()) {
+        let Some(cursor) = cursor_bounds_for_offset(
+            lines,
+            bounds,
+            line_height,
+            text,
+            abs_offset,
+            align,
+            px(1.0),
+            link_insets,
+        ) else {
+            continue;
+        };
+        let dy = (cursor.center().y - position.y).abs();
+        if dy > y_tolerance {
+            continue;
+        }
+        let distance = (cursor.center().x - position.x).abs();
+        if distance < best_distance
+            || (distance == best_distance && abs_offset < best_offset)
+        {
+            best_distance = distance;
+            best_offset = abs_offset;
+        }
+    }
+
+    best_offset.min(text.len())
+}
+
 pub(super) fn range_bounds(
     lines: &[WrappedLine],
     bounds: Bounds<Pixels>,
@@ -470,8 +540,10 @@ pub(super) fn range_bounds(
     text: &str,
     range: Range<usize>,
     align: TextAlign,
+    link_insets: &[LinkIconTextInset],
 ) -> Option<Bounds<Pixels>> {
-    let segments = range_segment_bounds(lines, bounds, line_height, text, range.clone(), align);
+    let segments =
+        range_segment_bounds_with_link_insets(lines, bounds, line_height, text, range.clone(), align, link_insets);
     if segments.is_empty() {
         return cursor_bounds_for_offset(
             lines,
@@ -481,7 +553,7 @@ pub(super) fn range_bounds(
             range.start,
             align,
             px(1.0),
-            &[],
+            link_insets,
         );
     }
 
@@ -501,19 +573,7 @@ pub(super) fn range_bounds(
     Some(union)
 }
 
-fn offset_on_same_wrapped_row(line: &WrappedLine, a: usize, b: usize) -> bool {
-    let offsets = wrapped_row_offsets(line);
-    for row in offsets.windows(2) {
-        let row_start = row[0];
-        let row_end = row[1];
-        if a >= row_start && a < row_end && b >= row_start && b < row_end {
-            return true;
-        }
-    }
-    false
-}
-
-/// Horizontal shift applied from `anchor_offset` through the end of its soft-wrapped row.
+/// Horizontal shift applied from `anchor_offset` through the end of its hard line.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct LinkIconTextInset {
     anchor_offset: usize,
@@ -541,19 +601,16 @@ fn link_icon_x_shift_for_offset_at(
     }
 
     let ranges = hard_line_ranges(text);
-    let (line_idx, line_local) = line_index_for_offset(&ranges, offset);
-    let Some(line) = lines.get(line_idx) else {
+    let (line_idx, _) = line_index_for_offset(&ranges, offset);
+    if lines.get(line_idx).is_none() {
         return px(0.0);
-    };
+    }
 
     insets
         .iter()
         .filter(|inset| {
-            let (inset_line, inset_local) =
-                line_index_for_offset(&ranges, inset.anchor_offset);
-            if inset_line != line_idx
-                || !offset_on_same_wrapped_row(line, inset_local, line_local)
-            {
+            let (inset_line, _) = line_index_for_offset(&ranges, inset.anchor_offset);
+            if inset_line != line_idx {
                 return false;
             }
             if inclusive {
@@ -607,9 +664,6 @@ fn range_segment_bounds_for_hard_line(
                 continue;
             }
             if inset_local <= seg_start || inset_local >= seg_end {
-                continue;
-            }
-            if !offset_on_same_wrapped_row(line, inset_local, seg_start) {
                 continue;
             }
             boundaries.push(inset_local);
@@ -824,9 +878,10 @@ fn block_link_icon_gutter(input: &Block, line_height: Pixels) -> Pixels {
     }
 
     let text = input.display_text();
+    let reserve_leading_gutter = input.text_align() == TextAlign::Left;
     let mut slot = px(0.0);
 
-    if first_hard_line_starts_with_link(input) {
+    if reserve_leading_gutter && first_hard_line_starts_with_link(input) {
         slot = slot.max(link_action_icon_slot_width(
             line_height,
             block_link_icon_trailing_gap(text),
@@ -841,14 +896,14 @@ fn block_link_icon_gutter(input: &Block, line_height: Pixels) -> Pixels {
             continue;
         }
         let anchor = link_icon_anchor_offset(input, &span.range, link);
-        if !offset_is_leading_on_hard_line(text, anchor) {
+        if !reserve_leading_gutter || !offset_is_leading_on_hard_line(text, anchor) {
             continue;
         }
         let gap = link_icon_trailing_gap(link, anchor, span.range.start);
         slot = slot.max(link_action_icon_slot_width(line_height, gap));
     }
 
-    if slot <= px(0.0) && first_hard_line_starts_with_link(input) {
+    if slot <= px(0.0) && reserve_leading_gutter && first_hard_line_starts_with_link(input) {
         slot = link_action_icon_slot_width(line_height, block_link_icon_trailing_gap(text));
     }
 
@@ -932,13 +987,19 @@ fn link_action_icon_layout(
     let min_bg_left = min_icon_left + px(LINK_ACTION_ICON_PRECEDING_GAP);
     let min_paint_left = min_bg_left + bg_pad;
     let final_paint_left = if pin_leading {
-        layout_bounds.left()
+        // Anchor-relative: keep icon adjacent to link text / delimiters instead of
+        // pinning to the reserved gutter's far left (which creates a large visual gap
+        // when text is center/right aligned or the anchor sits away from text_bounds.left()).
+        paint_left.max(layout_bounds.left())
     } else {
         paint_left.max(min_paint_left)
     };
 
     let chrome_right = final_paint_left + icon_size + bg_pad;
-    let clamped_text_inset = if chrome_right + trailing_gap > anchor_x + px(0.5) {
+    let clamped_text_inset = if pin_leading {
+        // Leading gutter already reserves horizontal space; never shift text again.
+        px(0.0)
+    } else if chrome_right + trailing_gap > anchor_x + px(0.5) {
         (chrome_right + trailing_gap).max(anchor_x) - anchor_x
     } else {
         px(0.0)
@@ -1027,10 +1088,15 @@ pub(super) fn compute_link_icon_text_insets(
             continue;
         };
         if layout.clamped_text_inset > px(0.5) {
-            insets.push(LinkIconTextInset {
-                anchor_offset,
-                extra_x: layout.clamped_text_inset,
-            });
+            let duplicate = insets
+                .iter()
+                .any(|inset| inset.anchor_offset == anchor_offset);
+            if !duplicate {
+                insets.push(LinkIconTextInset {
+                    anchor_offset,
+                    extra_x: layout.clamped_text_inset,
+                });
+            }
         }
     }
 
@@ -1236,9 +1302,6 @@ fn paint_wrapped_line_with_link_insets(
             .iter()
             .filter_map(|inset| {
                 let (_, inset_local) = line_index_for_offset(&ranges, inset.anchor_offset);
-                if !offset_on_same_wrapped_row(line, inset_local, row_start) {
-                    return None;
-                }
                 if inset_local < row_start || inset_local >= row_end {
                     return None;
                 }
@@ -1248,7 +1311,13 @@ fn paint_wrapped_line_with_link_insets(
         row_insets.sort_unstable_by_key(|(offset, _)| *offset);
 
         let mut cursor = row_start;
-        let mut x_shift = px(0.0);
+        let mut x_shift = line_insets
+            .iter()
+            .filter_map(|inset| {
+                let (_, inset_local) = line_index_for_offset(&ranges, inset.anchor_offset);
+                (inset_local < row_start).then_some(inset.extra_x)
+            })
+            .fold(px(0.0), |total, extra| total + extra);
         for (inset_local, extra) in row_insets {
             if cursor < inset_local {
                 paint_wrapped_row_segment(
@@ -1312,7 +1381,7 @@ fn paint_wrapped_row_segment(
     );
     window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
         line.paint(
-            point(origin.x + x_shift, origin.y),
+            point(row_origin_x + x_shift - row_start_x, origin.y),
             line_height,
             TextAlign::Left,
             None,
@@ -2112,6 +2181,12 @@ impl Element for BlockTextElement {
             )
         };
 
+        if !self.is_placeholder && !input.is_source_raw_mode() {
+            self.input.update(cx, |input, _cx| {
+                input.last_link_icon_text_insets = link_icon_text_insets.clone();
+            });
+        }
+
         PrepaintState {
             lines,
             source_line_numbers,
@@ -2349,6 +2424,7 @@ impl Element for BlockTextElement {
             input.last_bounds = Some(text_bounds);
             input.interaction_bounds = Some(text_bounds);
             input.last_line_height = line_height;
+            input.last_link_icon_text_insets = prepaint.link_icon_text_insets.clone();
         });
     }
 }
@@ -2627,10 +2703,11 @@ impl Element for InlineTreePreviewTextElement {
 #[cfg(test)]
 mod tests {
     use super::{
-        block_link_icon_gutter, compute_link_icon_text_insets, first_hard_line_starts_with_link,
-        link_action_icon_at_position, link_action_icon_background_bounds,
-        link_action_icon_layout_for_span, link_action_icon_slot_width, link_at_position,
-        link_icon_anchor_offset, link_icon_layout_bounds, link_text_at_position,
+        block_link_icon_gutter, compute_link_icon_text_insets, cursor_bounds_for_offset,
+        first_hard_line_starts_with_link, link_action_icon_at_position,
+        link_action_icon_background_bounds, link_action_icon_layout_for_span,
+        link_action_icon_slot_width, link_at_position, link_icon_anchor_offset,
+        link_icon_layout_bounds, link_text_at_position, offset_for_mouse_position,
         range_segment_bounds, range_segment_bounds_with_link_insets,
         source_line_number_gutter_width, source_line_number_tops, source_text_bounds,
         wrapped_line_height, LINK_ACTION_ICON_BG_PAD, LINK_ACTION_ICON_MARKER_GAP,
@@ -2996,8 +3073,10 @@ mod tests {
                 "line-start wiki should reserve leading icon gutter"
             );
             assert!(
-                layout.paint_bounds.left() <= bounds.left() + px(0.5),
-                "line-start icon paint should align with block left edge"
+                layout.paint_bounds.left() >= layout_bounds.left() - px(0.5)
+                    && layout.paint_bounds.left()
+                        <= layout_bounds.left() + px(LINK_ACTION_ICON_BG_PAD) + px(0.5),
+                "line-start icon should sit at anchor gap inside reserved gutter"
             );
             assert!(
                 icon_bg.left() >= bounds.left() - px(LINK_ACTION_ICON_BG_PAD) - px(0.5),
@@ -3219,5 +3298,401 @@ mod tests {
         let first_height = lines[0].size(px(20.0)).height;
         assert!(first_height > px(20.0));
         assert_eq!(super::wrapped_line_top(&lines, px(20.0), 1), first_height);
+    }
+
+    #[gpui::test]
+    async fn line_start_external_link_icon_sits_close_to_link_text(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("[link text](https://example.com)"),
+                ),
+            )
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        assert_eq!(display_text, "link text");
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        assert!(link_gutter > px(0.0));
+        let wrap_width = px(320.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+
+        block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let span = block
+                .inline_spans()
+                .iter()
+                .find(|span| span.link.is_some())
+                .expect("external link span");
+            let link = span.link.as_ref().expect("link hit");
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+            assert!(insets.is_empty(), "line-start links should not shift text");
+            let layout = link_action_icon_layout_for_span(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                &display_text,
+                span.range.clone(),
+                link,
+                block.text_align(),
+                &insets,
+            )
+            .expect("external link icon layout");
+            assert_eq!(
+                layout.clamped_text_inset,
+                px(0.0),
+                "leading gutter should avoid text inset"
+            );
+            let icon_bg = link_action_icon_background_bounds(layout.paint_bounds, line_height);
+            let text_segments = range_segment_bounds(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                span.range.clone(),
+                block.text_align(),
+            );
+            let text_segment = text_segments.first().expect("link text segment");
+            let gap = text_segment.left() - icon_bg.right();
+            assert!(
+                gap <= px(LINK_ACTION_ICON_TEXT_GAP) + px(0.5),
+                "icon-to-text gap ({gap:?}) should be at most TEXT_GAP"
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn offset_for_mouse_matches_cursor_bounds_with_link_insets(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("See [link text](https://example.com) here."),
+                ),
+            )
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        let wrap_width = px(320.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+
+        block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+            assert!(
+                !insets.is_empty(),
+                "inline external link should reserve text inset"
+            );
+            let span = block
+                .inline_spans()
+                .iter()
+                .find(|span| span.link.is_some())
+                .expect("external link span");
+            let mid_offset = (span.range.start + span.range.end) / 2;
+            let cursor = cursor_bounds_for_offset(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                mid_offset,
+                block.text_align(),
+                px(1.0),
+                &insets,
+            )
+            .expect("cursor bounds");
+            let mouse_offset = offset_for_mouse_position(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                block.text_align(),
+                cursor.center(),
+                &insets,
+            );
+            assert_eq!(
+                mouse_offset, mid_offset,
+                "drag hit-testing should match painted cursor position"
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn projected_line_start_external_link_cursor_reaches_line_end(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let markdown = "[link text](https://example.com)";
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown(markdown),
+                ),
+            )
+        });
+
+        block.update(cx, |block, cx| {
+            block.selected_range = 2..2;
+            block.sync_inline_projection_for_focus(true);
+            block.move_to(block.visible_len(), cx);
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        let wrap_width = px(320.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+        block.read_with(cx, |block, _cx| {
+            let visible_len = block.visible_len();
+            let cursor_offset = block.cursor_offset();
+            assert_eq!(display_text, markdown);
+            assert_eq!(visible_len, markdown.len());
+            assert_eq!(
+                cursor_offset, visible_len,
+                "End should place caret after closing paren"
+            );
+
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+            let end_cursor = cursor_bounds_for_offset(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                cursor_offset,
+                block.text_align(),
+                px(1.0),
+                &insets,
+            )
+            .expect("end cursor bounds");
+            let text_end_segments = range_segment_bounds_with_link_insets(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                visible_len.saturating_sub(1)..visible_len,
+                block.text_align(),
+                &insets,
+            );
+            let text_end = text_end_segments.last().expect("last char segment");
+            assert!(
+                (end_cursor.left() - text_end.right()).abs() <= px(1.0),
+                "cursor ({:?}) should align with text end ({:?})",
+                end_cursor.left(),
+                text_end.right(),
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn projected_inline_external_link_cursor_and_mouse_match_at_line_end(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let markdown = "See [link text](https://example.com) here.";
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown(markdown),
+                ),
+            )
+        });
+
+        block.update(cx, |block, cx| {
+            block.selected_range = 4..4;
+            block.sync_inline_projection_for_focus(true);
+            block.move_to(block.visible_len(), cx);
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        let wrap_width = px(320.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+        block.read_with(cx, |block, _cx| {
+            let visible_len = block.visible_len();
+            let cursor_offset = block.cursor_offset();
+            assert_eq!(cursor_offset, visible_len);
+
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(320.0), px(20.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+            assert!(
+                !insets.is_empty(),
+                "inline projected link should reserve text inset"
+            );
+
+            let end_cursor = cursor_bounds_for_offset(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                cursor_offset,
+                block.text_align(),
+                px(1.0),
+                &insets,
+            )
+            .expect("end cursor bounds");
+            let text_end_segments = range_segment_bounds_with_link_insets(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                visible_len.saturating_sub(1)..visible_len,
+                block.text_align(),
+                &insets,
+            );
+            let text_end = text_end_segments.last().expect("last char segment");
+            assert!(
+                (end_cursor.left() - text_end.right()).abs() <= px(1.0),
+                "cursor ({:?}) should align with text end ({:?})",
+                end_cursor.left(),
+                text_end.right(),
+            );
+
+            let mouse_offset = offset_for_mouse_position(
+                &lines,
+                text_bounds,
+                line_height,
+                &display_text,
+                block.text_align(),
+                end_cursor.center(),
+                &insets,
+            );
+            assert_eq!(mouse_offset, cursor_offset);
+        });
+    }
+
+    #[gpui::test]
+    async fn projected_wrapped_external_link_cursor_matches_each_offset(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let markdown = "[link text](https://example.com)";
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown(markdown),
+                ),
+            )
+        });
+
+        block.update(cx, |block, _cx| {
+            block.selected_range = 2..2;
+            block.sync_inline_projection_for_focus(true);
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        // Force soft-wrap inside the URL.
+        let wrap_width = px(120.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+        assert!(
+            !lines[0].wrap_boundaries().is_empty(),
+            "link projection should soft-wrap at narrow width"
+        );
+
+        block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(120.0), px(60.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+
+            for offset in 0..=display_text.len() {
+                let Some(cursor) = cursor_bounds_for_offset(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    &display_text,
+                    offset,
+                    block.text_align(),
+                    px(1.0),
+                    &insets,
+                ) else {
+                    continue;
+                };
+                let mouse_offset = offset_for_mouse_position(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    &display_text,
+                    block.text_align(),
+                    cursor.center(),
+                    &insets,
+                );
+                assert_eq!(
+                    mouse_offset, offset,
+                    "offset {offset} cursor/mouse mismatch with wrap + projection"
+                );
+            }
+        });
     }
 }

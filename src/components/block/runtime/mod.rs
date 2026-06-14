@@ -129,6 +129,7 @@ pub struct Block {
     pub last_bounds: Option<Bounds<Pixels>>,
     pub(crate) interaction_bounds: Option<Bounds<Pixels>>,
     pub last_line_height: Pixels,
+    pub(crate) last_link_icon_text_insets: Vec<super::element::LinkIconTextInset>,
     pub render_depth: usize,
     pub quote_depth: usize,
     pub(crate) quote_group_anchor: Option<uuid::Uuid>,
@@ -254,6 +255,7 @@ impl Block {
             last_bounds: None,
             interaction_bounds: None,
             last_line_height: px(20.0),
+            last_link_icon_text_insets: Vec::new(),
             render_depth: 0,
             quote_depth: 0,
             quote_group_anchor: None,
@@ -518,6 +520,7 @@ impl Block {
             self.display_text(),
             range,
             self.text_align(),
+            &self.last_link_icon_text_insets,
         )
     }
 
@@ -2497,31 +2500,20 @@ impl Block {
             return 0;
         };
 
-        if position.y < bounds.top() {
-            return 0;
-        }
         if position.y > bounds.bottom() {
             return self.visible_len();
         }
 
-        let text = self.display_text();
-        let ranges = super::element::hard_line_ranges(text);
-        let relative_y = position.y - bounds.top();
-        let Some((line_idx, y_in_line)) =
-            super::element::wrapped_line_for_y(lines, self.last_line_height, relative_y)
-        else {
-            return 0;
-        };
-        let layout = &lines[line_idx];
-        let origin_x = super::element::aligned_line_left(layout, *bounds, self.text_align());
-
-        let offset_in_line = match layout.closest_index_for_position(
-            point(position.x - origin_x, y_in_line),
+        super::element::offset_for_mouse_position(
+            lines,
+            *bounds,
             self.last_line_height,
-        ) {
-            Ok(idx) | Err(idx) => idx,
-        };
-        ranges[line_idx].start + offset_in_line
+            self.display_text(),
+            self.text_align(),
+            position,
+            &self.last_link_icon_text_insets,
+        )
+        .min(self.visible_len())
     }
 
     pub(crate) fn active_range_or_cursor_bounds(&self) -> Option<Bounds<Pixels>> {
@@ -2543,7 +2535,7 @@ impl Block {
                 self.cursor_offset(),
                 self.text_align(),
                 px(1.0),
-                &[],
+                &self.last_link_icon_text_insets,
             );
         }
 
@@ -2554,6 +2546,7 @@ impl Block {
             text,
             active_range,
             self.text_align(),
+            &self.last_link_icon_text_insets,
         )
     }
 }

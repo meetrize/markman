@@ -196,7 +196,15 @@ impl EntityInputHandler for Block {
         let range = self.range_from_utf16(&range_utf16);
         let line_height = self.last_line_height;
         let text = self.display_text();
-        element::range_bounds(lines, bounds, line_height, text, range, self.text_align())
+        element::range_bounds(
+            lines,
+            bounds,
+            line_height,
+            text,
+            range,
+            self.text_align(),
+            &self.last_link_icon_text_insets,
+        )
     }
 
     fn character_index_for_point(
@@ -211,22 +219,15 @@ impl EntityInputHandler for Block {
 
         let bounds = self.last_bounds?;
         let lines = self.last_layout.as_ref()?;
-        let text = self.display_text();
-        let ranges = element::hard_line_ranges(text);
-        let relative = Point {
-            x: pt.x - bounds.left(),
-            y: pt.y - bounds.top(),
-        };
-        let (line_idx, y_in_line) =
-            element::wrapped_line_for_y(lines, self.last_line_height, relative.y)?;
-        let layout = &lines[line_idx];
-        let origin_x = element::aligned_line_left(layout, bounds, self.text_align());
-        let utf8_offset_in_line = match layout
-            .closest_index_for_position(point(pt.x - origin_x, y_in_line), self.last_line_height)
-        {
-            Ok(idx) | Err(idx) => idx,
-        };
-        let utf8_index = ranges[line_idx].start + utf8_offset_in_line;
+        let utf8_index = element::offset_for_mouse_position(
+            lines,
+            bounds,
+            self.last_line_height,
+            self.display_text(),
+            self.text_align(),
+            pt,
+            &self.last_link_icon_text_insets,
+        );
         Some(Self::utf8_to_utf16_in(self.display_text(), utf8_index))
     }
 }
