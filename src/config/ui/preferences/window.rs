@@ -25,7 +25,7 @@ use crate::editor::Editor;
 use crate::i18n::I18nManager;
 use crate::input::single_line_field::SingleLineFieldState;
 use crate::input::text_norm::flatten_paste_to_single_line;
-use crate::theme::{Theme, ThemeCatalogEntry, ThemeManager};
+use crate::theme::{Theme, ThemeCatalogEntry, ThemeManager, FONT_PRESETS, font_preset_label};
 use crate::window_chrome::{
     custom_titlebar_height, render_custom_titlebar, velotype_window_options,
 };
@@ -63,6 +63,12 @@ impl AiPreferenceInputState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FontDropdownTarget {
+    Preview,
+    Source,
+}
+
 /// Independent preferences window view.
 pub(crate) struct PreferencesWindow {
     pub(in crate::config::ui::preferences) nav: PreferencesNav,
@@ -71,6 +77,8 @@ pub(crate) struct PreferencesWindow {
     inline_code_run_in_system_terminal: bool,
     code_block_default_expanded: bool,
     code_block_show_line_numbers: bool,
+    preview_font_family: String,
+    source_font_family: String,
     pub(in crate::config::ui::preferences) ai: AiPreferences,
     selected_theme_id: String,
     keybindings: BTreeMap<String, Vec<String>>,
@@ -79,6 +87,8 @@ pub(crate) struct PreferencesWindow {
     saved_inline_code_run_in_system_terminal: bool,
     saved_code_block_default_expanded: bool,
     saved_code_block_show_line_numbers: bool,
+    saved_preview_font_family: String,
+    saved_source_font_family: String,
     saved_ai: AiPreferences,
     saved_theme_id: String,
     saved_keybindings: BTreeMap<String, Vec<String>>,
@@ -86,6 +96,7 @@ pub(crate) struct PreferencesWindow {
     focus_handle: FocusHandle,
     startup_dropdown_open: bool,
     theme_dropdown_open: bool,
+    font_dropdown_open: Option<FontDropdownTarget>,
     recording_shortcut: Option<ShortcutCommand>,
     shortcut_error: Option<String>,
     ai_input: AiPreferenceInputState,
@@ -114,6 +125,8 @@ impl PreferencesWindow {
         let inline_code_run_in_system_terminal = preferences.inline_code_run_in_system_terminal;
         let code_block_default_expanded = preferences.code_block_default_expanded;
         let code_block_show_line_numbers = preferences.code_block_show_line_numbers;
+        let preview_font_family = preferences.preview_font_family;
+        let source_font_family = preferences.source_font_family;
         let ai = preferences.ai;
         let keybindings = preferences.keybindings;
         Self {
@@ -123,6 +136,8 @@ impl PreferencesWindow {
             inline_code_run_in_system_terminal,
             code_block_default_expanded,
             code_block_show_line_numbers,
+            preview_font_family: preview_font_family.clone(),
+            source_font_family: source_font_family.clone(),
             ai: ai.clone(),
             selected_theme_id: selected_theme_id.clone(),
             keybindings: keybindings.clone(),
@@ -131,6 +146,8 @@ impl PreferencesWindow {
             saved_inline_code_run_in_system_terminal: inline_code_run_in_system_terminal,
             saved_code_block_default_expanded: code_block_default_expanded,
             saved_code_block_show_line_numbers: code_block_show_line_numbers,
+            saved_preview_font_family: preview_font_family,
+            saved_source_font_family: source_font_family,
             saved_ai: ai,
             saved_theme_id: selected_theme_id,
             saved_keybindings: keybindings,
@@ -138,6 +155,7 @@ impl PreferencesWindow {
             focus_handle: cx.focus_handle(),
             startup_dropdown_open: false,
             theme_dropdown_open: false,
+            font_dropdown_open: None,
             recording_shortcut: None,
             shortcut_error: None,
             ai_input: AiPreferenceInputState::new(cx),
@@ -162,6 +180,8 @@ impl PreferencesWindow {
                 != self.saved_inline_code_run_in_system_terminal
             || self.code_block_default_expanded != self.saved_code_block_default_expanded
             || self.code_block_show_line_numbers != self.saved_code_block_show_line_numbers
+            || self.preview_font_family != self.saved_preview_font_family
+            || self.source_font_family != self.saved_source_font_family
             || self.ai != self.saved_ai
             || self.selected_theme_id != self.saved_theme_id
             || normalize_shortcut_config(&self.keybindings)
@@ -172,6 +192,7 @@ impl PreferencesWindow {
         self.nav = PreferencesNav::File;
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
+        self.font_dropdown_open = None;
         self.recording_shortcut = None;
         self.clear_all_ai_text_input_state();
         cx.notify();
@@ -181,6 +202,7 @@ impl PreferencesWindow {
         self.nav = PreferencesNav::Theme;
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
+        self.font_dropdown_open = None;
         self.recording_shortcut = None;
         self.clear_all_ai_text_input_state();
         cx.notify();
@@ -190,6 +212,7 @@ impl PreferencesWindow {
         self.nav = PreferencesNav::Ai;
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
+        self.font_dropdown_open = None;
         self.recording_shortcut = None;
         cx.notify();
     }
@@ -198,6 +221,7 @@ impl PreferencesWindow {
         self.nav = PreferencesNav::Shortcuts;
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
+        self.font_dropdown_open = None;
         self.shortcut_error = None;
         self.clear_all_ai_text_input_state();
         cx.notify();
@@ -474,13 +498,106 @@ impl PreferencesWindow {
     fn toggle_startup_dropdown(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.startup_dropdown_open = !self.startup_dropdown_open;
         self.theme_dropdown_open = false;
+        self.font_dropdown_open = None;
         cx.notify();
     }
 
     fn toggle_theme_dropdown(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.theme_dropdown_open = !self.theme_dropdown_open;
         self.startup_dropdown_open = false;
+        self.font_dropdown_open = None;
         cx.notify();
+    }
+
+    fn toggle_font_dropdown(
+        &mut self,
+        target: FontDropdownTarget,
+        _: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.font_dropdown_open = if self.font_dropdown_open == Some(target) {
+            None
+        } else {
+            Some(target)
+        };
+        self.startup_dropdown_open = false;
+        self.theme_dropdown_open = false;
+        cx.notify();
+    }
+
+    fn font_family_label(&self, family: &str, strings: &crate::i18n::I18nStrings) -> String {
+        font_preset_label(
+            family,
+            &strings.preferences_font_system_mono,
+            &strings.preferences_font_system_ui,
+        )
+    }
+
+    fn render_font_dropdown(
+        &self,
+        id: &'static str,
+        target: FontDropdownTarget,
+        selected_family: &str,
+        strings: &crate::i18n::I18nStrings,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let selected = self.font_family_label(selected_family, strings);
+        let mut dropdown = div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(
+                div()
+                    .w(px(280.0))
+                    .min_h(px(36.0))
+                    .px(px(12.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .rounded(px(theme.dimensions.menu_item_radius))
+                    .border(px(theme.dimensions.dialog_border_width))
+                    .border_color(theme.colors.dialog_border)
+                    .bg(theme.colors.editor_background)
+                    .hover(|this| this.bg(theme.colors.dialog_secondary_button_hover))
+                    .cursor_pointer()
+                    .text_size(px(theme.typography.dialog_body_size))
+                    .text_color(theme.colors.dialog_body)
+                    .id(id)
+                    .child(selected)
+                    .child("v")
+                    .on_click(cx.listener(move |this, event, window, cx| {
+                        this.toggle_font_dropdown(target, event, window, cx);
+                    })),
+            );
+        if self.font_dropdown_open == Some(target) {
+            for (index, preset) in FONT_PRESETS.iter().enumerate() {
+                let family = preset.id.to_string();
+                let label = self.font_family_label(preset.id, strings);
+                let is_selected = selected_family == preset.id;
+                dropdown = dropdown.child(Self::dropdown_item(
+                    (id, index),
+                    label,
+                    is_selected,
+                    theme,
+                    move |this, _, _, cx| {
+                        match target {
+                            FontDropdownTarget::Preview => {
+                                this.preview_font_family = family.clone();
+                            }
+                            FontDropdownTarget::Source => {
+                                this.source_font_family = family.clone();
+                            }
+                        }
+                        this.font_dropdown_open = None;
+                        cx.notify();
+                    },
+                    cx,
+                ));
+            }
+        }
+        dropdown
     }
 
     fn cancel(&mut self, _: &ClickEvent, window: &mut Window, _: &mut Context<Self>) {
@@ -531,6 +648,8 @@ impl PreferencesWindow {
             self.inline_code_run_in_system_terminal,
             self.code_block_default_expanded,
             self.code_block_show_line_numbers,
+            self.preview_font_family.clone(),
+            self.source_font_family.clone(),
             self.ai.clone(),
         ) {
             Ok(preferences) => preferences,
@@ -577,6 +696,8 @@ impl PreferencesWindow {
         self.saved_inline_code_run_in_system_terminal = self.inline_code_run_in_system_terminal;
         self.saved_code_block_default_expanded = self.code_block_default_expanded;
         self.saved_code_block_show_line_numbers = self.code_block_show_line_numbers;
+        self.saved_preview_font_family = self.preview_font_family.clone();
+        self.saved_source_font_family = self.source_font_family.clone();
         self.saved_ai = self.ai.clone();
         self.saved_theme_id = self.selected_theme_id.clone();
         self.saved_keybindings = normalize_shortcut_config(&self.keybindings);
@@ -854,6 +975,30 @@ impl PreferencesWindow {
                     theme,
                 )
             })
+            .child(self.labeled_row(
+                &strings.preferences_preview_font_label,
+                self.render_font_dropdown(
+                    "preferences-preview-font",
+                    FontDropdownTarget::Preview,
+                    &self.preview_font_family,
+                    strings,
+                    theme,
+                    cx,
+                ),
+                theme,
+            ))
+            .child(self.labeled_row(
+                &strings.preferences_source_font_label,
+                self.render_font_dropdown(
+                    "preferences-source-font",
+                    FontDropdownTarget::Source,
+                    &self.source_font_family,
+                    strings,
+                    theme,
+                    cx,
+                ),
+                theme,
+            ))
     }
 
     fn render_theme_page(

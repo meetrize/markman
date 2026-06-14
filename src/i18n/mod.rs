@@ -542,6 +542,14 @@ pub struct I18nStrings {
     pub preferences_code_block_default_expanded_label: String,
     /// Preferences label for showing line numbers in code blocks.
     pub preferences_code_block_show_line_numbers_label: String,
+    /// Preferences label for preview (rendered) font family.
+    pub preferences_preview_font_label: String,
+    /// Preferences label for source-mode font family.
+    pub preferences_source_font_label: String,
+    /// Label for the system monospace font preset.
+    pub preferences_font_system_mono: String,
+    /// Label for the system UI font preset.
+    pub preferences_font_system_ui: String,
     pub quick_file_open_placeholder: String,
 }
 
@@ -838,6 +846,10 @@ struct I18nStringsDe {
     preferences_inline_code_system_terminal_label: Option<String>,
     preferences_code_block_default_expanded_label: Option<String>,
     preferences_code_block_show_line_numbers_label: Option<String>,
+    preferences_preview_font_label: Option<String>,
+    preferences_source_font_label: Option<String>,
+    preferences_font_system_mono: Option<String>,
+    preferences_font_system_ui: Option<String>,
     quick_file_open_placeholder: Option<String>,
 }
 
@@ -1132,6 +1144,10 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_inline_code_system_terminal_label",
     "preferences_code_block_default_expanded_label",
     "preferences_code_block_show_line_numbers_label",
+    "preferences_preview_font_label",
+    "preferences_source_font_label",
+    "preferences_font_system_mono",
+    "preferences_font_system_ui",
     "quick_file_open_placeholder",
 ];
 
@@ -1950,6 +1966,18 @@ impl I18nStringsDe {
             preferences_code_block_show_line_numbers_label: self
                 .preferences_code_block_show_line_numbers_label
                 .unwrap_or(defaults.preferences_code_block_show_line_numbers_label),
+            preferences_preview_font_label: self
+                .preferences_preview_font_label
+                .unwrap_or(defaults.preferences_preview_font_label),
+            preferences_source_font_label: self
+                .preferences_source_font_label
+                .unwrap_or(defaults.preferences_source_font_label),
+            preferences_font_system_mono: self
+                .preferences_font_system_mono
+                .unwrap_or(defaults.preferences_font_system_mono),
+            preferences_font_system_ui: self
+                .preferences_font_system_ui
+                .unwrap_or(defaults.preferences_font_system_ui),
             quick_file_open_placeholder: self
                 .quick_file_open_placeholder
                 .unwrap_or(defaults.quick_file_open_placeholder),
@@ -2269,6 +2297,10 @@ impl I18nStrings {
             preferences_inline_code_system_terminal_label: "行内代码在系统终端中执行".into(),
             preferences_code_block_default_expanded_label: "代码块默认展开".into(),
             preferences_code_block_show_line_numbers_label: "显示代码块行号".into(),
+            preferences_preview_font_label: "预览字体".into(),
+            preferences_source_font_label: "源码字体".into(),
+            preferences_font_system_mono: "系统等宽字体".into(),
+            preferences_font_system_ui: "系统界面字体".into(),
             quick_file_open_placeholder: "搜索文件名…".into(),
         }
     }
@@ -2587,6 +2619,10 @@ impl I18nStrings {
             preferences_inline_code_system_terminal_label: "Run inline code in the system terminal".into(),
             preferences_code_block_default_expanded_label: "Expand code blocks by default".into(),
             preferences_code_block_show_line_numbers_label: "Show code block line numbers".into(),
+            preferences_preview_font_label: "Preview font".into(),
+            preferences_source_font_label: "Source font".into(),
+            preferences_font_system_mono: "System monospace".into(),
+            preferences_font_system_ui: "System UI".into(),
             quick_file_open_placeholder: "Search files by name…".into(),
         }
     }

@@ -4,6 +4,8 @@
 //! be swapped without changing the runtime logic.
 
 mod document_zoom;
+mod fonts;
 mod theme;
 pub use document_zoom::*;
+pub use fonts::*;
 pub use theme::*;

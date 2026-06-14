@@ -21,7 +21,9 @@ use super::format_toolbar::{
 use super::{MarkmanConfigDirs, read_recent_files};
 use crate::components::normalize_shortcut_config;
 use crate::i18n::language_id_for_locale_preferences;
-use crate::theme::normalize_builtin_theme_id;
+use crate::theme::{
+    default_preview_font_family, default_source_font_family, normalize_builtin_theme_id,
+};
 
 pub(crate) const DEFAULT_THEME_ID: &str = "markman";
 const DEFAULT_LANGUAGE_ID: &str = "en-US";
@@ -66,6 +68,10 @@ pub(crate) struct AppPreferences {
     pub(crate) code_block_default_expanded: bool,
     /// When true, code blocks show a line-number gutter in the editor.
     pub(crate) code_block_show_line_numbers: bool,
+    /// Font family id for rendered Markdown preview.
+    pub(crate) preview_font_family: String,
+    /// Font family id for source-mode editing.
+    pub(crate) source_font_family: String,
     pub(crate) ai: AiPreferences,
     pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
 }
@@ -109,6 +115,8 @@ impl Default for AppPreferences {
             inline_code_run_in_system_terminal: false,
             code_block_default_expanded: false,
             code_block_show_line_numbers: true,
+            preview_font_family: default_preview_font_family(),
+            source_font_family: default_source_font_family(),
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         }
@@ -123,6 +131,7 @@ struct PreferencesFile {
     keybindings: BTreeMap<String, Vec<String>>,
     code_execution: CodeExecutionPreferencesFile,
     code_block: CodeBlockPreferencesFile,
+    fonts: FontPreferencesFile,
     ai: AiPreferencesFile,
     format_toolbar: Vec<FormatToolbarButtonConfigFile>,
 }
@@ -153,6 +162,12 @@ struct CodeExecutionPreferencesFile {
 struct CodeBlockPreferencesFile {
     default_expanded: bool,
     show_line_numbers: bool,
+}
+
+#[derive(Serialize)]
+struct FontPreferencesFile {
+    preview: String,
+    source: String,
 }
 
 #[derive(Serialize)]
@@ -188,6 +203,10 @@ impl From<&AppPreferences> for PreferencesFile {
             code_block: CodeBlockPreferencesFile {
                 default_expanded: value.code_block_default_expanded,
                 show_line_numbers: value.code_block_show_line_numbers,
+            },
+            fonts: FontPreferencesFile {
+                preview: value.preview_font_family.clone(),
+                source: value.source_font_family.clone(),
             },
             ai: AiPreferencesFile {
                 provider: value.ai.provider.clone(),
@@ -313,6 +332,16 @@ fn app_preferences_from_toml_value(
         .and_then(|section| section.get("show_line_numbers"))
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
+    let preview_font_family = read_trimmed_string(
+        value.get("fonts"),
+        "preview",
+        &default_preview_font_family(),
+    );
+    let source_font_family = read_trimmed_string(
+        value.get("fonts"),
+        "source",
+        &default_source_font_family(),
+    );
     let ai = ai_preferences_from_toml_value(value);
     let format_toolbar = format_toolbar_buttons_from_toml(Some(value));
 
@@ -326,6 +355,8 @@ fn app_preferences_from_toml_value(
         inline_code_run_in_system_terminal,
         code_block_default_expanded,
         code_block_show_line_numbers,
+        preview_font_family,
+        source_font_family,
         ai,
         format_toolbar,
     }
@@ -441,6 +472,8 @@ pub(crate) fn save_preferences_from_window(
     inline_code_run_in_system_terminal: bool,
     code_block_default_expanded: bool,
     code_block_show_line_numbers: bool,
+    preview_font_family: String,
+    source_font_family: String,
     ai: AiPreferences,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = MarkmanConfigDirs::from_system()?;
@@ -452,6 +485,8 @@ pub(crate) fn save_preferences_from_window(
         inline_code_run_in_system_terminal,
         code_block_default_expanded,
         code_block_show_line_numbers,
+        preview_font_family,
+        source_font_family,
         ai,
         &dirs,
     )
@@ -465,6 +500,8 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     inline_code_run_in_system_terminal: bool,
     code_block_default_expanded: bool,
     code_block_show_line_numbers: bool,
+    preview_font_family: String,
+    source_font_family: String,
     ai: AiPreferences,
     dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
@@ -477,6 +514,8 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preferences.inline_code_run_in_system_terminal = inline_code_run_in_system_terminal;
     preferences.code_block_default_expanded = code_block_default_expanded;
     preferences.code_block_show_line_numbers = code_block_show_line_numbers;
+    preferences.preview_font_family = preview_font_family;
+    preferences.source_font_family = source_font_family;
     preferences.ai = ai;
     preferences.ai.selection_toolbar =
         normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
@@ -504,7 +543,7 @@ mod tests {
         load_or_create_app_preferences_with_dirs_and_locales, read_app_preferences_with_dirs,
         save_app_preferences_with_dirs, save_preferences_from_window_with_dirs,
     };
-    use crate::config::format_toolbar::default_format_toolbar_button_configs;
+    use crate::theme::{default_preview_font_family, default_source_font_family};
     use crate::config::MarkmanConfigDirs;
     use std::collections::BTreeMap;
 
@@ -577,14 +616,7 @@ mod tests {
             startup_open: StartupOpenPreference::LastOpenedFile,
             default_language_id: "zh-CN".into(),
             default_theme_id: "markman-light".into(),
-            keybindings: BTreeMap::new(),
-            allow_code_execution: true,
-            code_execution_confirm_shown: false,
-            inline_code_run_in_system_terminal: false,
-            code_block_default_expanded: false,
-            code_block_show_line_numbers: true,
-            ai: AiPreferences::default(),
-            format_toolbar: default_format_toolbar_button_configs(),
+            ..AppPreferences::default()
         };
 
         save_app_preferences_with_dirs(&preferences, &dirs)
@@ -663,14 +695,7 @@ mod tests {
             startup_open: StartupOpenPreference::NewFile,
             default_language_id: "zh-CN".into(),
             default_theme_id: "velotype".into(),
-            keybindings: BTreeMap::new(),
-            allow_code_execution: true,
-            code_execution_confirm_shown: false,
-            inline_code_run_in_system_terminal: false,
-            code_block_default_expanded: false,
-            code_block_show_line_numbers: true,
-            ai: AiPreferences::default(),
-            format_toolbar: default_format_toolbar_button_configs(),
+            ..AppPreferences::default()
         };
         save_app_preferences_with_dirs(&preferences, &dirs)
             .expect("preferences should save to config.toml");
@@ -683,6 +708,8 @@ mod tests {
             true,
             true,
             false,
+            default_preview_font_family(),
+            default_source_font_family(),
             AiPreferences::default(),
             &dirs,
         )
