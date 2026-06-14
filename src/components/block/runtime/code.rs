@@ -3,6 +3,8 @@
 use super::*;
 use crate::input::text_norm::flatten_paste_to_single_line;
 
+use crate::config::read_app_preferences;
+
 /// Number of code lines shown before a collapsible block folds.
 pub(crate) const CODE_BLOCK_COLLAPSED_VISIBLE_LINES: usize = 3;
 
@@ -48,7 +50,16 @@ impl Block {
         }
         match self.code_block_collapsed_override {
             Some(collapsed) => collapsed,
-            None => !focused,
+            None => {
+                let default_expanded = read_app_preferences()
+                    .map(|preferences| preferences.code_block_default_expanded)
+                    .unwrap_or(false);
+                if default_expanded {
+                    false
+                } else {
+                    !focused
+                }
+            }
         }
     }
 

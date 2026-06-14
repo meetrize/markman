@@ -69,12 +69,14 @@ pub(crate) struct PreferencesWindow {
     startup_open: StartupOpenPreference,
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
+    code_block_default_expanded: bool,
     pub(in crate::config::ui::preferences) ai: AiPreferences,
     selected_theme_id: String,
     keybindings: BTreeMap<String, Vec<String>>,
     saved_startup_open: StartupOpenPreference,
     saved_allow_code_execution: bool,
     saved_inline_code_run_in_system_terminal: bool,
+    saved_code_block_default_expanded: bool,
     saved_ai: AiPreferences,
     saved_theme_id: String,
     saved_keybindings: BTreeMap<String, Vec<String>>,
@@ -108,6 +110,7 @@ impl PreferencesWindow {
         let startup_open = preferences.startup_open;
         let allow_code_execution = preferences.allow_code_execution;
         let inline_code_run_in_system_terminal = preferences.inline_code_run_in_system_terminal;
+        let code_block_default_expanded = preferences.code_block_default_expanded;
         let ai = preferences.ai;
         let keybindings = preferences.keybindings;
         Self {
@@ -115,12 +118,14 @@ impl PreferencesWindow {
             startup_open,
             allow_code_execution,
             inline_code_run_in_system_terminal,
+            code_block_default_expanded,
             ai: ai.clone(),
             selected_theme_id: selected_theme_id.clone(),
             keybindings: keybindings.clone(),
             saved_startup_open: startup_open,
             saved_allow_code_execution: allow_code_execution,
             saved_inline_code_run_in_system_terminal: inline_code_run_in_system_terminal,
+            saved_code_block_default_expanded: code_block_default_expanded,
             saved_ai: ai,
             saved_theme_id: selected_theme_id,
             saved_keybindings: keybindings,
@@ -150,6 +155,7 @@ impl PreferencesWindow {
             || self.allow_code_execution != self.saved_allow_code_execution
             || self.inline_code_run_in_system_terminal
                 != self.saved_inline_code_run_in_system_terminal
+            || self.code_block_default_expanded != self.saved_code_block_default_expanded
             || self.ai != self.saved_ai
             || self.selected_theme_id != self.saved_theme_id
             || normalize_shortcut_config(&self.keybindings)
@@ -517,6 +523,7 @@ impl PreferencesWindow {
             self.keybindings.clone(),
             self.allow_code_execution,
             self.inline_code_run_in_system_terminal,
+            self.code_block_default_expanded,
             self.ai.clone(),
         ) {
             Ok(preferences) => preferences,
@@ -561,6 +568,7 @@ impl PreferencesWindow {
         self.saved_startup_open = self.startup_open;
         self.saved_allow_code_execution = self.allow_code_execution;
         self.saved_inline_code_run_in_system_terminal = self.inline_code_run_in_system_terminal;
+        self.saved_code_block_default_expanded = self.code_block_default_expanded;
         self.saved_ai = self.ai.clone();
         self.saved_theme_id = self.selected_theme_id.clone();
         self.saved_keybindings = normalize_shortcut_config(&self.keybindings);
@@ -756,6 +764,11 @@ impl PreferencesWindow {
         } else {
             strings.preferences_allow_code_execution_off.clone()
         };
+        let code_block_expanded_label = if self.code_block_default_expanded {
+            strings.preferences_allow_code_execution_on.clone()
+        } else {
+            strings.preferences_allow_code_execution_off.clone()
+        };
 
         div()
             .flex()
@@ -788,6 +801,22 @@ impl PreferencesWindow {
                         |this, _, _, cx| {
                             this.inline_code_run_in_system_terminal =
                                 !this.inline_code_run_in_system_terminal;
+                            cx.notify();
+                        },
+                        cx,
+                    ),
+                    theme,
+                )
+            })
+            .child({
+                self.labeled_row(
+                    &strings.preferences_code_block_default_expanded_label,
+                    Self::dropdown_button(
+                        "preferences-code-block-default-expanded",
+                        code_block_expanded_label,
+                        theme,
+                        |this, _, _, cx| {
+                            this.code_block_default_expanded = !this.code_block_default_expanded;
                             cx.notify();
                         },
                         cx,

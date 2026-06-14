@@ -62,6 +62,8 @@ pub(crate) struct AppPreferences {
     pub(crate) code_execution_confirm_shown: bool,
     /// When true, inline code runs open in the system terminal instead of the in-app popover runner.
     pub(crate) inline_code_run_in_system_terminal: bool,
+    /// When true, collapsible code blocks start expanded instead of folded when unfocused.
+    pub(crate) code_block_default_expanded: bool,
     pub(crate) ai: AiPreferences,
     pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
 }
@@ -103,6 +105,7 @@ impl Default for AppPreferences {
             allow_code_execution: true,
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
+            code_block_default_expanded: false,
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         }
@@ -116,6 +119,7 @@ struct PreferencesFile {
     theme: ThemePreferencesFile,
     keybindings: BTreeMap<String, Vec<String>>,
     code_execution: CodeExecutionPreferencesFile,
+    code_block: CodeBlockPreferencesFile,
     ai: AiPreferencesFile,
     format_toolbar: Vec<FormatToolbarButtonConfigFile>,
 }
@@ -140,6 +144,11 @@ struct CodeExecutionPreferencesFile {
     allow: bool,
     confirm_shown: bool,
     inline_code_system_terminal: bool,
+}
+
+#[derive(Serialize)]
+struct CodeBlockPreferencesFile {
+    default_expanded: bool,
 }
 
 #[derive(Serialize)]
@@ -171,6 +180,9 @@ impl From<&AppPreferences> for PreferencesFile {
                 allow: value.allow_code_execution,
                 confirm_shown: value.code_execution_confirm_shown,
                 inline_code_system_terminal: value.inline_code_run_in_system_terminal,
+            },
+            code_block: CodeBlockPreferencesFile {
+                default_expanded: value.code_block_default_expanded,
             },
             ai: AiPreferencesFile {
                 provider: value.ai.provider.clone(),
@@ -286,6 +298,11 @@ fn app_preferences_from_toml_value(
         .and_then(|section| section.get("inline_code_system_terminal"))
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let code_block_default_expanded = value
+        .get("code_block")
+        .and_then(|section| section.get("default_expanded"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     let ai = ai_preferences_from_toml_value(value);
     let format_toolbar = format_toolbar_buttons_from_toml(Some(value));
 
@@ -297,6 +314,7 @@ fn app_preferences_from_toml_value(
         allow_code_execution,
         code_execution_confirm_shown,
         inline_code_run_in_system_terminal,
+        code_block_default_expanded,
         ai,
         format_toolbar,
     }
@@ -410,6 +428,7 @@ pub(crate) fn save_preferences_from_window(
     keybindings: BTreeMap<String, Vec<String>>,
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
+    code_block_default_expanded: bool,
     ai: AiPreferences,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = MarkmanConfigDirs::from_system()?;
@@ -419,6 +438,7 @@ pub(crate) fn save_preferences_from_window(
         keybindings,
         allow_code_execution,
         inline_code_run_in_system_terminal,
+        code_block_default_expanded,
         ai,
         &dirs,
     )
@@ -430,6 +450,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     keybindings: BTreeMap<String, Vec<String>>,
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
+    code_block_default_expanded: bool,
     ai: AiPreferences,
     dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
@@ -440,6 +461,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preferences.keybindings = normalize_shortcut_config(&keybindings);
     preferences.allow_code_execution = allow_code_execution;
     preferences.inline_code_run_in_system_terminal = inline_code_run_in_system_terminal;
+    preferences.code_block_default_expanded = code_block_default_expanded;
     preferences.ai = ai;
     preferences.ai.selection_toolbar =
         normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
@@ -544,6 +566,7 @@ mod tests {
             allow_code_execution: true,
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
+            code_block_default_expanded: false,
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         };
@@ -628,6 +651,7 @@ mod tests {
             allow_code_execution: true,
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
+            code_block_default_expanded: false,
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         };
@@ -639,6 +663,7 @@ mod tests {
             "velotype-light",
             BTreeMap::from([("save_document".to_string(), vec!["ctrl-alt-s".to_string()])]),
             false,
+            true,
             true,
             AiPreferences::default(),
             &dirs,
@@ -652,6 +677,30 @@ mod tests {
             Some(&vec!["ctrl-alt-s".to_string()])
         );
         assert!(saved.inline_code_run_in_system_terminal);
+        assert!(saved.code_block_default_expanded);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_and_reads_code_block_default_expanded_preference() {
+        let root = std::env::temp_dir().join(format!(
+            "velotype-preferences-code-block-expanded-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let dirs = MarkmanConfigDirs::from_root(&root);
+        let preferences = AppPreferences {
+            code_block_default_expanded: true,
+            ..AppPreferences::default()
+        };
+
+        save_app_preferences_with_dirs(&preferences, &dirs)
+            .expect("preferences should save to config.toml");
+        let loaded = read_app_preferences_with_dirs(&dirs).expect("preferences should read back");
+        assert!(loaded.code_block_default_expanded);
+
+        let text =
+            std::fs::read_to_string(dirs.app_config_file()).expect("config.toml should exist");
+        assert!(text.contains("default_expanded = true"));
         let _ = std::fs::remove_dir_all(root);
     }
 
