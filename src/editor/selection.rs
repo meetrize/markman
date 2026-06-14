@@ -7,8 +7,8 @@ use std::time::Instant;
 use gpui::*;
 
 use super::{
-    CrossBlockDrag, CrossBlockSelection, CrossBlockSelectionEndpoint, Editor, SourceTargetMapping,
-    UndoSelectionSnapshot, ViewMode,
+    ai_context, CrossBlockDrag, CrossBlockSelection, CrossBlockSelectionEndpoint, Editor,
+    SourceTargetMapping, UndoSelectionSnapshot, ViewMode,
 };
 use crate::components::{
     Block, BlockKind, Copy, Cut, Delete, DeleteBack, UndoCaptureKind,
@@ -666,6 +666,62 @@ impl Editor {
         Some(start.min(end)..start.max(end))
     }
 
+    pub(in crate::editor) fn selection_source_byte_range(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<Range<usize>> {
+        if let Some(normalized) = self.normalized_cross_block_selection(cx) {
+            return self.cross_block_source_range_for_normalized(normalized, cx);
+        }
+        if let Some(block) = self.focused_edit_target(window, cx) {
+            let block_ref = block.read(cx);
+            if let Some(range) = ai_context::block_text_selection_range(block_ref) {
+                let mappings = self.source_mapping_by_entity_id(cx);
+                let start = CrossBlockSelectionEndpoint {
+                    entity_id: block.entity_id(),
+                    offset: range.start,
+                };
+                let end = CrossBlockSelectionEndpoint {
+                    entity_id: block.entity_id(),
+                    offset: range.end,
+                };
+                let start_byte = self.endpoint_source_offset(start, &mappings, cx)?;
+                let end_byte = self.endpoint_source_offset(end, &mappings, cx)?;
+                return Some(start_byte.min(end_byte)..start_byte.max(end_byte));
+            }
+        }
+        None
+    }
+
+    pub(in crate::editor) fn selection_source_line_range(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<(usize, usize)> {
+        let source = self.serialized_document_text(cx);
+        let byte_range = self.selection_source_byte_range(window, cx)?;
+        if byte_range.is_empty() {
+            return None;
+        }
+        let start_line = source_line_number_at(&source, byte_range.start);
+        let last_byte = if byte_range.end > byte_range.start {
+            byte_range.end.saturating_sub(1)
+        } else {
+            byte_range.start
+        };
+        let end_line = source_line_number_at(&source, last_byte);
+        Some((start_line, end_line))
+    }
+
+    pub(in crate::editor) fn document_file_display_name(&self) -> Option<String> {
+        self.file_path.as_ref().and_then(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
+    }
+
     fn rebuild_after_cross_block_source_edit(&mut self, source: String, cx: &mut Context<Self>) {
         match self.view_mode {
             ViewMode::Rendered => {
@@ -968,8 +1024,17 @@ fn source_line_start_offset(source: &str, line: usize) -> Option<usize> {
     (current_line == line).then_some(source.len())
 }
 
+fn floor_char_boundary(text: &str, offset: usize) -> usize {
+    let mut index = offset.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
 fn source_line_number_at(source: &str, offset: usize) -> usize {
-    source[..offset.min(source.len())]
+    let offset = floor_char_boundary(source, offset);
+    source[..offset]
         .bytes()
         .filter(|byte| *byte == b'\n')
         .count()
@@ -1043,7 +1108,7 @@ mod tests {
 
     use gpui::{AppContext, Bounds, Context, TestAppContext, point, px, size};
 
-    use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor, source_line_index_start_offset};
+    use super::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor, source_line_index_start_offset, source_line_number_at};
     use crate::components::{Cut, Undo, UndoCaptureKind};
     use crate::i18n::I18nManager;
     use crate::theme::ThemeManager;
@@ -1108,6 +1173,15 @@ mod tests {
         assert_eq!(source_line_index_start_offset(source, 0), Some(0));
         assert_eq!(source_line_index_start_offset(source, 2), Some(8));
         assert_eq!(source_line_index_start_offset(source, 4), Some(18));
+    }
+
+    #[test]
+    fn source_line_number_at_accepts_mid_utf8_byte_offset() {
+        let source = "第一行\n加入对话功能\n第三行";
+        let anchor = source.find('功').expect("find 功");
+        let mid = anchor + 1;
+        assert!(!source.is_char_boundary(mid));
+        assert_eq!(source_line_number_at(source, mid), 2);
     }
 
     #[test]

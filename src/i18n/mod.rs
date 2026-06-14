@@ -238,6 +238,40 @@ pub struct I18nStrings {
     pub workspace_tab_tags: String,
     /// Workspace drawer Graph tab.
     pub workspace_tab_graph: String,
+    /// Workspace drawer AI chat tab.
+    pub workspace_tab_ai: String,
+    /// Sidebar AI chat: new conversation button.
+    pub workspace_ai_new_chat: String,
+    /// Sidebar AI chat: open AI preferences.
+    pub workspace_ai_settings: String,
+    /// Sidebar AI chat: send button.
+    pub workspace_ai_send: String,
+    /// Sidebar AI chat: empty state hint.
+    pub workspace_ai_empty: String,
+    /// Sidebar AI chat: empty state when AI is not configured.
+    pub workspace_ai_empty_no_api: String,
+    /// Sidebar AI chat: empty state when prior request failed.
+    pub workspace_ai_empty_error: String,
+    /// Sidebar AI chat: draft input placeholder.
+    pub workspace_ai_input_placeholder: String,
+    /// Sidebar AI chat context mode: selection.
+    pub workspace_ai_context_selection: String,
+    /// Sidebar AI chat context mode: full document.
+    pub workspace_ai_context_full: String,
+    /// Sidebar AI chat context mode: blank.
+    pub workspace_ai_context_blank: String,
+    /// Sidebar AI chat context mode: workspace.
+    pub workspace_ai_context_workspace: String,
+    /// Sidebar AI chat context mode: code block.
+    pub workspace_ai_context_command: String,
+    /// Sidebar AI chat: open AI settings CTA.
+    pub workspace_ai_error_no_api: String,
+    /// Sidebar AI chat: copy assistant reply.
+    pub workspace_ai_copy: String,
+    /// Sidebar AI chat: insert assistant reply into document.
+    pub workspace_ai_insert: String,
+    /// Sidebar AI chat: untitled document label for pinned references.
+    pub workspace_ai_untitled_document: String,
     /// Message shown when the workspace tag index is empty.
     pub workspace_empty_tags: String,
     /// Message shown while the knowledge graph is building.
@@ -374,6 +408,8 @@ pub struct I18nStrings {
     pub document_search_status_empty: String,
     /// Root context-menu insert label.
     pub context_menu_insert: String,
+    /// Editor context menu: add selection to sidebar AI chat.
+    pub context_menu_add_to_ai_chat: String,
     /// Insert submenu item for tables.
     pub context_menu_table: String,
     /// Table-axis menu item for left-aligning a column.
@@ -612,6 +648,23 @@ struct I18nStringsDe {
     workspace_tab_outline: Option<String>,
     workspace_tab_tags: Option<String>,
     workspace_tab_graph: Option<String>,
+    workspace_tab_ai: Option<String>,
+    workspace_ai_new_chat: Option<String>,
+    workspace_ai_settings: Option<String>,
+    workspace_ai_send: Option<String>,
+    workspace_ai_empty: Option<String>,
+    workspace_ai_empty_no_api: Option<String>,
+    workspace_ai_empty_error: Option<String>,
+    workspace_ai_input_placeholder: Option<String>,
+    workspace_ai_context_selection: Option<String>,
+    workspace_ai_context_full: Option<String>,
+    workspace_ai_context_blank: Option<String>,
+    workspace_ai_context_workspace: Option<String>,
+    workspace_ai_context_command: Option<String>,
+    workspace_ai_error_no_api: Option<String>,
+    workspace_ai_copy: Option<String>,
+    workspace_ai_insert: Option<String>,
+    workspace_ai_untitled_document: Option<String>,
     workspace_empty_tags: Option<String>,
     workspace_graph_building: Option<String>,
     workspace_graph_empty: Option<String>,
@@ -680,6 +733,7 @@ struct I18nStringsDe {
     document_search_no_matches: Option<String>,
     document_search_status_empty: Option<String>,
     context_menu_insert: Option<String>,
+    context_menu_add_to_ai_chat: Option<String>,
     context_menu_table: Option<String>,
     table_axis_align_column_left: Option<String>,
     table_axis_align_column_center: Option<String>,
@@ -869,6 +923,23 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_tab_outline",
     "workspace_tab_tags",
     "workspace_tab_graph",
+    "workspace_tab_ai",
+    "workspace_ai_new_chat",
+    "workspace_ai_settings",
+    "workspace_ai_send",
+    "workspace_ai_empty",
+    "workspace_ai_empty_no_api",
+    "workspace_ai_empty_error",
+    "workspace_ai_input_placeholder",
+    "workspace_ai_context_selection",
+    "workspace_ai_context_full",
+    "workspace_ai_context_blank",
+    "workspace_ai_context_workspace",
+    "workspace_ai_context_command",
+    "workspace_ai_error_no_api",
+    "workspace_ai_copy",
+    "workspace_ai_insert",
+    "workspace_ai_untitled_document",
     "workspace_empty_tags",
     "workspace_graph_building",
     "workspace_graph_empty",
@@ -937,6 +1008,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "document_search_no_matches",
     "document_search_status_empty",
     "context_menu_insert",
+    "context_menu_add_to_ai_chat",
     "context_menu_table",
     "table_axis_align_column_left",
     "table_axis_align_column_center",
@@ -1360,6 +1432,57 @@ impl I18nStringsDe {
             workspace_tab_graph: self
                 .workspace_tab_graph
                 .unwrap_or(defaults.workspace_tab_graph),
+            workspace_tab_ai: self
+                .workspace_tab_ai
+                .unwrap_or(defaults.workspace_tab_ai),
+            workspace_ai_new_chat: self
+                .workspace_ai_new_chat
+                .unwrap_or(defaults.workspace_ai_new_chat),
+            workspace_ai_settings: self
+                .workspace_ai_settings
+                .unwrap_or(defaults.workspace_ai_settings),
+            workspace_ai_send: self
+                .workspace_ai_send
+                .unwrap_or(defaults.workspace_ai_send),
+            workspace_ai_empty: self
+                .workspace_ai_empty
+                .unwrap_or(defaults.workspace_ai_empty),
+            workspace_ai_empty_no_api: self
+                .workspace_ai_empty_no_api
+                .unwrap_or(defaults.workspace_ai_empty_no_api),
+            workspace_ai_empty_error: self
+                .workspace_ai_empty_error
+                .unwrap_or(defaults.workspace_ai_empty_error),
+            workspace_ai_input_placeholder: self
+                .workspace_ai_input_placeholder
+                .unwrap_or(defaults.workspace_ai_input_placeholder),
+            workspace_ai_context_selection: self
+                .workspace_ai_context_selection
+                .unwrap_or(defaults.workspace_ai_context_selection),
+            workspace_ai_context_full: self
+                .workspace_ai_context_full
+                .unwrap_or(defaults.workspace_ai_context_full),
+            workspace_ai_context_blank: self
+                .workspace_ai_context_blank
+                .unwrap_or(defaults.workspace_ai_context_blank),
+            workspace_ai_context_workspace: self
+                .workspace_ai_context_workspace
+                .unwrap_or(defaults.workspace_ai_context_workspace),
+            workspace_ai_context_command: self
+                .workspace_ai_context_command
+                .unwrap_or(defaults.workspace_ai_context_command),
+            workspace_ai_error_no_api: self
+                .workspace_ai_error_no_api
+                .unwrap_or(defaults.workspace_ai_error_no_api),
+            workspace_ai_copy: self
+                .workspace_ai_copy
+                .unwrap_or(defaults.workspace_ai_copy),
+            workspace_ai_insert: self
+                .workspace_ai_insert
+                .unwrap_or(defaults.workspace_ai_insert),
+            workspace_ai_untitled_document: self
+                .workspace_ai_untitled_document
+                .unwrap_or(defaults.workspace_ai_untitled_document),
             workspace_empty_tags: self
                 .workspace_empty_tags
                 .unwrap_or(defaults.workspace_empty_tags),
@@ -1556,6 +1679,9 @@ impl I18nStringsDe {
             context_menu_insert: self
                 .context_menu_insert
                 .unwrap_or(defaults.context_menu_insert),
+            context_menu_add_to_ai_chat: self
+                .context_menu_add_to_ai_chat
+                .unwrap_or(defaults.context_menu_add_to_ai_chat),
             context_menu_table: self
                 .context_menu_table
                 .unwrap_or(defaults.context_menu_table),
@@ -1854,6 +1980,23 @@ impl I18nStrings {
             workspace_tab_outline: "大纲".into(),
             workspace_tab_tags: "标签".into(),
             workspace_tab_graph: "图谱".into(),
+            workspace_tab_ai: "AI".into(),
+            workspace_ai_new_chat: "新建对话".into(),
+            workspace_ai_settings: "AI 配置".into(),
+            workspace_ai_send: "发送".into(),
+            workspace_ai_empty: "输入问题开始对话".into(),
+            workspace_ai_empty_no_api: "未检测到 AI 配置".into(),
+            workspace_ai_empty_error: "请检查 AI 配置后输入问题".into(),
+            workspace_ai_input_placeholder: "输入消息，Enter 发送".into(),
+            workspace_ai_context_selection: "引用选中文本".into(),
+            workspace_ai_context_full: "引用全文".into(),
+            workspace_ai_context_blank: "全新对话".into(),
+            workspace_ai_context_workspace: "引用工作区".into(),
+            workspace_ai_context_command: "引用代码块".into(),
+            workspace_ai_error_no_api: "打开 AI 配置".into(),
+            workspace_ai_copy: "复制".into(),
+            workspace_ai_insert: "插入".into(),
+            workspace_ai_untitled_document: "未命名文档".into(),
             workspace_empty_tags: "工作区中没有行内标签".into(),
             workspace_graph_building: "正在构建知识图谱…".into(),
             workspace_graph_empty: "工作区中没有可显示的图谱节点".into(),
@@ -1923,6 +2066,7 @@ impl I18nStrings {
             document_search_no_matches: "无匹配".into(),
             document_search_status_empty: "输入关键词".into(),
             context_menu_insert: "插入".into(),
+            context_menu_add_to_ai_chat: "加入对话".into(),
             context_menu_table: "表格".into(),
             table_axis_align_column_left: "左对齐此列".into(),
             table_axis_align_column_center: "居中此列".into(),
@@ -2130,6 +2274,23 @@ impl I18nStrings {
             workspace_tab_outline: "Outline".into(),
             workspace_tab_tags: "Tags".into(),
             workspace_tab_graph: "Graph".into(),
+            workspace_tab_ai: "AI".into(),
+            workspace_ai_new_chat: "New chat".into(),
+            workspace_ai_settings: "AI settings".into(),
+            workspace_ai_send: "Send".into(),
+            workspace_ai_empty: "Ask a question to start".into(),
+            workspace_ai_empty_no_api: "AI is not configured".into(),
+            workspace_ai_empty_error: "Check AI settings and try again".into(),
+            workspace_ai_input_placeholder: "Type a message, Enter to send".into(),
+            workspace_ai_context_selection: "Selection".into(),
+            workspace_ai_context_full: "Full document".into(),
+            workspace_ai_context_blank: "Blank chat".into(),
+            workspace_ai_context_workspace: "Workspace".into(),
+            workspace_ai_context_command: "Code block".into(),
+            workspace_ai_error_no_api: "Open AI settings".into(),
+            workspace_ai_copy: "Copy".into(),
+            workspace_ai_insert: "Insert".into(),
+            workspace_ai_untitled_document: "Untitled".into(),
             workspace_empty_tags: "No inline tags in this workspace".into(),
             workspace_graph_building: "Building knowledge graph…".into(),
             workspace_graph_empty: "No graph nodes to display in this workspace".into(),
@@ -2200,6 +2361,7 @@ impl I18nStrings {
             document_search_no_matches: "No matches".into(),
             document_search_status_empty: "Type to search".into(),
             context_menu_insert: "Insert".into(),
+            context_menu_add_to_ai_chat: "Add to Chat".into(),
             context_menu_table: "Table".into(),
             table_axis_align_column_left: "Align Column Left".into(),
             table_axis_align_column_center: "Align Column Center".into(),

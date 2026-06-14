@@ -2692,3 +2692,65 @@ async fn inline_code_run_exit_code_block_ignored_outside_inline_code(cx: &mut Te
         );
     });
 }
+
+#[gpui::test]
+async fn ai_chat_defaults_to_full_document_context_mode(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let editor = cx.new(Editor::empty);
+    editor.update(cx, |editor, _cx| {
+        use super::ai_chat::AiChatContextMode;
+        assert_eq!(editor.ai_chat.context_mode, AiChatContextMode::FullDocument);
+        assert!(editor.ai_chat.messages.is_empty());
+        assert!(editor.ai_chat.draft.is_empty());
+        assert!(!editor.ai_chat.in_flight);
+        assert!(editor.ai_chat.error.is_none());
+    });
+}
+
+#[gpui::test]
+async fn ai_chat_clear_conversation_resets_messages_and_error(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let editor = cx.new(Editor::empty);
+    editor.update(cx, |editor, _cx| {
+        use super::ai_chat::{AiChatContextMode, AiChatMessage, AiChatRole};
+        editor.ai_chat.messages.push(AiChatMessage {
+            id: 1,
+            role: AiChatRole::User,
+            content: "hello".to_string(),
+            streaming: false,
+        });
+        editor.ai_chat.messages.push(AiChatMessage {
+            id: 2,
+            role: AiChatRole::Assistant,
+            content: "hi".to_string(),
+            streaming: false,
+        });
+        editor.ai_chat.draft = "pending".to_string();
+        editor.ai_chat.error = Some("network error".to_string());
+        editor.ai_chat.in_flight = true;
+        editor.ai_chat.input_selected_range = 2..5;
+
+        editor.ai_chat.clear_conversation();
+
+        assert!(editor.ai_chat.messages.is_empty());
+        assert!(editor.ai_chat.draft.is_empty());
+        assert!(editor.ai_chat.error.is_none());
+        assert!(!editor.ai_chat.in_flight);
+        assert_eq!(editor.ai_chat.input_selected_range, 0..0);
+        assert_eq!(editor.ai_chat.context_mode, AiChatContextMode::FullDocument);
+    });
+}
+
+#[gpui::test]
+async fn ai_request_active_reflects_popup_and_sidebar_in_flight(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let editor = cx.new(Editor::empty);
+    editor.update(cx, |editor, _cx| {
+        assert!(!editor.ai_request_active());
+        editor.ai.set_in_flight(true);
+        assert!(editor.ai_request_active());
+        editor.ai.set_in_flight(false);
+        editor.ai_chat.in_flight = true;
+        assert!(editor.ai_request_active());
+    });
+}

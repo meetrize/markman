@@ -42,6 +42,7 @@ const FILES_TAB_ICON: &str = "icon/workspace/files.svg";
 const OUTLINE_TAB_ICON: &str = "icon/workspace/list-tree.svg";
 const TAGS_TAB_ICON: &str = "icon/workspace/tags.svg";
 const GRAPH_TAB_ICON: &str = "icon/workspace/graph.svg";
+const AI_TAB_ICON: &str = "icon/workspace/ai-chat.svg";
 const SEARCH_ICON: &str = "icon/workspace/search.svg";
 const WORKSPACE_PANEL_TARGET_RATIO: f32 = 0.15;
 const WORKSPACE_PANEL_MIN_WIDTH: f32 = 180.0;
@@ -70,6 +71,7 @@ pub(super) enum WorkspaceTab {
     Outline,
     Tags,
     Graph,
+    Ai,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -489,7 +491,18 @@ impl Editor {
         cx.notify();
     }
 
-    fn set_workspace_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
+    pub(in crate::editor) fn workspace_ai_tab_open(&self) -> bool {
+        self.workspace.state.is_open && matches!(self.workspace.state.active_tab, WorkspaceTab::Ai)
+    }
+
+    pub(in crate::editor) fn open_ai_chat_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.workspace.state.is_open {
+            self.workspace.state.is_open = true;
+        }
+        self.set_workspace_tab(WorkspaceTab::Ai, window, cx);
+    }
+
+    fn set_workspace_tab(&mut self, tab: WorkspaceTab, window: &mut Window, cx: &mut Context<Self>) {
         if self.workspace.state.active_tab == tab && !self.workspace.state.search_open {
             return;
         }
@@ -498,6 +511,10 @@ impl Editor {
         self.sync_workspace_models(cx);
         if matches!(tab, WorkspaceTab::Graph) {
             self.start_knowledge_graph_animation(cx);
+        }
+        if matches!(tab, WorkspaceTab::Ai) {
+            self.refresh_ai_chat_context_availability(window, cx);
+            window.focus(&self.ai_chat.input_focus);
         }
         cx.notify();
     }
@@ -1377,6 +1394,7 @@ impl Editor {
         theme: &Theme,
         strings: &I18nStrings,
         viewport_width: f32,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if !self.workspace.state.is_open {
@@ -1404,6 +1422,7 @@ impl Editor {
                 WorkspaceTab::Outline => "workspace-tab-outline",
                 WorkspaceTab::Tags => "workspace-tab-tags",
                 WorkspaceTab::Graph => "workspace-tab-graph",
+                WorkspaceTab::Ai => "workspace-tab-ai",
             };
             let icon_color = tab_icon_color(active);
             div()
@@ -1429,9 +1448,9 @@ impl Editor {
                         .flex_shrink_0()
                         .text_color(icon_color),
                 )
-                .on_click(move |_event, _window, cx| {
+                .on_click(move |_event, window, cx| {
                     let _ = tab_editor.update(cx, |editor, cx| {
-                        editor.set_workspace_tab(tab, cx);
+                        editor.set_workspace_tab(tab, window, cx);
                     });
                 })
         };
@@ -1559,6 +1578,7 @@ impl Editor {
                 }
                 WorkspaceTab::Tags => self.render_workspace_tags_panel(theme, strings, &editor),
                 WorkspaceTab::Graph => self.render_workspace_graph_panel(theme, strings, &editor),
+                WorkspaceTab::Ai => self.render_ai_chat_panel(theme, strings, &editor, window, cx),
             }
         };
 
@@ -1611,6 +1631,11 @@ impl Editor {
                                     GRAPH_TAB_ICON,
                                     WorkspaceTab::Graph,
                                     self.workspace.state.active_tab == WorkspaceTab::Graph,
+                                ))
+                                .child(tab(
+                                    AI_TAB_ICON,
+                                    WorkspaceTab::Ai,
+                                    self.workspace.state.active_tab == WorkspaceTab::Ai,
                                 ))
                                 .child(search_button),
                         )
@@ -2644,6 +2669,13 @@ impl EntityInputHandler for Editor {
             return Some(text[range].to_string());
         }
 
+        if self.ai_chat_input_active(window) {
+            let text = self.ai_chat_draft().to_string();
+            let range = document_search_range_from_utf16(&text, &range_utf16);
+            actual_range.replace(document_search_range_to_utf16(&text, &range));
+            return Some(text[range].to_string());
+        }
+
         if self.quick_file_open_input_active(window) {
             let text = self.quick_file_open.input.query.clone();
             let range = range_utf16.start.min(text.len())..range_utf16.end.min(text.len());
@@ -2693,6 +2725,14 @@ impl EntityInputHandler for Editor {
             return Some(UTF16Selection {
                 range: document_search_range_to_utf16(text, &self.ai_prompt_selected_range()),
                 reversed: self.ai_prompt_selection_reversed(),
+            });
+        }
+
+        if self.ai_chat_input_active(window) {
+            let text = self.ai_chat_draft();
+            return Some(UTF16Selection {
+                range: document_search_range_to_utf16(text, &self.ai_chat_selected_range()),
+                reversed: self.ai_chat_selection_reversed(),
             });
         }
 
@@ -2747,6 +2787,13 @@ impl EntityInputHandler for Editor {
                 .map(|range| document_search_range_to_utf16(self.ai_prompt_text(), range));
         }
 
+        if self.ai_chat_input_active(window) {
+            return self
+                .ai_chat_marked_range()
+                .as_ref()
+                .map(|range| document_search_range_to_utf16(self.ai_chat_draft(), range));
+        }
+
         if self.quick_file_open_input_active(window) {
             return None;
         }
@@ -2797,6 +2844,11 @@ impl EntityInputHandler for Editor {
             return;
         }
 
+        if self.ai_chat_input_active(window) {
+            self.unmark_ai_chat_draft();
+            return;
+        }
+
         if self.quick_file_open_input_active(window) {
             return;
         }
@@ -2837,6 +2889,16 @@ impl EntityInputHandler for Editor {
                 .or_else(|| self.ai_prompt_marked_range())
                 .unwrap_or_else(|| self.ai_prompt_selected_range());
             self.replace_ai_prompt_text(range, new_text, false, None, cx);
+            return;
+        }
+
+        if self.ai_chat_input_active(window) {
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(self.ai_chat_draft(), range_utf16))
+                .or_else(|| self.ai_chat_marked_range())
+                .unwrap_or_else(|| self.ai_chat_selected_range());
+            self.replace_ai_chat_draft(range, new_text, false, None, cx);
             return;
         }
 
@@ -2906,6 +2968,20 @@ impl EntityInputHandler for Editor {
                 .map(|range_utf16| document_search_range_from_utf16(new_text, range_utf16))
                 .map(|relative| relative.start + range.start..relative.end + range.start);
             self.replace_ai_prompt_text(range, new_text, true, selected, cx);
+            return;
+        }
+
+        if self.ai_chat_input_active(window) {
+            let range = range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(self.ai_chat_draft(), range_utf16))
+                .or_else(|| self.ai_chat_marked_range())
+                .unwrap_or_else(|| self.ai_chat_selected_range());
+            let selected = new_selected_range_utf16
+                .as_ref()
+                .map(|range_utf16| document_search_range_from_utf16(new_text, range_utf16))
+                .map(|relative| relative.start + range.start..relative.end + range.start);
+            self.replace_ai_chat_draft(range, new_text, true, selected, cx);
             return;
         }
 

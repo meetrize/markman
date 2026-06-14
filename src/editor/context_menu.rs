@@ -5,6 +5,7 @@ use std::time::Duration;
 use gpui::*;
 
 use super::{Editor, TableAxisSelection, ViewMode};
+use super::ai_context;
 use crate::components::{
     AiExpandSelection, AiExplainSelection, AiImproveSelection, AiSummarizeSelection,
     AiTasksSelection, AiTranslateSelection, Copy, Cut, DismissTransientUi, Paste, SelectAll,
@@ -62,11 +63,19 @@ impl Editor {
         &mut self,
         position: Point<Pixels>,
         target: TableInsertTarget,
+        window: Option<&Window>,
         cx: &mut Context<Self>,
     ) {
         self.close_menu_bar(cx);
         self.context_menu_submenu_close_task = None;
         self.close_single_line_input_context_menu(cx);
+        self.context_menu_selection_snapshot = window.and_then(|window| {
+            if !self.context_menu_has_text_selection(window, cx) {
+                return None;
+            }
+            self.preserve_ai_selection_visuals(cx);
+            ai_context::snapshot_editor_selection_context(self, window, cx)
+        });
         self.context_menu = Some(ContextMenuState::Insert {
             position,
             target,
@@ -86,7 +95,8 @@ impl Editor {
             return true;
         }
         self.focused_edit_target(window, cx).is_some_and(|block| {
-            !block.read(cx).selected_range.is_empty()
+            let block = block.read(cx);
+            !block.selected_range.is_empty() || block.editor_selection_range.is_some()
         })
     }
 
@@ -227,6 +237,25 @@ impl Editor {
         self.on_ai_translate_selection(&AiTranslateSelection, window, cx);
     }
 
+    pub(super) fn on_context_menu_add_to_ai_chat(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let snapshot = self
+            .context_menu_selection_snapshot
+            .take()
+            .or_else(|| {
+                self.preserve_ai_selection_visuals(cx);
+                ai_context::snapshot_editor_selection_context(self, window, cx)
+            });
+        self.close_context_menu(cx);
+        if let Some(snapshot) = snapshot {
+            self.apply_ai_chat_selection_snapshot(snapshot, window, cx);
+        }
+    }
+
     pub(super) fn open_table_axis_context_menu(
         &mut self,
         position: Point<Pixels>,
@@ -256,6 +285,7 @@ impl Editor {
     fn close_context_menu(&mut self, cx: &mut Context<Self>) {
         let had_menu = self.context_menu.take().is_some();
         let had_submenu_close = self.context_menu_submenu_close_task.take().is_some();
+        self.context_menu_selection_snapshot = None;
         if had_menu || had_submenu_close {
             cx.notify();
         }
@@ -406,24 +436,24 @@ impl Editor {
     pub(super) fn on_editor_context_menu_mouse_down(
         &mut self,
         event: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
-        self.open_insert_context_menu(event.position, TableInsertTarget::Append, cx);
+        self.open_insert_context_menu(event.position, TableInsertTarget::Append, Some(window), cx);
     }
 
     pub(super) fn on_block_context_menu_mouse_down(
         &mut self,
         entity_id: EntityId,
         event: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
         self.focus_block(entity_id);
         let target = TableInsertTarget::After(self.root_ancestor_entity_id(entity_id));
-        self.open_insert_context_menu(event.position, target, cx);
+        self.open_insert_context_menu(event.position, target, Some(window), cx);
     }
 
     pub(super) fn on_dismiss_context_menu_overlay(
@@ -996,6 +1026,14 @@ impl Editor {
                         Self::on_context_menu_ai_translate,
                         cx,
                     ),
+                    Self::render_edit_menu_item(
+                        theme,
+                        "editor-context-menu-add-to-ai-chat",
+                        s.context_menu_add_to_ai_chat.clone(),
+                        has_selection,
+                        Self::on_context_menu_add_to_ai_chat,
+                        cx,
+                    ),
                 ]);
 
                 if show_insert {
@@ -1504,6 +1542,7 @@ mod tests {
                     y: px(24.0),
                 },
                 TableInsertTarget::Append,
+                None,
                 cx,
             );
 

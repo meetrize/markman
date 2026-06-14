@@ -10,6 +10,9 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use super::super::toolbar_button::ai_toolbar_action_button;
+use super::super::ai_context::{
+    self, AiCollectedContext, AiContextMode, AiContextSnapshot, AiContextTarget,
+};
 use super::super::{CrossBlockSelection, Editor};
 use super::super::single_line_input::{
     cursor_offset, handle_mouse_down, handle_mouse_move, handle_mouse_up, select_caret_to,
@@ -70,13 +73,6 @@ enum AiStreamEvent {
     Done(anyhow::Result<String>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AiPromptContextMode {
-    Selection,
-    FullDocument,
-    Blank,
-}
-
 pub(in crate::editor) struct AiController {
     in_flight: bool,
     streaming_markdown: String,
@@ -99,7 +95,7 @@ pub(in crate::editor) struct AiController {
     prompt_cursor_blink_epoch: Instant,
     prompt_cursor_blink_task: Option<Task<()>>,
     prompt_context_menu: Option<Point<Pixels>>,
-    prompt_context_mode: AiPromptContextMode,
+    prompt_context_mode: AiContextMode,
     prompt_context_dropdown_open: bool,
     prompt_has_selection_context: bool,
     prompt_context_dropdown_position: Option<Point<Pixels>>,
@@ -153,7 +149,7 @@ impl AiController {
             prompt_cursor_blink_epoch: Instant::now(),
             prompt_cursor_blink_task: None,
             prompt_context_menu: None,
-            prompt_context_mode: AiPromptContextMode::FullDocument,
+            prompt_context_mode: AiContextMode::FullDocument,
             prompt_context_dropdown_open: false,
             prompt_has_selection_context: false,
             prompt_context_dropdown_position: None,
@@ -161,6 +157,15 @@ impl AiController {
             prompt_dialog_position: None,
             prompt_dialog_drag: None,
         }
+    }
+
+    pub(in crate::editor) fn in_flight(&self) -> bool {
+        self.in_flight
+    }
+
+    #[cfg(test)]
+    pub(in crate::editor) fn set_in_flight(&mut self, in_flight: bool) {
+        self.in_flight = in_flight;
     }
 }
 
@@ -179,16 +184,6 @@ impl AiOperation {
             Self::Translate => Cow::Borrowed(
                 "Translate the Markdown into Chinese while preserving Markdown formatting, structure, links, and code fences."
             ),
-        }
-    }
-}
-
-impl AiPromptContextMode {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Selection => "引用选中文本",
-            Self::FullDocument => "引用全文",
-            Self::Blank => "全新对话",
         }
     }
 }
@@ -257,7 +252,7 @@ impl Editor {
         self.request_ai_operation(AiOperation::Translate, window, cx);
     }
 
-    fn preserve_ai_selection_visuals(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::editor) fn preserve_ai_selection_visuals(&mut self, cx: &mut Context<Self>) {
         if self.cross_block_selection.is_some() {
             self.sync_cross_block_selection_visuals(cx);
             return;
@@ -321,9 +316,9 @@ impl Editor {
         self.ai.prompt_cursor_blink_epoch = Instant::now();
         self.ai.prompt_context_menu = None;
         self.ai.prompt_context_mode = if has_selection {
-            AiPromptContextMode::Selection
+            AiContextMode::Selection
         } else {
-            AiPromptContextMode::FullDocument
+            AiContextMode::FullDocument
         };
         self.ai.prompt_context_dropdown_open = false;
         self.ai.prompt_context_dropdown_position = None;
@@ -848,70 +843,78 @@ impl Editor {
     }
 
     fn collect_selected_ai_context(&self, window: &Window, cx: &App) -> Option<AiContext> {
-        if let Some(selection) = self.cross_block_selection
-            && let Some(markdown) = self.cross_block_selected_markdown(cx)
-        {
-            return Some(AiContext {
-                target: AiTarget::CrossBlockSelection(selection),
-                context_markdown: markdown,
-            });
-        }
-        if let Some(block) = self.focused_edit_target(window, cx) {
-            let block_ref = block.read(cx);
-            if !block_ref.selected_range.is_empty() {
-                let text = block_ref.display_text().to_string();
-                let range = block_ref.selected_range.start.min(text.len())
-                    ..block_ref.selected_range.end.min(text.len());
-                if let Some(selected) = text.get(range.clone()) {
-                    return Some(AiContext {
-                        target: AiTarget::SingleBlockSelection {
-                            entity_id: block.entity_id(),
-                            range,
-                        },
-                        context_markdown: selected.to_string(),
-                    });
-                }
-            }
-        }
-        None
+        let collected = ai_context::collect_editor_ai_context_full(
+            self,
+            AiContextMode::Selection,
+            None,
+            window,
+            cx,
+        )
+        .ok()?;
+        Some(self.ai_context_from_collected(collected))
     }
 
     fn collect_custom_ai_context(
         &self,
-        mode: AiPromptContextMode,
+        mode: AiContextMode,
         selection_context: Option<AiContext>,
         window: &Window,
         cx: &App,
     ) -> Result<AiContext, String> {
-        match mode {
-            AiPromptContextMode::Selection => {
-                selection_context
-                    .or_else(|| self.ai.prompt_selection_context.clone())
-                    .or_else(|| self.collect_selected_ai_context(window, cx))
-                    .ok_or_else(|| "当前没有选中文本。".to_string())
+        if mode == AiContextMode::Selection {
+            if let Some(context) = selection_context
+                .as_ref()
+                .cloned()
+                .or_else(|| self.ai.prompt_selection_context.clone())
+            {
+                return Ok(context);
             }
-            AiPromptContextMode::FullDocument => Ok(AiContext {
-                target: AiTarget::FullDocument,
-                context_markdown: self.serialized_document_text(cx),
-            }),
-            AiPromptContextMode::Blank => Ok(AiContext {
-                target: AiTarget::InsertOnly {
-                    after: self.active_entity_id.map(|id| self.root_ancestor_entity_id(id)),
-                },
-                context_markdown: String::new(),
-            }),
+        }
+
+        let selection_override = selection_context.as_ref().map(|context| AiContextSnapshot {
+            context_markdown: context.context_markdown.clone(),
+            target_label: "选中文本".to_string(),
+            source_file_name: None,
+            start_line: None,
+            end_line: None,
+        });
+        let collected = ai_context::collect_editor_ai_context_full(
+            self,
+            mode,
+            selection_override.as_ref(),
+            window,
+            cx,
+        )?;
+        Ok(self.ai_context_from_collected(collected))
+    }
+
+    fn ai_context_from_collected(&self, collected: AiCollectedContext) -> AiContext {
+        AiContext {
+            target: self.ai_target_from_context_target(collected.target),
+            context_markdown: collected.context_markdown,
+        }
+    }
+
+    fn ai_target_from_context_target(&self, target: AiContextTarget) -> AiTarget {
+        match target {
+            AiContextTarget::CrossBlock(selection) => AiTarget::CrossBlockSelection(selection),
+            AiContextTarget::SingleBlock { entity_id, range } => {
+                AiTarget::SingleBlockSelection { entity_id, range }
+            }
+            AiContextTarget::FullDocument => AiTarget::FullDocument,
+            AiContextTarget::InsertOnly { after } => AiTarget::InsertOnly { after },
         }
     }
 
     fn request_custom_ai_prompt(
         &mut self,
         prompt: String,
-        mode: AiPromptContextMode,
+        mode: AiContextMode,
         selection_context: Option<AiContext>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ai.in_flight {
+        if self.ai_request_active() {
             return;
         }
         let preferences = match read_app_preferences() {
@@ -982,7 +985,7 @@ impl Editor {
         if !self.ai.prompt_has_selection_context {
             return;
         }
-        self.ai.prompt_context_mode = AiPromptContextMode::Selection;
+        self.ai.prompt_context_mode = AiContextMode::Selection;
         self.ai.prompt_context_dropdown_open = false;
         self.ai.prompt_context_dropdown_position = None;
         cx.notify();
@@ -994,7 +997,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.ai.prompt_context_mode = AiPromptContextMode::FullDocument;
+        self.ai.prompt_context_mode = AiContextMode::FullDocument;
         self.ai.prompt_context_dropdown_open = false;
         self.ai.prompt_context_dropdown_position = None;
         cx.notify();
@@ -1006,7 +1009,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.ai.prompt_context_mode = AiPromptContextMode::Blank;
+        self.ai.prompt_context_mode = AiContextMode::Blank;
         self.ai.prompt_context_dropdown_open = false;
         self.ai.prompt_context_dropdown_position = None;
         cx.notify();
@@ -1058,7 +1061,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ai.in_flight {
+        if self.ai_request_active() {
             return;
         }
         let preferences = match read_app_preferences() {
@@ -1069,8 +1072,13 @@ impl Editor {
                 return;
             }
         };
-        let context = match self.collect_ai_context(window, preferences.ai.allow_full_document_context, cx) {
-            Ok(context) => context,
+        let context = match ai_context::collect_editor_ai_context_auto_full(
+            self,
+            preferences.ai.allow_full_document_context,
+            window,
+            cx,
+        ) {
+            Ok(collected) => self.ai_context_from_collected(collected),
             Err(err) => {
                 self.ai.error = Some(err);
                 cx.notify();
@@ -1114,7 +1122,7 @@ impl Editor {
         selection_context: AiContext,
         cx: &mut Context<Self>,
     ) {
-        if self.ai.in_flight {
+        if self.ai_request_active() {
             return;
         }
         let preferences = match read_app_preferences() {
@@ -1140,6 +1148,9 @@ impl Editor {
         context: AiContext,
         cx: &mut Context<Self>,
     ) {
+        if self.ai_request_active() {
+            return;
+        }
         self.ai.in_flight = true;
         self.ai.streaming_markdown.clear();
         self.ai.streaming_started_at = Instant::now();
@@ -1254,55 +1265,7 @@ impl Editor {
         (1.0 - (-elapsed / 18.0).exp()).clamp(0.0, 0.96)
     }
 
-    fn collect_ai_context(
-        &self,
-        window: &Window,
-        allow_full_document_context: bool,
-        cx: &App,
-    ) -> Result<AiContext, String> {
-        if let Some(selection) = self.cross_block_selection {
-            if let Some(markdown) = self.cross_block_selected_markdown(cx) {
-                return Ok(AiContext {
-                    target: AiTarget::CrossBlockSelection(selection),
-                    context_markdown: markdown,
-                });
-            }
-        }
-
-        if let Some(block) = self.focused_edit_target(window, cx) {
-            let block_ref = block.read(cx);
-            if !block_ref.selected_range.is_empty() {
-                let text = block_ref.display_text().to_string();
-                let range = block_ref.selected_range.start.min(text.len())
-                    ..block_ref.selected_range.end.min(text.len());
-                if let Some(selected) = text.get(range.clone()) {
-                    return Ok(AiContext {
-                        target: AiTarget::SingleBlockSelection {
-                            entity_id: block.entity_id(),
-                            range,
-                        },
-                        context_markdown: selected.to_string(),
-                    });
-                }
-            }
-            return Ok(AiContext {
-                target: AiTarget::InsertOnly {
-                    after: Some(self.root_ancestor_entity_id(block.entity_id())),
-                },
-                context_markdown: block_ref.display_text().to_string(),
-            });
-        }
-
-        if !allow_full_document_context {
-            return Err("Select text first, or enable full document context in AI preferences.".into());
-        }
-        Ok(AiContext {
-            target: AiTarget::FullDocument,
-            context_markdown: self.serialized_document_text(cx),
-        })
-    }
-
-    fn ai_workspace_context(&self) -> Option<String> {
+    pub(in crate::editor) fn ai_workspace_context(&self) -> Option<String> {
         let root = self.workspace_root_for_ai()?;
         let mut files = Vec::new();
         collect_markdown_files(&root, &mut files);
@@ -1320,7 +1283,7 @@ impl Editor {
         (!output.trim().is_empty()).then_some(output)
     }
 
-    fn ai_command_context(&self, window: &Window, cx: &App) -> Option<String> {
+    pub(in crate::editor) fn ai_command_context(&self, window: &Window, cx: &App) -> Option<String> {
         let block = self.focused_edit_target(window, cx)?;
         let block = block.read(cx);
         match block.kind() {
@@ -1473,6 +1436,22 @@ impl Editor {
                 self.insert_ai_result_after_target(target, &result_markdown, cx);
             }
         }
+    }
+
+    pub(in crate::editor) fn insert_markdown_after_cursor(
+        &mut self,
+        result_markdown: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.insert_ai_result_after_target(
+            AiTarget::InsertOnly {
+                after: self
+                    .active_entity_id
+                    .map(|id| self.root_ancestor_entity_id(id)),
+            },
+            result_markdown,
+            cx,
+        );
     }
 
     fn insert_ai_result_after_target(
@@ -1712,7 +1691,7 @@ impl Editor {
                             }
                             editor.request_custom_ai_prompt(
                                 prompt.clone(),
-                                AiPromptContextMode::Selection,
+                                AiContextMode::Selection,
                                 Some(selection_context),
                                 window,
                                 cx,
@@ -1921,7 +1900,7 @@ impl Editor {
                 .child(ai_prompt_dropdown_item(
                     "ai-context-selection",
                     "引用选中文本",
-                    self.ai.prompt_context_mode == AiPromptContextMode::Selection,
+                    self.ai.prompt_context_mode == AiContextMode::Selection,
                     self.ai.prompt_has_selection_context,
                     theme,
                     cx.listener(Self::select_ai_prompt_context_selection),
@@ -1929,7 +1908,7 @@ impl Editor {
                 .child(ai_prompt_dropdown_item(
                     "ai-context-full-document",
                     "引用全文",
-                    self.ai.prompt_context_mode == AiPromptContextMode::FullDocument,
+                    self.ai.prompt_context_mode == AiContextMode::FullDocument,
                     true,
                     theme,
                     cx.listener(Self::select_ai_prompt_context_full_document),
@@ -1937,7 +1916,7 @@ impl Editor {
                 .child(ai_prompt_dropdown_item(
                     "ai-context-blank",
                     "全新对话",
-                    self.ai.prompt_context_mode == AiPromptContextMode::Blank,
+                    self.ai.prompt_context_mode == AiContextMode::Blank,
                     true,
                     theme,
                     cx.listener(Self::select_ai_prompt_context_blank),
@@ -2392,9 +2371,9 @@ fn ai_prompt_menu_item(
     }
 }
 
-fn ai_prompt_dropdown_item(
+pub(in crate::editor) fn ai_prompt_dropdown_item(
     id: &'static str,
-    label: &'static str,
+    label: &str,
     selected: bool,
     enabled: bool,
     theme: &Theme,
@@ -2413,7 +2392,7 @@ fn ai_prompt_dropdown_item(
         .bg(if selected { c.selection } else { c.dialog_surface })
         .text_size(px(t.dialog_body_size))
         .text_color(if enabled { c.dialog_body } else { c.dialog_muted })
-        .child(label);
+        .child(label.to_string());
     if enabled {
         item = item
             .hover(|this| this.bg(c.dialog_secondary_button_hover))
@@ -2444,7 +2423,7 @@ fn ai_line_index_for_offset(ranges: &[Range<usize>], offset: usize) -> (usize, u
     (ranges.len().saturating_sub(1), 0)
 }
 
-fn ai_wrapped_line_height(line: &WrappedLine, line_height: Pixels) -> Pixels {
+pub(in crate::editor) fn ai_wrapped_line_height(line: &WrappedLine, line_height: Pixels) -> Pixels {
     line.size(line_height).height
 }
 
@@ -2493,7 +2472,7 @@ fn ai_position_for_offset(
     line.position_for_index(offset, line_height)
 }
 
-fn ai_cursor_bounds(
+pub(in crate::editor) fn ai_cursor_bounds(
     lines: &[WrappedLine],
     bounds: Bounds<Pixels>,
     line_height: Pixels,
@@ -2512,7 +2491,7 @@ fn ai_cursor_bounds(
     ))
 }
 
-fn ai_range_segments(
+pub(in crate::editor) fn ai_range_segments(
     lines: &[WrappedLine],
     bounds: Bounds<Pixels>,
     line_height: Pixels,
@@ -2588,7 +2567,7 @@ fn ai_wrapped_row_for_y(
         .min(row_count.saturating_sub(1))
 }
 
-fn ai_text_offset_for_position(
+pub(in crate::editor) fn ai_text_offset_for_position(
     lines: &[WrappedLine],
     bounds: Bounds<Pixels>,
     line_height: Pixels,

@@ -1185,7 +1185,7 @@ mod graph_view_tests {
 
     #[test]
     fn screen_to_world_roundtrip_is_consistent() {
-        let mut viewport = GraphViewport {
+        let viewport = GraphViewport {
             offset: LayoutPoint { x: 20.0, y: 30.0 },
             scale: 1.5,
         };
@@ -1212,7 +1212,7 @@ mod graph_view_tests {
 
     #[test]
     fn hit_test_selects_node_under_pointer() {
-        let (graph, layout) = sample_graph_and_layout();
+        let (graph, _layout) = sample_graph_and_layout();
         let mut state = KnowledgeGraphViewState::new(graph, GraphFilter::ConnectedOnly);
         state.viewport = GraphViewport {
             offset: LayoutPoint { x: 0.0, y: 0.0 },

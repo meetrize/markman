@@ -26,6 +26,9 @@ use crate::components::{
 };
 use crate::theme::ThemeManager;
 use crate::input::text_norm::normalize_line_endings_lf;
+mod ai_chat;
+mod ai_chat_input;
+mod ai_context;
 mod close;
 mod controllers;
 mod code_language_menu;
@@ -137,6 +140,8 @@ pub struct Editor {
     workspace: WorkspaceController,
     single_line_input_context_menu: Option<single_line_input_menu::SingleLineInputContextMenuState>,
     context_menu: Option<ContextMenuState>,
+    /// Selection snapshot captured when the editor context menu opens.
+    context_menu_selection_snapshot: Option<ai_context::AiContextSnapshot>,
     table_insert_dialog: Option<TableInsertDialogState>,
     mermaid_template_menu_position: Option<Point<Pixels>>,
     context_menu_submenu_close_task: Option<Task<()>>,
@@ -185,6 +190,7 @@ pub struct Editor {
     /// Pending click action from a graph popout window to be applied in the next render.
     pending_graph_popout_action: Option<graph_view::GraphNodeClickAction>,
     ai: controllers::AiController,
+    pub(in crate::editor) ai_chat: ai_chat::AiChatPanelState,
 }
 
 /// Runtime binding between a table block and one cell editor.
@@ -355,6 +361,7 @@ impl Editor {
             workspace: WorkspaceController::new(cx),
             single_line_input_context_menu: None,
             context_menu: None,
+            context_menu_selection_snapshot: None,
             table_insert_dialog: None,
             mermaid_template_menu_position: None,
             context_menu_submenu_close_task: None,
@@ -398,6 +405,7 @@ impl Editor {
             graph_popout_parent: None,
             pending_graph_popout_action: None,
             ai: controllers::AiController::new(cx),
+            ai_chat: ai_chat::AiChatPanelState::new(cx),
         };
         editor.rebuild_table_runtimes(cx);
         editor.rebuild_image_runtimes(cx);

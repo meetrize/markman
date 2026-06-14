@@ -1822,7 +1822,7 @@ impl Render for Editor {
         } else {
             let main_content = main_content.flex();
             let main_content = if let Some(workspace_panel) =
-                self.render_workspace_panel(&theme, &strings, viewport_width, cx)
+                self.render_workspace_panel(&theme, &strings, viewport_width, window, cx)
             {
                 main_content.child(workspace_panel)
             } else {

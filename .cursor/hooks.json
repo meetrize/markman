@@ -9,6 +9,14 @@
       {
         "command": ".cursor/hooks/hashtag-queue-next.sh",
         "loop_limit": 8
+      },
+      {
+        "command": ".cursor/hooks/ai-chat-queue-next.sh",
+        "loop_limit": 10
+      },
+      {
+        "command": ".cursor/hooks/knowledge-base-ai-queue-next.sh",
+        "loop_limit": 10
       }
     ]
   }
