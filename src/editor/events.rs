@@ -551,11 +551,13 @@ impl Editor {
                 prompt_target,
                 open_target,
                 is_workspace_file,
+                is_document_relative_file,
             } => {
                 self.handle_request_open_link(
                     prompt_target.clone(),
                     open_target.clone(),
                     *is_workspace_file,
+                    *is_document_relative_file,
                     cx,
                 );
             }
@@ -1294,11 +1296,13 @@ impl Editor {
                 prompt_target,
                 open_target,
                 is_workspace_file,
+                is_document_relative_file,
             } => {
                 self.handle_request_open_link(
                     prompt_target.clone(),
                     open_target.clone(),
                     *is_workspace_file,
+                    *is_document_relative_file,
                     cx,
                 );
             }

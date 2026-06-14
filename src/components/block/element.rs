@@ -1245,7 +1245,7 @@ fn collect_link_action_icons(
             continue;
         };
         let paint_bounds = layout.paint_bounds;
-        let icon_path = if link.is_workspace_file {
+        let icon_path = if link.is_workspace_file || link.is_document_relative_file {
             LINK_ACTION_ICON_WIKI
         } else {
             LINK_ACTION_ICON_EXTERNAL

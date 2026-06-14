@@ -137,6 +137,26 @@ pub(crate) fn is_supported_autolink_target(target: &str) -> bool {
         .is_some_and(|scheme| matches!(scheme.as_str(), "http" | "https"))
 }
 
+/// Returns the path portion of an inline link destination, without `#fragment` or `?query`.
+pub(crate) fn link_destination_path_part(destination: &str) -> &str {
+    destination.split(['#', '?']).next().unwrap_or(destination)
+}
+
+/// True when `[label](destination)` should open a workspace file instead of a browser URL.
+pub(crate) fn is_local_file_link_destination(destination: &str) -> bool {
+    let destination = destination.trim();
+    if destination.is_empty() || destination.starts_with('#') {
+        return false;
+    }
+    if is_supported_autolink_target(destination) {
+        return false;
+    }
+    if destination.starts_with("//") || destination.contains("://") {
+        return false;
+    }
+    !link_destination_path_part(destination).is_empty()
+}
+
 fn parse_link_reference_definition(
     lines: &[&str],
     start: usize,
@@ -476,5 +496,18 @@ mod tests {
         assert!(is_supported_autolink_target("mailto:test@example.com"));
         assert!(!is_supported_autolink_target("./relative/path"));
         assert!(!is_supported_autolink_target("span>x</span"));
+    }
+
+    #[test]
+    fn detects_local_markdown_link_destinations() {
+        use super::is_local_file_link_destination;
+
+        assert!(is_local_file_link_destination("ai-chat-implementation.zh-CN.md"));
+        assert!(is_local_file_link_destination("./development.zh-CN.md"));
+        assert!(is_local_file_link_destination("../README.md"));
+        assert!(is_local_file_link_destination("other.md#section"));
+        assert!(!is_local_file_link_destination("https://example.com"));
+        assert!(!is_local_file_link_destination("mailto:test@example.com"));
+        assert!(!is_local_file_link_destination("#anchor"));
     }
 }

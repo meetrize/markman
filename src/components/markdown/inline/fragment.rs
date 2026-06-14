@@ -90,6 +90,8 @@ pub struct InlineLinkHit {
     pub open_target: String,
     /// When true, [`open_target`] is resolved against the workspace root and opened as a local file.
     pub is_workspace_file: bool,
+    /// When true, [`open_target`] is resolved against the current document directory.
+    pub is_document_relative_file: bool,
 }
 
 /// A cursor inside the inline text tree.

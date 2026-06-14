@@ -725,6 +725,7 @@ pub enum BlockEvent {
         prompt_target: String,
         open_target: String,
         is_workspace_file: bool,
+        is_document_relative_file: bool,
     },
     /// Open the wiki-link file picker for `[[path]]` at the current caret.
     RequestOpenWikiLinkPicker { path: String },

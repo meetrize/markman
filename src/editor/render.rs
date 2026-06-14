@@ -475,6 +475,27 @@ impl Editor {
             return;
         };
 
+        if link.is_document_relative_file {
+            if let Some(base_dir) = self.file_path.as_ref().and_then(|path| path.parent()) {
+                let path = base_dir.join(crate::components::markdown::link::link_destination_path_part(
+                    &link.open_target,
+                ));
+                if path.is_file() {
+                    self.open_workspace_path(path, window, cx);
+                    return;
+                }
+            }
+            if let Some(root) = self.effective_workspace_root() {
+                let path = root.join(crate::components::markdown::link::link_destination_path_part(
+                    &link.open_target,
+                ));
+                if path.is_file() {
+                    self.open_workspace_path(path, window, cx);
+                    return;
+                }
+            }
+        }
+
         if link.is_workspace_file {
             if let Some(root) = self.effective_workspace_root() {
                 let path = root.join(&link.open_target);

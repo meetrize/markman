@@ -429,12 +429,14 @@ impl Editor {
         prompt_target: String,
         open_target: String,
         is_workspace_file: bool,
+        is_document_relative_file: bool,
         cx: &mut Context<Self>,
     ) {
         self.pending_open_link = Some(PendingOpenLink {
             prompt_target,
             open_target,
             is_workspace_file,
+            is_document_relative_file,
         });
         cx.notify();
     }
@@ -444,12 +446,19 @@ impl Editor {
         prompt_target: String,
         open_target: String,
         is_workspace_file: bool,
+        is_document_relative_file: bool,
         cx: &mut Context<Self>,
     ) {
         if is_workspace_file {
             self.close_wiki_link_picker(cx);
         }
-        self.request_open_link_prompt(prompt_target, open_target, is_workspace_file, cx);
+        self.request_open_link_prompt(
+            prompt_target,
+            open_target,
+            is_workspace_file,
+            is_document_relative_file,
+            cx,
+        );
     }
 
     pub(crate) fn close_menu_bar(&mut self, cx: &mut Context<Self>) {

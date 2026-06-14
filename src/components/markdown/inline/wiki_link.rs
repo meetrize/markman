@@ -149,6 +149,7 @@ mod tests {
                 prompt_target: "docs/README.zh-CN.md".to_string(),
                 open_target: "docs/README.zh-CN.md".to_string(),
                 is_workspace_file: true,
+                is_document_relative_file: false,
             })
         );
         assert_eq!(

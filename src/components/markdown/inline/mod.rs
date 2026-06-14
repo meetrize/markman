@@ -1353,6 +1353,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_inline_local_markdown_file_link_as_document_relative() {
+        let markdown = "[方案设计](ai-chat-implementation.zh-CN.md)";
+        let tree = InlineTextTree::from_markdown(markdown);
+
+        assert_eq!(tree.visible_text(), "方案设计");
+        assert_eq!(
+            tree.render_cache().link_hit_at(0),
+            Some(&InlineLinkHit {
+                prompt_target: "ai-chat-implementation.zh-CN.md".to_string(),
+                open_target: "ai-chat-implementation.zh-CN.md".to_string(),
+                is_workspace_file: false,
+                is_document_relative_file: true,
+            })
+        );
+    }
+
+    #[test]
     fn parses_inline_link_title_without_polluting_open_target() {
         let markdown = "[ABC](https://abc.com \"https://abc.com\")";
         let tree = InlineTextTree::from_markdown(markdown);
@@ -1364,6 +1381,7 @@ mod tests {
                 prompt_target: "https://abc.com".to_string(),
                 open_target: "https://abc.com".to_string(),
                 is_workspace_file: false,
+                is_document_relative_file: false,
             })
         );
         assert_eq!(tree.serialize_markdown(), markdown);
@@ -1449,6 +1467,7 @@ mod tests {
                 prompt_target: "Ref   Links".to_string(),
                 open_target: "https://example.com".to_string(),
                 is_workspace_file: false,
+                is_document_relative_file: false,
             })
         );
         assert_eq!(tree.serialize_markdown(), markdown);
@@ -1588,6 +1607,7 @@ mod tests {
                 prompt_target: "ref2".to_string(),
                 open_target: "ref2".to_string(),
                 is_workspace_file: false,
+                is_document_relative_file: false,
             })
         );
         assert_eq!(tree.serialize_markdown(), markdown);

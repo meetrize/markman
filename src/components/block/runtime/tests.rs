@@ -1435,6 +1435,7 @@ async fn reference_style_link_hit_exposes_raw_prompt_and_resolved_open_target(
             prompt_target: "ref-links".to_string(),
             open_target: "https://example.com".to_string(),
             is_workspace_file: false,
+            is_document_relative_file: false,
         })
     );
 }
@@ -1458,6 +1459,7 @@ async fn inline_link_with_title_expands_title_but_opens_destination(cx: &mut Tes
             prompt_target: "https://abc.com".to_string(),
             open_target: "https://abc.com".to_string(),
             is_workspace_file: false,
+            is_document_relative_file: false,
         })
     );
 
@@ -1527,6 +1529,7 @@ async fn wiki_link_expands_with_double_brackets_when_touched(cx: &mut TestAppCon
             prompt_target: "docs/README.zh-CN.md".to_string(),
             open_target: "docs/README.zh-CN.md".to_string(),
             is_workspace_file: true,
+            is_document_relative_file: false,
         })
     );
 
@@ -1584,6 +1587,7 @@ async fn projected_reference_target_stays_link_hit_testable(cx: &mut TestAppCont
             prompt_target: "ref-link".to_string(),
             open_target: "https://example.com".to_string(),
             is_workspace_file: false,
+            is_document_relative_file: false,
         })
     );
 }

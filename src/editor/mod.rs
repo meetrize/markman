@@ -80,6 +80,7 @@ pub(crate) struct PendingOpenLink {
     pub(crate) prompt_target: String,
     pub(crate) open_target: String,
     pub(crate) is_workspace_file: bool,
+    pub(crate) is_document_relative_file: bool,
 }
 
 /// Deferred jump target after opening a workspace search result.

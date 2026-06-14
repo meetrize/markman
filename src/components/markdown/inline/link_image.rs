@@ -2,7 +2,10 @@
 
 
 use crate::components::markdown::html::HtmlInlineStyle;
-use crate::components::markdown::link::{LinkReferenceDefinition, LinkReferenceDefinitions, parse_link_target};
+use crate::components::markdown::link::{
+    LinkReferenceDefinition, LinkReferenceDefinitions, is_local_file_link_destination,
+    parse_link_target,
+};
 
 use super::fragment::{InlineFragment, InlineLink, InlineLinkHit};
 use super::html::looks_like_non_autolink_html_tag;
@@ -47,10 +50,16 @@ impl InlineLink {
     }
 
     pub(crate) fn hit(&self) -> InlineLinkHit {
+        let open_target = self.open_target().to_string();
+        let is_workspace_file = matches!(self, Self::WikiLink { .. });
+        let is_document_relative_file = !is_workspace_file
+            && matches!(self, Self::Inline { .. } | Self::Reference { .. })
+            && is_local_file_link_destination(&open_target);
         InlineLinkHit {
             prompt_target: self.raw_target().to_string(),
-            open_target: self.open_target().to_string(),
-            is_workspace_file: matches!(self, Self::WikiLink { .. }),
+            open_target,
+            is_workspace_file,
+            is_document_relative_file,
         }
     }
 

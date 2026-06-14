@@ -1145,6 +1145,7 @@ impl Block {
             prompt_target: link.prompt_target,
             open_target: link.open_target,
             is_workspace_file: link.is_workspace_file,
+            is_document_relative_file: link.is_document_relative_file,
         });
         true
     }
@@ -1317,6 +1318,7 @@ impl Block {
             prompt_target,
             open_target,
             is_workspace_file: true,
+            is_document_relative_file: false,
         });
         true
     }
@@ -1384,6 +1386,7 @@ impl Block {
                     prompt_target: link.prompt_target,
                     open_target: link.open_target,
                     is_workspace_file: link.is_workspace_file,
+                    is_document_relative_file: link.is_document_relative_file,
                 });
                 return true;
             }
