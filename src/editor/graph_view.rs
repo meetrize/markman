@@ -20,7 +20,7 @@ const VIEWPORT_PADDING: f32 = 28.0;
 const MIN_VIEWPORT_SCALE: f32 = 0.08;
 const MAX_VIEWPORT_SCALE: f32 = 4.0;
 const MIN_SCREEN_NODE_RADIUS: f32 = 16.0;
-const MIN_SCREEN_LABEL_SIZE: f32 = 9.0;
+const MIN_SCREEN_LABEL_SIZE: f32 = 11.0;
 const NODE_LABEL_PADDING: f32 = 8.0;
 const CLICK_DRAG_THRESHOLD_PX: f32 = 4.0;
 const ZOOM_LINE_SCALE: f32 = 0.08;
@@ -589,8 +589,8 @@ fn prepaint_graph(
 
         let label_text: SharedString = node_display_label(&node.kind).into();
         let max_label_width = (radius * 2.0 * 0.82 - px(NODE_LABEL_PADDING)).max(px(8.0));
-        let label_font_size = (f32::from(radius) * 0.38)
-            .clamp(MIN_SCREEN_LABEL_SIZE, 13.0);
+        let label_font_size = (f32::from(radius) * 0.48)
+            .max(MIN_SCREEN_LABEL_SIZE);
         let font_size = px(label_font_size);
         let mut runs = vec![TextRun {
             len: label_text.len(),

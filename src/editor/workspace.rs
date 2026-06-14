@@ -1916,6 +1916,7 @@ impl Editor {
                 );
 
                 let mut occurrence_rows = Vec::new();
+                let total = occurrences.len();
                 for (index, occurrence) in occurrences.iter().enumerate() {
                     let result = WorkspaceSearchResult {
                         path: occurrence.path.clone(),
@@ -1975,6 +1976,16 @@ impl Editor {
                             )
                             .into_any_element(),
                     );
+                    if index + 1 < total {
+                        occurrence_rows.push(
+                            div()
+                                .w_full()
+                                .px(px(6.0))
+                                .border_t(px(1.0))
+                                .border_color(c.dialog_border.opacity(0.35))
+                                .into_any_element(),
+                        );
+                    }
                 }
 
                 children.push(

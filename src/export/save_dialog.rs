@@ -28,16 +28,11 @@ fn prompt_export_save_path_on_main_thread(
     directory: &Path,
     suggested_name: Option<&str>,
 ) -> Result<Option<PathBuf>> {
-    use objc2::msg_send;
-    use objc2::runtime::Bool;
     use objc2_app_kit::{NSModalResponseOK, NSSavePanel};
     use objc2_foundation::{MainThreadMarker, NSURL, NSString};
 
     let mtm = MainThreadMarker::new().context("export save panel must run on the main thread")?;
     let panel = NSSavePanel::savePanel(mtm);
-    unsafe {
-        let _: () = msg_send![&*panel, setShowsReplaceConfirmation: Bool::NO];
-    }
 
     if !directory.as_os_str().is_empty() {
         let directory_string = NSString::from_str(&directory.to_string_lossy());
