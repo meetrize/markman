@@ -85,20 +85,52 @@ pub(crate) fn restore_last_workspace_folder(handle: &WindowHandle<Editor>, cx: &
     });
 }
 
-fn open_file_in_new_window(cx: &mut App, path: &Path) -> anyhow::Result<()> {
+fn open_file_in_new_window(cx: &mut App, path: &Path) -> anyhow::Result<WindowHandle<Editor>> {
     let markdown = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read '{}'", path.display()))?;
-    open_editor_window(cx, markdown, Some(path.to_path_buf()));
+    let handle = open_editor_window(cx, markdown, Some(path.to_path_buf()));
     record_recent_file_and_refresh(path, cx);
-    Ok(())
+    Ok(handle)
+}
+
+/// Opens the configured startup window when no files were passed on the command line.
+pub(crate) fn open_default_startup_window(
+    cx: &mut App,
+    preferences: &crate::config::store::AppPreferences,
+) -> WindowHandle<Editor> {
+    let handle =
+        if preferences.startup_open == crate::config::StartupOpenPreference::LastOpenedFile
+            && let Some(path) = crate::config::first_existing_recent_markdown_file()
+        {
+            match std::fs::read_to_string(&path) {
+                Ok(markdown) => open_editor_window(cx, markdown, Some(path)),
+                Err(err) => {
+                    eprintln!("failed to read last opened file '{}': {err}", path.display());
+                    open_editor_window(cx, String::new(), None)
+                }
+            }
+        } else {
+            open_editor_window(cx, String::new(), None)
+        };
+    restore_last_workspace_folder(&handle, cx);
+    handle
 }
 
 /// Opens Markdown files requested by the OS (Open With, file-manager handoff, etc.).
 pub(crate) fn open_markdown_files_from_external(cx: &mut App, paths: &[PathBuf]) {
+    let mut first_handle = None;
     for path in paths {
-        if let Err(err) = open_file_in_new_window(cx, path) {
-            eprintln!("failed to open '{}': {err:#}", path.display());
+        match open_file_in_new_window(cx, path) {
+            Ok(handle) => {
+                if first_handle.is_none() {
+                    first_handle = Some(handle);
+                }
+            }
+            Err(err) => eprintln!("failed to open '{}': {err:#}", path.display()),
         }
+    }
+    if let Some(handle) = first_handle {
+        restore_last_workspace_folder(&handle, cx);
     }
 }
 

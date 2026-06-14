@@ -7,8 +7,12 @@ use std::time::Duration;
 use gpui::{App, Application, AsyncApp};
 
 use crate::app_menu;
+use crate::config::store::AppPreferences;
 
 static PENDING_EXTERNAL_OPEN: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+const EXTERNAL_OPEN_POLL_INTERVAL: Duration = Duration::from_millis(16);
+const EXTERNAL_OPEN_WAIT_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// Register a handler for platform file-open requests (`application:openURLs:` on macOS).
 pub fn install_open_external_files(application: &Application) {
@@ -23,12 +27,26 @@ pub fn install_open_external_files(application: &Application) {
     });
 }
 
-/// Drain pending OS file-open requests on the GPUI main thread.
-pub fn init_external_open_drain(cx: &mut App) {
+/// Drain pending OS file-open requests and optionally defer the default startup window.
+pub fn init_external_open_handling(cx: &mut App, deferred_startup: Option<AppPreferences>) {
     cx.spawn(async move |cx: &mut AsyncApp| {
+        if let Some(preferences) = deferred_startup {
+            let external_paths =
+                wait_for_external_open_paths(cx, EXTERNAL_OPEN_WAIT_TIMEOUT).await;
+            let _ = cx.update(|app| {
+                if external_paths.is_empty() {
+                    app_menu::open_default_startup_window(app, &preferences);
+                } else {
+                    app_menu::open_markdown_files_from_external(app, &external_paths);
+                }
+                app_menu::install_menus(app);
+                app.refresh_windows();
+            });
+        }
+
         loop {
             cx.background_executor()
-                .timer(Duration::from_millis(32))
+                .timer(EXTERNAL_OPEN_POLL_INTERVAL)
                 .await;
             let paths = take_pending_external_open_paths();
             if paths.is_empty() {
@@ -38,6 +56,26 @@ pub fn init_external_open_drain(cx: &mut App) {
         }
     })
     .detach();
+}
+
+async fn wait_for_external_open_paths(cx: &mut AsyncApp, timeout: Duration) -> Vec<PathBuf> {
+    let mut waited = Duration::ZERO;
+    while waited < timeout {
+        if has_pending_external_open_paths() {
+            return take_pending_external_open_paths();
+        }
+        cx.background_executor()
+            .timer(EXTERNAL_OPEN_POLL_INTERVAL)
+            .await;
+        waited += EXTERNAL_OPEN_POLL_INTERVAL;
+    }
+    take_pending_external_open_paths()
+}
+
+fn has_pending_external_open_paths() -> bool {
+    PENDING_EXTERNAL_OPEN
+        .lock()
+        .is_ok_and(|pending| !pending.is_empty())
 }
 
 fn take_pending_external_open_paths() -> Vec<PathBuf> {

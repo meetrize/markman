@@ -329,34 +329,16 @@ fn main() {
             ThemeManager::init_with_theme_id(cx, &preferences.default_theme_id);
             net::install_http_client(cx);
             platform::init_document_gestures(cx);
-            platform::init_external_open_drain(cx);
             init_editor(cx, &preferences.keybindings);
             init_app_menu(cx);
             app_visibility::init(cx);
 
             if input_paths.is_empty() {
-                let handle =
-                    if preferences.startup_open == config::StartupOpenPreference::LastOpenedFile
-                        && let Some(path) = config::first_existing_recent_markdown_file()
-                    {
-                        match std::fs::read_to_string(&path) {
-                            Ok(markdown) => open_editor_window(cx, markdown, Some(path)),
-                            Err(err) => {
-                                eprintln!(
-                                    "failed to read last opened file '{}': {err}",
-                                    path.display()
-                                );
-                                open_editor_window(cx, String::new(), None)
-                            }
-                        }
-                    } else {
-                        open_editor_window(cx, String::new(), None)
-                    };
-                app_menu::restore_last_workspace_folder(&handle, cx);
-                app_menu::install_menus(cx);
-                cx.refresh_windows();
+                platform::init_external_open_handling(cx, Some(preferences));
                 return;
             }
+
+            platform::init_external_open_handling(cx, None);
 
             for path in &input_paths {
                 let absolute_path = if path.is_absolute() {
