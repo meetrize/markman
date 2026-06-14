@@ -25,6 +25,7 @@ const NODE_LABEL_PADDING: f32 = 8.0;
 const CLICK_DRAG_THRESHOLD_PX: f32 = 4.0;
 const ZOOM_LINE_SCALE: f32 = 0.08;
 const GRAPH_EDGE_STROKE_BASE: f32 = 1.5;
+const GRAPH_NODE_BORDER_BASE: f32 = 1.5;
 const VIEWPORT_CULL_PADDING: f32 = 48.0;
 const MAX_EDGES_WITHOUT_HOVER_CULL: usize = 3000;
 pub(crate) const GRAPH_ANIMATION_FRAMES: u32 = 90;
@@ -332,6 +333,15 @@ fn pixel_point_is_finite(point: Point<Pixels>) -> bool {
     f32::from(point.x).is_finite() && f32::from(point.y).is_finite()
 }
 
+fn node_border_color(fill: Hsla) -> Hsla {
+    Hsla {
+        h: fill.h,
+        s: fill.s,
+        l: (fill.l * 0.55).clamp(0.0, 1.0),
+        a: fill.a,
+    }
+}
+
 fn build_graph_edge_path(
     source: Point<Pixels>,
     target: Point<Pixels>,
@@ -418,6 +428,10 @@ fn prepaint_graph(
         (GRAPH_EDGE_STROKE_BASE * viewport.scale.max(0.25))
             .clamp(1.0, 3.0),
     );
+    let node_border_width = px(
+        (GRAPH_NODE_BORDER_BASE * viewport.scale.max(0.35))
+            .clamp(1.0, 2.0),
+    );
 
     let mut edges = Vec::new();
     for edge in &state.graph.edges {
@@ -483,6 +497,8 @@ fn prepaint_graph(
         };
         let mut quad = fill(node_bounds, color);
         quad.corner_radii = Corners::all(radius);
+        quad.border_widths = Edges::all(node_border_width);
+        quad.border_color = node_border_color(color);
         nodes.push(quad);
 
         let label_text: SharedString = node_display_label(&node.kind).into();
