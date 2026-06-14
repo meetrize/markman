@@ -126,10 +126,9 @@ impl Block {
         let hidden_line_count = content_line_count
             .saturating_sub(CODE_RUN_OUTPUT_COLLAPSED_VISIBLE_LINES);
         let output_panel_bg = Hsla::from(rgba(0xffffffff));
-        // Inset the panel background from the block row edge. Code content uses
-        // `pr(code_block_padding_x)`; add a little more so the white panel sits
-        // slightly farther from the window edge than the code area above.
-        let output_panel_edge_inset_right = d.code_block_padding_x + 0.0;
+        // Inset the panel background from the block row edge so it aligns with
+        // the code content area's internal horizontal padding.
+        let output_panel_edge_inset_right = d.code_block_padding_x;
 
         let mut text_sections = div().w_full().flex().flex_col().gap(px(6.0));
         if !snapshot.stdout.is_empty() {
@@ -661,8 +660,6 @@ impl Block {
                 let code_content_lane = div()
                     .flex_grow()
                     .min_w(px(0.0))
-                    .py(px(d.code_block_padding_y))
-                    .pr(px(d.code_block_padding_x))
                     .child(code_content);
 
                 let code_row = if allow_code_execution {

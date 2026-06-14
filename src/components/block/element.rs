@@ -6,7 +6,7 @@ use gpui::*;
 
 use super::{Block, InlineFootnoteHit, InlineLinkHit, InlineTagHit, code_highlight_class_at, code_highlight_color};
 use crate::components::{HtmlCssColor, InlineTextTree};
-use crate::theme::{ThemeColors, ThemeManager};
+use crate::theme::{ThemeColors, ThemeDimensions, ThemeManager};
 
 const SOURCE_LINE_NUMBER_MIN_DIGITS: usize = 2;
 const SOURCE_LINE_NUMBER_GAP: f32 = 12.0;
@@ -53,6 +53,31 @@ fn source_text_bounds(bounds: Bounds<Pixels>, gutter_width: Pixels) -> Bounds<Pi
         size(
             (bounds.size.width - gutter_width).max(px(1.0)),
             bounds.size.height,
+        ),
+    )
+}
+
+fn code_block_content_inset(input: &Block, dimensions: &ThemeDimensions) -> (Pixels, Pixels) {
+    if input.kind().is_code_block() && !input.is_source_raw_mode() {
+        (
+            px(dimensions.code_block_padding_x),
+            px(dimensions.code_block_padding_y),
+        )
+    } else {
+        (px(0.0), px(0.0))
+    }
+}
+
+fn inset_bounds_by_padding(
+    bounds: Bounds<Pixels>,
+    pad_x: Pixels,
+    pad_y: Pixels,
+) -> Bounds<Pixels> {
+    Bounds::new(
+        point(bounds.origin.x + pad_x, bounds.origin.y + pad_y),
+        size(
+            (bounds.size.width - pad_x * 2.0).max(px(1.0)),
+            (bounds.size.height - pad_y * 2.0).max(px(1.0)),
         ),
     )
 }
@@ -1816,6 +1841,7 @@ pub struct PrepaintState {
     link_action_icons: Vec<LinkActionIconPaint>,
     line_height: Pixels,
     hitbox: Hitbox,
+    code_block_content_pad_y: Pixels,
 }
 
 impl IntoElement for BlockTextElement {
@@ -1919,6 +1945,8 @@ impl Element for BlockTextElement {
         } else {
             px(0.0)
         };
+        let (code_block_pad_x, code_block_pad_y) =
+            code_block_content_inset(input, &theme.dimensions);
 
         let shared_cache = Rc::new(RefCell::new(None));
         let shared_cache_clone = shared_cache.clone();
@@ -1937,7 +1965,11 @@ impl Element for BlockTextElement {
                     AvailableSpace::MaxContent => Some(window.viewport_size().width.max(px(1.0))),
                 });
                 let text_wrap_width = wrap_width.map(|width| {
-                    (width - source_line_number_gutter_width - link_icon_gutter).max(px(1.0))
+                    (width
+                        - source_line_number_gutter_width
+                        - link_icon_gutter
+                        - code_block_pad_x * 2.0)
+                        .max(px(1.0))
                 });
 
                 let lines = window
@@ -1959,6 +1991,7 @@ impl Element for BlockTextElement {
                     total_size.width = total_size.width.max(ls.width);
                 }
                 total_size.width += source_line_number_gutter_width + link_icon_gutter;
+                total_size.height += code_block_pad_y * 2.0;
                 *shared_cache_clone.borrow_mut() =
                     Some((display_text.clone(), link_icon_gutter, lines));
                 total_size
@@ -2033,7 +2066,8 @@ impl Element for BlockTextElement {
                     .unwrap_or(px(0.0));
                 let text_wrap_width = (bounds.size.width
                     - source_line_number_gutter_width
-                    - link_icon_gutter)
+                    - link_icon_gutter
+                    - code_block_content_inset(input, &theme.dimensions).0 * 2.0)
                     .max(px(1.0));
                 shape_block_display_lines(
                     input,
@@ -2055,7 +2089,13 @@ impl Element for BlockTextElement {
             .unwrap_or(px(0.0));
         let content_gutter_width =
             link_content_gutter_width(input, line_height, source_line_number_gutter_width);
-        let text_bounds = source_text_bounds(bounds, content_gutter_width);
+        let (code_block_pad_x, code_block_pad_y) =
+            code_block_content_inset(input, &theme.dimensions);
+        let text_bounds = inset_bounds_by_padding(
+            source_text_bounds(bounds, content_gutter_width),
+            code_block_pad_x,
+            code_block_pad_y,
+        );
         let icon_layout_bounds = link_icon_layout_bounds(text_bounds, link_icon_gutter);
         let text_align = input.text_align();
         let text = input.display_text();
@@ -2262,6 +2302,7 @@ impl Element for BlockTextElement {
             link_action_icons,
             line_height,
             hitbox,
+            code_block_content_pad_y: code_block_pad_y,
         }
     }
 
@@ -2277,9 +2318,15 @@ impl Element for BlockTextElement {
     ) {
         let (focus_handle, hovered_link) = {
             let input = self.input.read(cx);
-            let text_bounds = source_text_bounds(
-                bounds,
-                prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+            let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
+            let (pad_x, pad_y) = code_block_content_inset(input, &theme.dimensions);
+            let text_bounds = inset_bounds_by_padding(
+                source_text_bounds(
+                    bounds,
+                    prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+                ),
+                pad_x,
+                pad_y,
             );
             let mouse_position = window.mouse_position();
             let hovered_link = !self.is_placeholder
@@ -2309,9 +2356,16 @@ impl Element for BlockTextElement {
         }
 
         if focus_handle.is_focused(window) {
-            let text_bounds = source_text_bounds(
-                bounds,
-                prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+            let input = self.input.read(cx);
+            let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
+            let (pad_x, pad_y) = code_block_content_inset(input, &theme.dimensions);
+            let text_bounds = inset_bounds_by_padding(
+                source_text_bounds(
+                    bounds,
+                    prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+                ),
+                pad_x,
+                pad_y,
             );
             window.handle_input(
                 &focus_handle,
@@ -2320,9 +2374,17 @@ impl Element for BlockTextElement {
             );
         }
 
-        let text_bounds = source_text_bounds(
-            bounds,
-            prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+        let input = self.input.read(cx);
+        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
+        let (code_block_pad_x, code_block_pad_y) =
+            code_block_content_inset(input, &theme.dimensions);
+        let text_bounds = inset_bounds_by_padding(
+            source_text_bounds(
+                bounds,
+                prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+            ),
+            code_block_pad_x,
+            code_block_pad_y,
         );
         let link_click_bounds =
             link_icon_layout_bounds(text_bounds, prepaint.link_icon_gutter_width);
@@ -2376,8 +2438,6 @@ impl Element for BlockTextElement {
             }
         });
 
-        let theme = cx.global::<ThemeManager>().document_theme_arc(cx);
-        let input = self.input.read(cx);
         if input.show_code_block_line_number_gutter()
             && prepaint.source_line_number_gutter_width > px(0.0)
         {
@@ -2400,6 +2460,8 @@ impl Element for BlockTextElement {
                 ),
             );
             window.paint_quad(fill(code_bounds, theme.colors.code_bg));
+        } else if input.kind().is_code_block() && !input.is_source_raw_mode() {
+            window.paint_quad(fill(bounds, theme.colors.code_bg));
         }
 
         // Paint code backgrounds behind text.
@@ -2448,7 +2510,7 @@ impl Element for BlockTextElement {
                 .paint(
                     point(
                         text_bounds.left() - line_number_gap - line_number_width,
-                        bounds.origin.y + *y_offset,
+                        bounds.origin.y + *y_offset + prepaint.code_block_content_pad_y,
                     ),
                     line_height,
                     window,

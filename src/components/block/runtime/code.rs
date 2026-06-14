@@ -69,7 +69,11 @@ impl Block {
     }
 
     pub(crate) fn show_code_block_line_number_gutter(&self) -> bool {
-        self.kind().is_code_block() && !self.is_source_raw_mode()
+        self.kind().is_code_block()
+            && !self.is_source_raw_mode()
+            && read_app_preferences()
+                .map(|preferences| preferences.code_block_show_line_numbers)
+                .unwrap_or(true)
     }
 
     pub(crate) fn show_line_number_gutter(&self) -> bool {

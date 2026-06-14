@@ -540,6 +540,8 @@ pub struct I18nStrings {
     pub preferences_inline_code_system_terminal_label: String,
     /// Preferences label for expanding code blocks by default.
     pub preferences_code_block_default_expanded_label: String,
+    /// Preferences label for showing line numbers in code blocks.
+    pub preferences_code_block_show_line_numbers_label: String,
     pub quick_file_open_placeholder: String,
 }
 
@@ -835,6 +837,7 @@ struct I18nStringsDe {
     preferences_allow_code_execution_off: Option<String>,
     preferences_inline_code_system_terminal_label: Option<String>,
     preferences_code_block_default_expanded_label: Option<String>,
+    preferences_code_block_show_line_numbers_label: Option<String>,
     quick_file_open_placeholder: Option<String>,
 }
 
@@ -1128,6 +1131,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_allow_code_execution_off",
     "preferences_inline_code_system_terminal_label",
     "preferences_code_block_default_expanded_label",
+    "preferences_code_block_show_line_numbers_label",
     "quick_file_open_placeholder",
 ];
 
@@ -1943,6 +1947,9 @@ impl I18nStringsDe {
             preferences_code_block_default_expanded_label: self
                 .preferences_code_block_default_expanded_label
                 .unwrap_or(defaults.preferences_code_block_default_expanded_label),
+            preferences_code_block_show_line_numbers_label: self
+                .preferences_code_block_show_line_numbers_label
+                .unwrap_or(defaults.preferences_code_block_show_line_numbers_label),
             quick_file_open_placeholder: self
                 .quick_file_open_placeholder
                 .unwrap_or(defaults.quick_file_open_placeholder),
@@ -2261,6 +2268,7 @@ impl I18nStrings {
             preferences_allow_code_execution_off: "已关闭".into(),
             preferences_inline_code_system_terminal_label: "行内代码在系统终端中执行".into(),
             preferences_code_block_default_expanded_label: "代码块默认展开".into(),
+            preferences_code_block_show_line_numbers_label: "显示代码块行号".into(),
             quick_file_open_placeholder: "搜索文件名…".into(),
         }
     }
@@ -2578,6 +2586,7 @@ impl I18nStrings {
             preferences_allow_code_execution_off: "Disabled".into(),
             preferences_inline_code_system_terminal_label: "Run inline code in the system terminal".into(),
             preferences_code_block_default_expanded_label: "Expand code blocks by default".into(),
+            preferences_code_block_show_line_numbers_label: "Show code block line numbers".into(),
             quick_file_open_placeholder: "Search files by name…".into(),
         }
     }

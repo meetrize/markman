@@ -64,6 +64,8 @@ pub(crate) struct AppPreferences {
     pub(crate) inline_code_run_in_system_terminal: bool,
     /// When true, collapsible code blocks start expanded instead of folded when unfocused.
     pub(crate) code_block_default_expanded: bool,
+    /// When true, code blocks show a line-number gutter in the editor.
+    pub(crate) code_block_show_line_numbers: bool,
     pub(crate) ai: AiPreferences,
     pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
 }
@@ -106,6 +108,7 @@ impl Default for AppPreferences {
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
             code_block_default_expanded: false,
+            code_block_show_line_numbers: true,
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         }
@@ -149,6 +152,7 @@ struct CodeExecutionPreferencesFile {
 #[derive(Serialize)]
 struct CodeBlockPreferencesFile {
     default_expanded: bool,
+    show_line_numbers: bool,
 }
 
 #[derive(Serialize)]
@@ -183,6 +187,7 @@ impl From<&AppPreferences> for PreferencesFile {
             },
             code_block: CodeBlockPreferencesFile {
                 default_expanded: value.code_block_default_expanded,
+                show_line_numbers: value.code_block_show_line_numbers,
             },
             ai: AiPreferencesFile {
                 provider: value.ai.provider.clone(),
@@ -303,6 +308,11 @@ fn app_preferences_from_toml_value(
         .and_then(|section| section.get("default_expanded"))
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let code_block_show_line_numbers = value
+        .get("code_block")
+        .and_then(|section| section.get("show_line_numbers"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
     let ai = ai_preferences_from_toml_value(value);
     let format_toolbar = format_toolbar_buttons_from_toml(Some(value));
 
@@ -315,6 +325,7 @@ fn app_preferences_from_toml_value(
         code_execution_confirm_shown,
         inline_code_run_in_system_terminal,
         code_block_default_expanded,
+        code_block_show_line_numbers,
         ai,
         format_toolbar,
     }
@@ -429,6 +440,7 @@ pub(crate) fn save_preferences_from_window(
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
     code_block_default_expanded: bool,
+    code_block_show_line_numbers: bool,
     ai: AiPreferences,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = MarkmanConfigDirs::from_system()?;
@@ -439,6 +451,7 @@ pub(crate) fn save_preferences_from_window(
         allow_code_execution,
         inline_code_run_in_system_terminal,
         code_block_default_expanded,
+        code_block_show_line_numbers,
         ai,
         &dirs,
     )
@@ -451,6 +464,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
     code_block_default_expanded: bool,
+    code_block_show_line_numbers: bool,
     ai: AiPreferences,
     dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
@@ -462,6 +476,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preferences.allow_code_execution = allow_code_execution;
     preferences.inline_code_run_in_system_terminal = inline_code_run_in_system_terminal;
     preferences.code_block_default_expanded = code_block_default_expanded;
+    preferences.code_block_show_line_numbers = code_block_show_line_numbers;
     preferences.ai = ai;
     preferences.ai.selection_toolbar =
         normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
@@ -567,6 +582,7 @@ mod tests {
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
             code_block_default_expanded: false,
+            code_block_show_line_numbers: true,
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         };
@@ -652,6 +668,7 @@ mod tests {
             code_execution_confirm_shown: false,
             inline_code_run_in_system_terminal: false,
             code_block_default_expanded: false,
+            code_block_show_line_numbers: true,
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
         };
@@ -665,6 +682,7 @@ mod tests {
             false,
             true,
             true,
+            false,
             AiPreferences::default(),
             &dirs,
         )
@@ -678,6 +696,30 @@ mod tests {
         );
         assert!(saved.inline_code_run_in_system_terminal);
         assert!(saved.code_block_default_expanded);
+        assert!(!saved.code_block_show_line_numbers);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_and_reads_code_block_show_line_numbers_preference() {
+        let root = std::env::temp_dir().join(format!(
+            "velotype-preferences-code-block-line-numbers-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let dirs = MarkmanConfigDirs::from_root(&root);
+        let preferences = AppPreferences {
+            code_block_show_line_numbers: false,
+            ..AppPreferences::default()
+        };
+
+        save_app_preferences_with_dirs(&preferences, &dirs)
+            .expect("preferences should save to config.toml");
+        let loaded = read_app_preferences_with_dirs(&dirs).expect("preferences should read back");
+        assert!(!loaded.code_block_show_line_numbers);
+
+        let text =
+            std::fs::read_to_string(dirs.app_config_file()).expect("config.toml should exist");
+        assert!(text.contains("show_line_numbers = false"));
         let _ = std::fs::remove_dir_all(root);
     }
 

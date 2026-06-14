@@ -70,6 +70,7 @@ pub(crate) struct PreferencesWindow {
     allow_code_execution: bool,
     inline_code_run_in_system_terminal: bool,
     code_block_default_expanded: bool,
+    code_block_show_line_numbers: bool,
     pub(in crate::config::ui::preferences) ai: AiPreferences,
     selected_theme_id: String,
     keybindings: BTreeMap<String, Vec<String>>,
@@ -77,6 +78,7 @@ pub(crate) struct PreferencesWindow {
     saved_allow_code_execution: bool,
     saved_inline_code_run_in_system_terminal: bool,
     saved_code_block_default_expanded: bool,
+    saved_code_block_show_line_numbers: bool,
     saved_ai: AiPreferences,
     saved_theme_id: String,
     saved_keybindings: BTreeMap<String, Vec<String>>,
@@ -111,6 +113,7 @@ impl PreferencesWindow {
         let allow_code_execution = preferences.allow_code_execution;
         let inline_code_run_in_system_terminal = preferences.inline_code_run_in_system_terminal;
         let code_block_default_expanded = preferences.code_block_default_expanded;
+        let code_block_show_line_numbers = preferences.code_block_show_line_numbers;
         let ai = preferences.ai;
         let keybindings = preferences.keybindings;
         Self {
@@ -119,6 +122,7 @@ impl PreferencesWindow {
             allow_code_execution,
             inline_code_run_in_system_terminal,
             code_block_default_expanded,
+            code_block_show_line_numbers,
             ai: ai.clone(),
             selected_theme_id: selected_theme_id.clone(),
             keybindings: keybindings.clone(),
@@ -126,6 +130,7 @@ impl PreferencesWindow {
             saved_allow_code_execution: allow_code_execution,
             saved_inline_code_run_in_system_terminal: inline_code_run_in_system_terminal,
             saved_code_block_default_expanded: code_block_default_expanded,
+            saved_code_block_show_line_numbers: code_block_show_line_numbers,
             saved_ai: ai,
             saved_theme_id: selected_theme_id,
             saved_keybindings: keybindings,
@@ -156,6 +161,7 @@ impl PreferencesWindow {
             || self.inline_code_run_in_system_terminal
                 != self.saved_inline_code_run_in_system_terminal
             || self.code_block_default_expanded != self.saved_code_block_default_expanded
+            || self.code_block_show_line_numbers != self.saved_code_block_show_line_numbers
             || self.ai != self.saved_ai
             || self.selected_theme_id != self.saved_theme_id
             || normalize_shortcut_config(&self.keybindings)
@@ -524,6 +530,7 @@ impl PreferencesWindow {
             self.allow_code_execution,
             self.inline_code_run_in_system_terminal,
             self.code_block_default_expanded,
+            self.code_block_show_line_numbers,
             self.ai.clone(),
         ) {
             Ok(preferences) => preferences,
@@ -569,6 +576,7 @@ impl PreferencesWindow {
         self.saved_allow_code_execution = self.allow_code_execution;
         self.saved_inline_code_run_in_system_terminal = self.inline_code_run_in_system_terminal;
         self.saved_code_block_default_expanded = self.code_block_default_expanded;
+        self.saved_code_block_show_line_numbers = self.code_block_show_line_numbers;
         self.saved_ai = self.ai.clone();
         self.saved_theme_id = self.selected_theme_id.clone();
         self.saved_keybindings = normalize_shortcut_config(&self.keybindings);
@@ -769,6 +777,11 @@ impl PreferencesWindow {
         } else {
             strings.preferences_allow_code_execution_off.clone()
         };
+        let code_block_line_numbers_label = if self.code_block_show_line_numbers {
+            strings.preferences_allow_code_execution_on.clone()
+        } else {
+            strings.preferences_allow_code_execution_off.clone()
+        };
 
         div()
             .flex()
@@ -817,6 +830,23 @@ impl PreferencesWindow {
                         theme,
                         |this, _, _, cx| {
                             this.code_block_default_expanded = !this.code_block_default_expanded;
+                            cx.notify();
+                        },
+                        cx,
+                    ),
+                    theme,
+                )
+            })
+            .child({
+                self.labeled_row(
+                    &strings.preferences_code_block_show_line_numbers_label,
+                    Self::dropdown_button(
+                        "preferences-code-block-show-line-numbers",
+                        code_block_line_numbers_label,
+                        theme,
+                        |this, _, _, cx| {
+                            this.code_block_show_line_numbers =
+                                !this.code_block_show_line_numbers;
                             cx.notify();
                         },
                         cx,
