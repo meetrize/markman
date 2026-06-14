@@ -24,6 +24,7 @@ use super::tag_index::{
     build_workspace_tag_index, refresh_tag_index_for_file, TagOccurrence, WorkspaceTagIndex,
 };
 use crate::components::markdown::inline::normalize_tag_name;
+use crate::theme::chrome_ui_font;
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
     Copy, Cut, Delete, DeleteBack, End, FenceInfo, Home, MoveLeft, MoveRight, Paste, SelectAll,
@@ -1593,6 +1594,7 @@ impl Editor {
                 .h_full()
                 .w(px(panel_width))
                 .flex_shrink_0()
+                .font(chrome_ui_font())
                 .child(
                     div()
                         .id("workspace-panel")

@@ -131,6 +131,11 @@ pub fn editor_font(family: &str) -> Font {
     font
 }
 
+/// System UI font for chrome surfaces such as the workspace file panel.
+pub fn chrome_ui_font() -> Font {
+    editor_font(FONT_SYSTEM_UI)
+}
+
 /// Human-readable label for a stored font family id.
 pub fn font_preset_label(family: &str, system_mono: &str, system_ui: &str) -> String {
     match family {
