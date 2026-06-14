@@ -2503,13 +2503,20 @@ impl Element for BlockTextElement {
 
         let line_number_tops = source_line_number_tops(&lines, line_height);
         let line_number_gap = px(SOURCE_LINE_NUMBER_GAP);
+        // Line numbers sit in the gutter, aligned to the code background edge — not
+        // the inset text area — so they do not drift onto the colored code region.
+        let line_number_anchor_x = source_text_bounds(
+            bounds,
+            prepaint.source_line_number_gutter_width + prepaint.link_icon_gutter_width,
+        )
+        .left();
         let line_numbers = std::mem::take(&mut prepaint.source_line_numbers);
         for (line_number, y_offset) in line_numbers.iter().zip(line_number_tops.iter()) {
             let line_number_width = line_number.x_for_index(line_number.len());
             line_number
                 .paint(
                     point(
-                        text_bounds.left() - line_number_gap - line_number_width,
+                        line_number_anchor_x - line_number_gap - line_number_width,
                         bounds.origin.y + *y_offset + prepaint.code_block_content_pad_y,
                     ),
                     line_height,
