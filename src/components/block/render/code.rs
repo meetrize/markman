@@ -544,8 +544,8 @@ impl Block {
                     };
                     let mut controls = div()
                         .absolute()
-                        .top_0()
-                        .right_0()
+                        .top(px(d.code_block_padding_y))
+                        .right(px(d.code_block_padding_x))
                         .flex()
                         .items_center()
                         .justify_end()
