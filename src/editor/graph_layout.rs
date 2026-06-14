@@ -7,11 +7,13 @@ use super::graph_model::{
 };
 
 const DOCUMENT_NODE_RADIUS: f32 = 16.0;
-const TAG_NODE_BASE_RADIUS: f32 = 12.0;
+const TAG_NODE_BASE_RADIUS: f32 = 14.0;
 const TAG_NODE_RADIUS_SCALE: f32 = 4.0;
-const MIN_NODE_RADIUS: f32 = 10.0;
-const MAX_NODE_RADIUS: f32 = 52.0;
-const CENTER_GRAVITY: f32 = 0.02;
+const MIN_NODE_RADIUS: f32 = 14.0;
+const MAX_NODE_RADIUS: f32 = 56.0;
+const LABEL_CHAR_RADIUS: f32 = 3.0;
+const LABEL_RADIUS_PADDING: f32 = 10.0;
+const CENTER_GRAVITY: f32 = 0.035;
 const IDEAL_EDGE_LENGTH_SCALE: f32 = 2.5;
 const MIN_DISTANCE: f32 = 0.01;
 
@@ -79,9 +81,9 @@ impl Default for LayoutConfig {
     fn default() -> Self {
         Self {
             iterations: 300,
-            repulsion: 900.0,
-            attraction: 0.06,
-            damping: 0.86,
+            repulsion: 1200.0,
+            attraction: 0.08,
+            damping: 0.88,
             seed: 42,
         }
     }
@@ -106,14 +108,28 @@ pub(crate) fn node_display_label(kind: &GraphNodeKind) -> String {
 }
 
 pub(crate) fn node_layout_radius(kind: &GraphNodeKind) -> f32 {
-    match kind {
+    let label_radius = {
+        let chars = node_display_label(kind).chars().count() as f32;
+        (chars * LABEL_CHAR_RADIUS * 0.5 + LABEL_RADIUS_PADDING)
+            .clamp(MIN_NODE_RADIUS, MAX_NODE_RADIUS)
+    };
+    let kind_radius = match kind {
         GraphNodeKind::Document { .. } => DOCUMENT_NODE_RADIUS,
         GraphNodeKind::Tag { count, .. } => {
             let count = (*count).max(1) as f32;
-            (TAG_NODE_BASE_RADIUS + TAG_NODE_RADIUS_SCALE * count.sqrt())
-                .clamp(MIN_NODE_RADIUS, MAX_NODE_RADIUS)
+            TAG_NODE_BASE_RADIUS + TAG_NODE_RADIUS_SCALE * count.sqrt()
         }
-    }
+    };
+    label_radius.max(kind_radius).clamp(MIN_NODE_RADIUS, MAX_NODE_RADIUS)
+}
+
+pub(crate) fn smallest_node_layout_radius(graph: &KnowledgeGraph) -> f32 {
+    graph
+        .nodes
+        .iter()
+        .map(|node| node_layout_radius(&node.kind))
+        .min_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(DOCUMENT_NODE_RADIUS)
 }
 
 pub(crate) fn layout_spread_for_graph(graph: &KnowledgeGraph) -> f32 {
@@ -128,7 +144,16 @@ pub(crate) fn layout_spread_for_graph(graph: &KnowledgeGraph) -> f32 {
             .sum::<f32>()
             / node_count
     };
-    (node_count.sqrt() * average_radius * 3.0).max(120.0)
+    (node_count.sqrt() * average_radius * 1.2).max(64.0)
+}
+
+pub(crate) fn settle_graph_layout(simulation: &mut LayoutSimulation, iterations: usize) {
+    for _ in 0..iterations {
+        layout_tick(simulation, 1.0);
+    }
+    for velocity in &mut simulation.velocities {
+        *velocity = LayoutPoint { x: 0.0, y: 0.0 };
+    }
 }
 
 #[cfg(test)]
@@ -215,7 +240,6 @@ pub(crate) fn layout_tick(simulation: &mut LayoutSimulation, dt: f32) {
 
 impl LayoutSimulation {
     pub(crate) fn new(graph: &KnowledgeGraph, config: LayoutConfig) -> Self {
-        let mut rng = Rng::new(config.seed);
         let spread = layout_spread_for_graph(graph);
 
         let node_ids: Vec<GraphNodeId> = graph.nodes.iter().map(|node| node.id.clone()).collect();
@@ -225,16 +249,26 @@ impl LayoutSimulation {
             .map(|(index, id)| (id.clone(), index))
             .collect();
 
-        let sizes = graph
+        let sizes: Vec<f32> = graph
             .nodes
             .iter()
             .map(|node| node_layout_radius(&node.kind))
             .collect();
 
+        let node_count = node_ids.len().max(1);
+        let average_radius = if sizes.is_empty() {
+            DOCUMENT_NODE_RADIUS
+        } else {
+            sizes.iter().sum::<f32>() / sizes.len() as f32
+        };
+        let ring_radius = (node_count as f32).sqrt() * average_radius * 1.15;
         let positions = (0..node_ids.len())
-            .map(|_| LayoutPoint {
-                x: rng.next_f32() * spread,
-                y: rng.next_f32() * spread,
+            .map(|index| {
+                let angle = (index as f32 / node_count as f32) * std::f32::consts::TAU;
+                LayoutPoint {
+                    x: spread * 0.5 + angle.cos() * ring_radius,
+                    y: spread * 0.5 + angle.sin() * ring_radius,
+                }
             })
             .collect();
 
@@ -289,28 +323,6 @@ impl LayoutSimulation {
         }
 
         GraphLayout { positions, bounds }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Rng(u64);
-
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut value = self.0;
-        value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        value ^ (value >> 31)
-    }
-
-    fn next_f32(&mut self) -> f32 {
-        let bits = (self.next_u64() >> 40) as u32;
-        (bits as f32 / u32::MAX as f32) * 2.0 - 1.0
     }
 }
 
@@ -484,7 +496,7 @@ mod tests {
         });
         assert!(four > one);
         assert!(sixteen > four);
-        assert!((four - one - (sixteen - four) * 0.5).abs() < 0.01);
+        assert!((sixteen - four) > (four - one));
     }
 
     #[test]

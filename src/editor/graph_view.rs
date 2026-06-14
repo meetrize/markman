@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use gpui::*;
 
 use super::graph_layout::{
-    node_display_label, node_layout_radius, GraphLayout, LayoutBounds, LayoutConfig, LayoutPoint,
-    LayoutSimulation, layout_tick,
+    node_display_label, node_layout_radius, settle_graph_layout, smallest_node_layout_radius,
+    GraphLayout, LayoutBounds, LayoutConfig, LayoutPoint, LayoutSimulation,
 };
 use super::graph_model::{
     apply_graph_filter, GraphEdge, GraphEdgeKind, GraphFilter, GraphNode, GraphNodeId,
@@ -17,8 +17,10 @@ use super::Editor;
 use crate::theme::{Theme, ThemeManager};
 
 const VIEWPORT_PADDING: f32 = 28.0;
-const MIN_VIEWPORT_SCALE: f32 = 0.05;
+const MIN_VIEWPORT_SCALE: f32 = 0.08;
 const MAX_VIEWPORT_SCALE: f32 = 4.0;
+const MIN_SCREEN_NODE_RADIUS: f32 = 16.0;
+const MIN_SCREEN_LABEL_SIZE: f32 = 9.0;
 const NODE_LABEL_PADDING: f32 = 8.0;
 const CLICK_DRAG_THRESHOLD_PX: f32 = 4.0;
 const ZOOM_LINE_SCALE: f32 = 0.08;
@@ -86,9 +88,7 @@ impl KnowledgeGraphViewState {
     pub(crate) fn new(raw_graph: KnowledgeGraph, filter: GraphFilter) -> Self {
         let graph = apply_graph_filter(&raw_graph, filter);
         let mut simulation = LayoutSimulation::new(&graph, LayoutConfig::default());
-        for _ in 0..60 {
-            layout_tick(&mut simulation, 1.0);
-        }
+        settle_graph_layout(&mut simulation, LayoutConfig::default().iterations);
         let layout = simulation.to_layout();
         Self {
             raw_graph,
@@ -112,6 +112,7 @@ impl KnowledgeGraphViewState {
         for (node_id, position) in &self.layout.positions {
             simulation.set_node_position(node_id, *position);
         }
+        settle_graph_layout(&mut simulation, LayoutConfig::default().iterations);
         self.layout = simulation.to_layout();
         self.simulation = Some(simulation);
         self.animating = true;
@@ -119,7 +120,8 @@ impl KnowledgeGraphViewState {
     }
 
     pub(crate) fn reset_layout_from_simulation(&mut self) {
-        let simulation = LayoutSimulation::new(&self.graph, LayoutConfig::default());
+        let mut simulation = LayoutSimulation::new(&self.graph, LayoutConfig::default());
+        settle_graph_layout(&mut simulation, LayoutConfig::default().iterations);
         self.layout = simulation.to_layout();
         self.simulation = Some(simulation);
         self.animating = true;
@@ -136,7 +138,8 @@ impl KnowledgeGraphViewState {
     }
 
     pub(crate) fn reset_viewport_fit(&mut self, viewport: Size<Pixels>) {
-        self.viewport.fit_to_bounds(&self.layout.bounds, viewport);
+        self.viewport
+            .fit_to_bounds(&self.layout.bounds, viewport, &self.graph);
     }
 }
 
@@ -156,7 +159,12 @@ impl Default for GraphViewport {
 }
 
 impl GraphViewport {
-    pub(crate) fn fit_to_bounds(&mut self, layout_bounds: &LayoutBounds, viewport: Size<Pixels>) {
+    pub(crate) fn fit_to_bounds(
+        &mut self,
+        layout_bounds: &LayoutBounds,
+        viewport: Size<Pixels>,
+        graph: &KnowledgeGraph,
+    ) {
         let content_width = (layout_bounds.max_x - layout_bounds.min_x).max(1.0);
         let content_height = (layout_bounds.max_y - layout_bounds.min_y).max(1.0);
         let available_width = f32::from(viewport.width) - VIEWPORT_PADDING * 2.0;
@@ -166,8 +174,12 @@ impl GraphViewport {
             return;
         }
 
-        self.scale = (available_width / content_width)
-            .min(available_height / content_height)
+        let fit_scale = (available_width / content_width)
+            .min(available_height / content_height);
+        let smallest_world_radius = smallest_node_layout_radius(graph);
+        let readability_scale = MIN_SCREEN_NODE_RADIUS / smallest_world_radius;
+        self.scale = fit_scale
+            .max(readability_scale)
             .clamp(MIN_VIEWPORT_SCALE, MAX_VIEWPORT_SCALE);
         self.offset = LayoutPoint {
             x: VIEWPORT_PADDING - layout_bounds.min_x * self.scale,
@@ -387,8 +399,10 @@ fn prepaint_graph(
     theme: &Theme,
     window: &mut Window,
 ) -> GraphPrepaintState {
-    if state.animating || state.viewport.scale <= 0.0 {
-        state.viewport.fit_to_bounds(&state.layout.bounds, bounds.size);
+    if state.viewport.scale <= 0.0 {
+        state
+            .viewport
+            .fit_to_bounds(&state.layout.bounds, bounds.size, &state.graph);
     }
     state.last_bounds = bounds;
 
@@ -473,7 +487,8 @@ fn prepaint_graph(
 
         let label_text: SharedString = node_display_label(&node.kind).into();
         let max_label_width = (radius * 2.0 * 0.82 - px(NODE_LABEL_PADDING)).max(px(8.0));
-        let label_font_size = (f32::from(radius) * 0.38).clamp(8.0, 12.0);
+        let label_font_size = (f32::from(radius) * 0.38)
+            .clamp(MIN_SCREEN_LABEL_SIZE, 13.0);
         let font_size = px(label_font_size);
         let mut runs = vec![TextRun {
             len: label_text.len(),
@@ -638,20 +653,21 @@ impl Element for KnowledgeGraphElement {
             .flatten();
 
         if let Some(state) = snapshot.as_mut() {
-            if state.animating {
-                state.sync_layout_from_simulation();
-            }
-            if state.animating || state.viewport.scale <= 0.0 {
-                state
-                    .viewport
-                    .fit_to_bounds(&state.layout.bounds, bounds.size);
+            if state.viewport.scale <= 0.0 {
+                state.viewport.fit_to_bounds(
+                    &state.layout.bounds,
+                    bounds.size,
+                    &state.graph,
+                );
             } else {
                 let panel_resized = state.last_bounds.size.width != bounds.size.width
                     || state.last_bounds.size.height != bounds.size.height;
                 if panel_resized && !state.drag.active() {
-                    state
-                        .viewport
-                        .fit_to_bounds(&state.layout.bounds, bounds.size);
+                    state.viewport.fit_to_bounds(
+                        &state.layout.bounds,
+                        bounds.size,
+                        &state.graph,
+                    );
                 }
             }
             state.last_bounds = bounds;
@@ -917,14 +933,16 @@ mod graph_view_tests {
 
     use gpui::{point, px, size, Bounds};
 
-    use crate::editor::graph_layout::{compute_graph_layout, GraphLayout, LayoutBounds, LayoutConfig, LayoutPoint};
+    use crate::editor::graph_layout::{
+        compute_graph_layout, smallest_node_layout_radius, GraphLayout, LayoutBounds, LayoutConfig,
+        LayoutPoint,
+    };
     use crate::editor::graph_model::{
-        build_knowledge_graph, GraphFilter, GraphNode, GraphNodeId, GraphNodeKind,
-        KnowledgeGraph,
+        build_knowledge_graph, GraphFilter, GraphNode, GraphNodeId, GraphNodeKind, KnowledgeGraph,
     };
     use crate::editor::graph_view::{
-        count_visible_graph_items, hit_test_graph_node, GraphViewport,
-        KnowledgeGraphViewState,
+        count_visible_graph_items, hit_test_graph_node, GraphViewport, KnowledgeGraphViewState,
+        MIN_SCREEN_NODE_RADIUS,
     };
     use crate::editor::link_index::{refresh_link_index_for_file, WorkspaceLinkIndex};
     use crate::editor::tag_index::{refresh_tag_index_for_file, WorkspaceTagIndex};
@@ -959,10 +977,20 @@ mod graph_view_tests {
 
     #[test]
     fn viewport_fit_produces_positive_scale() {
-        let (_graph, layout) = sample_graph_and_layout();
+        let (graph, layout) = sample_graph_and_layout();
         let mut viewport = GraphViewport::default();
-        viewport.fit_to_bounds(&layout.bounds, size(px(320.0), px(240.0)));
+        viewport.fit_to_bounds(&layout.bounds, size(px(320.0), px(240.0)), &graph);
         assert!(viewport.scale > 0.0);
+    }
+
+    #[test]
+    fn viewport_fit_keeps_smallest_node_readable() {
+        let (graph, layout) = sample_graph_and_layout();
+        let mut viewport = GraphViewport::default();
+        viewport.fit_to_bounds(&layout.bounds, size(px(320.0), px(240.0)), &graph);
+        let smallest = smallest_node_layout_radius(&graph);
+        let screen_radius = smallest * viewport.scale;
+        assert!(screen_radius >= MIN_SCREEN_NODE_RADIUS - 0.01);
     }
 
     #[test]
@@ -1056,9 +1084,15 @@ mod graph_view_tests {
                 max_y: 80.0,
             },
         };
+        let graph = KnowledgeGraph {
+            nodes: _nodes,
+            edges: Vec::new(),
+            broken_wiki_links: 0,
+            revision: 1,
+        };
         let mut viewport = GraphViewport::default();
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(160.0)));
-        viewport.fit_to_bounds(&layout.bounds, bounds.size);
+        viewport.fit_to_bounds(&layout.bounds, bounds.size, &graph);
         let first = viewport.world_to_screen(LayoutPoint { x: 0.0, y: 0.0 }, bounds);
         let second = viewport.world_to_screen(LayoutPoint { x: 100.0, y: 80.0 }, bounds);
         assert!(f32::from(first.x) >= f32::from(bounds.left()));

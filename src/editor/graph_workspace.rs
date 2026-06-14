@@ -4,7 +4,7 @@ use std::path::Path;
 
 use gpui::*;
 
-use super::graph_layout::{LayoutConfig, LayoutSimulation, layout_tick};
+use super::graph_layout::{LayoutConfig, LayoutSimulation};
 use super::graph_model::{apply_graph_filter, build_knowledge_graph, GraphFilter};
 use super::graph_view::{
     render_knowledge_graph_panel, GraphViewport, KnowledgeGraphViewState,
@@ -175,13 +175,11 @@ impl Editor {
                             let Some(state) = editor.knowledge_graph_view.as_mut() else {
                                 return true;
                             };
-                            let Some(simulation) = state.simulation.as_mut() else {
+                            let Some(_simulation) = state.simulation.as_mut() else {
                                 state.animating = false;
                                 return true;
                             };
 
-                            layout_tick(simulation, 1.0);
-                            state.sync_layout_from_simulation();
                             state.animation_progress =
                                 (frame as f32 + 1.0) / GRAPH_ANIMATION_FRAMES as f32;
                             state.animating = frame + 1 < GRAPH_ANIMATION_FRAMES;
