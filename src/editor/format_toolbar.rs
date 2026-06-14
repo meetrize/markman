@@ -10,7 +10,7 @@ use crate::theme::Theme;
 
 use super::format_toolbar_overflow::{
     FormatToolbarControl, compute_format_toolbar_layout,
-    format_toolbar_separator_belongs_to_right_section,
+    format_toolbar_right_boundary_separator_index,
     is_format_toolbar_right_section_control,
 };
 use super::toolbar_button::{
@@ -330,22 +330,15 @@ impl Editor {
         let mut overflow_button_rendered = false;
         let mut left_toolbar_children = Vec::new();
         let mut right_toolbar_children = Vec::new();
+        let right_boundary_separator =
+            format_toolbar_right_boundary_separator_index(&all_controls, &layout.visible);
 
         for (index, control) in all_controls.iter().copied().enumerate() {
             if layout.visible.contains(&control) {
                 let element = Self::render_format_toolbar_control(control, &toolbar_state, cx)
                     .into_any_element();
                 if is_format_toolbar_right_section_control(control)
-                    || matches!(
-                        control,
-                        FormatToolbarControl::HistorySeparator
-                            | FormatToolbarControl::FormatSeparator
-                    )
-                        && format_toolbar_separator_belongs_to_right_section(
-                            &all_controls,
-                            index,
-                            &layout.visible,
-                        )
+                    || right_boundary_separator == Some(index)
                 {
                     right_toolbar_children.push(element);
                 } else {

@@ -213,14 +213,23 @@ pub(super) fn is_format_toolbar_right_section_control(control: FormatToolbarCont
     format_toolbar_group(control) == 8
 }
 
-pub(super) fn format_toolbar_separator_belongs_to_right_section(
+pub(super) fn format_toolbar_right_boundary_separator_index(
     all_controls: &[FormatToolbarControl],
-    separator_index: usize,
     visible: &[FormatToolbarControl],
-) -> bool {
-    all_controls[separator_index + 1..].iter().any(|control| {
+) -> Option<usize> {
+    let first_right = all_controls.iter().position(|control| {
         visible.contains(control) && is_format_toolbar_right_section_control(*control)
-    })
+    })?;
+    if first_right == 0 {
+        return None;
+    }
+    let separator_index = first_right - 1;
+    match all_controls[separator_index] {
+        FormatToolbarControl::HistorySeparator | FormatToolbarControl::FormatSeparator => {
+            Some(separator_index)
+        }
+        _ => None,
+    }
 }
 
 fn format_toolbar_group(control: FormatToolbarControl) -> u8 {
@@ -325,5 +334,19 @@ mod tests {
             layout.visible.len(),
             default_format_toolbar_controls().len()
         );
+    }
+
+    #[test]
+    fn only_boundary_separator_before_right_section_is_identified() {
+        let controls = default_format_toolbar_controls();
+        let layout = compute_format_toolbar_layout(&controls, 2000.0, &Theme::default_theme().dimensions);
+        let boundary = format_toolbar_right_boundary_separator_index(&controls, &layout.visible);
+        let boundary_control = boundary.map(|index| controls[index]);
+        assert_eq!(boundary_control, Some(FormatToolbarControl::FormatSeparator));
+        let ai_index = controls
+            .iter()
+            .position(|control| *control == FormatToolbarControl::Ai)
+            .expect("ai control");
+        assert_eq!(boundary, Some(ai_index - 1));
     }
 }
