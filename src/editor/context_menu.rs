@@ -23,15 +23,31 @@ pub(super) enum TableInsertTarget {
     Append,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::editor) enum ContextMenuSubmenu {
+    Insert,
+    Ai,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::editor) enum ContextMenuHoverTarget {
+    InsertParent,
+    InsertSubmenu,
+    AiParent,
+    AiSubmenu,
+}
+
 /// Rendered-mode context menu currently open in the editor.
 pub(super) enum ContextMenuState {
-    /// General block context menu with an insert submenu.
+    /// General block context menu with insert and AI submenus.
     Insert {
         position: Point<Pixels>,
         target: TableInsertTarget,
+        open_submenu: Option<ContextMenuSubmenu>,
         insert_hovered: bool,
-        submenu_hovered: bool,
-        submenu_open: bool,
+        insert_submenu_hovered: bool,
+        ai_hovered: bool,
+        ai_submenu_hovered: bool,
     },
     /// Table row or column context menu for an existing native table.
     TableAxis {
@@ -79,9 +95,11 @@ impl Editor {
         self.context_menu = Some(ContextMenuState::Insert {
             position,
             target,
+            open_submenu: None,
             insert_hovered: false,
-            submenu_hovered: false,
-            submenu_open: false,
+            insert_submenu_hovered: false,
+            ai_hovered: false,
+            ai_submenu_hovered: false,
         });
         cx.notify();
     }
@@ -364,15 +382,22 @@ impl Editor {
                     editor.context_menu_submenu_close_task = None;
                     let Some(ContextMenuState::Insert {
                         insert_hovered,
-                        submenu_hovered,
-                        submenu_open,
+                        insert_submenu_hovered,
+                        ai_hovered,
+                        ai_submenu_hovered,
+                        open_submenu,
                         ..
                     }) = editor.context_menu.as_mut()
                     else {
                         return;
                     };
-                    if !*insert_hovered && !*submenu_hovered && *submenu_open {
-                        *submenu_open = false;
+                    if !*insert_hovered
+                        && !*insert_submenu_hovered
+                        && !*ai_hovered
+                        && !*ai_submenu_hovered
+                        && open_submenu.is_some()
+                    {
+                        *open_submenu = None;
                         cx.notify();
                     }
                 });
@@ -382,8 +407,8 @@ impl Editor {
 
     fn set_context_menu_hover_state(
         &mut self,
+        target: ContextMenuHoverTarget,
         hovered: bool,
-        submenu: bool,
         cx: &mut Context<Self>,
     ) {
         let mut changed = false;
@@ -391,32 +416,61 @@ impl Editor {
         let mut should_schedule_close = false;
 
         if let Some(ContextMenuState::Insert {
+            open_submenu,
             insert_hovered,
-            submenu_hovered,
-            submenu_open,
+            insert_submenu_hovered,
+            ai_hovered,
+            ai_submenu_hovered,
             ..
         }) = self.context_menu.as_mut()
         {
-            if submenu {
-                if *submenu_hovered != hovered {
-                    *submenu_hovered = hovered;
-                    changed = true;
+            match target {
+                ContextMenuHoverTarget::InsertParent => {
+                    if *insert_hovered != hovered {
+                        *insert_hovered = hovered;
+                        changed = true;
+                    }
                 }
-            } else if *insert_hovered != hovered {
-                *insert_hovered = hovered;
-                changed = true;
+                ContextMenuHoverTarget::InsertSubmenu => {
+                    if *insert_submenu_hovered != hovered {
+                        *insert_submenu_hovered = hovered;
+                        changed = true;
+                    }
+                }
+                ContextMenuHoverTarget::AiParent => {
+                    if *ai_hovered != hovered {
+                        *ai_hovered = hovered;
+                        changed = true;
+                    }
+                }
+                ContextMenuHoverTarget::AiSubmenu => {
+                    if *ai_submenu_hovered != hovered {
+                        *ai_submenu_hovered = hovered;
+                        changed = true;
+                    }
+                }
             }
 
             if hovered {
                 should_clear_close = true;
-                if !*submenu_open {
-                    *submenu_open = true;
+                let desired = match target {
+                    ContextMenuHoverTarget::InsertParent | ContextMenuHoverTarget::InsertSubmenu => {
+                        Some(ContextMenuSubmenu::Insert)
+                    }
+                    ContextMenuHoverTarget::AiParent | ContextMenuHoverTarget::AiSubmenu => {
+                        Some(ContextMenuSubmenu::Ai)
+                    }
+                };
+                if *open_submenu != desired {
+                    *open_submenu = desired;
                     changed = true;
                 }
             } else {
-                let insert_still_hovered = *insert_hovered;
-                let submenu_still_hovered = *submenu_hovered;
-                if !insert_still_hovered && !submenu_still_hovered {
+                let any_hovered = *insert_hovered
+                    || *insert_submenu_hovered
+                    || *ai_hovered
+                    || *ai_submenu_hovered;
+                if !any_hovered {
                     should_schedule_close = true;
                 }
             }
@@ -480,7 +534,7 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_context_menu_hover_state(*hovered, false, cx);
+        self.set_context_menu_hover_state(ContextMenuHoverTarget::InsertParent, *hovered, cx);
     }
 
     pub(super) fn on_context_menu_submenu_hover(
@@ -489,7 +543,25 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_context_menu_hover_state(*hovered, true, cx);
+        self.set_context_menu_hover_state(ContextMenuHoverTarget::InsertSubmenu, *hovered, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_hover(
+        &mut self,
+        hovered: &bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_context_menu_hover_state(ContextMenuHoverTarget::AiParent, *hovered, cx);
+    }
+
+    pub(super) fn on_context_menu_ai_submenu_hover(
+        &mut self,
+        hovered: &bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_context_menu_hover_state(ContextMenuHoverTarget::AiSubmenu, *hovered, cx);
     }
 
     pub(super) fn open_table_insert_from_toolbar(
@@ -912,7 +984,7 @@ impl Editor {
         match menu {
             ContextMenuState::Insert {
                 position,
-                submenu_open,
+                open_submenu,
                 ..
             } => {
                 let panel_x = position.x;
@@ -977,64 +1049,41 @@ impl Editor {
                         .bg(c.dialog_border)
                         .into_any_element(),
                 );
-                items.extend([
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-ai-improve",
-                        "AI：润色".to_string(),
-                        has_selection,
-                        Self::on_context_menu_ai_improve,
-                        cx,
-                    ),
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-ai-summarize",
-                        "AI：总结".to_string(),
-                        has_selection,
-                        Self::on_context_menu_ai_summarize,
-                        cx,
-                    ),
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-ai-expand",
-                        "AI：扩写".to_string(),
-                        has_selection,
-                        Self::on_context_menu_ai_expand,
-                        cx,
-                    ),
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-ai-explain",
-                        "AI：解释".to_string(),
-                        has_selection,
-                        Self::on_context_menu_ai_explain,
-                        cx,
-                    ),
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-ai-tasks",
-                        "AI：转任务".to_string(),
-                        has_selection,
-                        Self::on_context_menu_ai_tasks,
-                        cx,
-                    ),
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-ai-translate",
-                        "AI：翻译".to_string(),
-                        has_selection,
-                        Self::on_context_menu_ai_translate,
-                        cx,
-                    ),
-                    Self::render_edit_menu_item(
-                        theme,
-                        "editor-context-menu-add-to-ai-chat",
-                        s.context_menu_add_to_ai_chat.clone(),
-                        has_selection,
-                        Self::on_context_menu_add_to_ai_chat,
-                        cx,
-                    ),
-                ]);
+                items.push(
+                    div()
+                        .id("editor-context-menu-ai")
+                        .h(px(d.menu_item_height))
+                        .px(px(d.menu_item_padding_x))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .rounded(px(d.menu_item_radius))
+                        .bg(if *open_submenu == Some(ContextMenuSubmenu::Ai) {
+                            c.dialog_secondary_button_hover
+                        } else {
+                            c.dialog_surface
+                        })
+                        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                        .text_size(px(d.menu_text_size))
+                        .font_weight(t.dialog_body_weight.to_font_weight())
+                        .text_color(if has_selection {
+                            c.dialog_secondary_button_text
+                        } else {
+                            c.dialog_muted
+                        })
+                        .child("AI")
+                        .child("›")
+                        .on_hover(cx.listener(Self::on_context_menu_ai_hover))
+                        .into_any_element(),
+                );
+                items.push(Self::render_edit_menu_item(
+                    theme,
+                    "editor-context-menu-add-to-ai-chat",
+                    s.context_menu_add_to_ai_chat.clone(),
+                    has_selection,
+                    Self::on_context_menu_add_to_ai_chat,
+                    cx,
+                ));
 
                 if show_insert {
                     items.push(
@@ -1054,7 +1103,7 @@ impl Editor {
                             .items_center()
                             .justify_between()
                             .rounded(px(d.menu_item_radius))
-                            .bg(if *submenu_open {
+                            .bg(if *open_submenu == Some(ContextMenuSubmenu::Insert) {
                                 c.dialog_secondary_button_hover
                             } else {
                                 c.dialog_surface
@@ -1070,46 +1119,121 @@ impl Editor {
                     );
                 }
 
-                let submenu = (show_insert && *submenu_open).then(|| {
-                    div()
-                        .id("editor-context-menu-submenu")
-                        .absolute()
-                        .left(panel_x + panel_width + px(d.context_menu_submenu_gap))
-                        .top(panel_y)
-                        .w(px(d.context_menu_submenu_width))
-                        .p(px(d.menu_panel_padding))
-                        .flex()
-                        .flex_col()
-                        .gap(px(d.menu_panel_gap))
-                        .occlude()
-                        .bg(c.dialog_surface)
-                        .border(px(d.dialog_border_width))
-                        .border_color(c.dialog_border)
-                        .rounded(px(d.menu_panel_radius))
-                        .shadow_lg()
-                        .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
-                            cx.stop_propagation()
-                        })
-                        .on_hover(cx.listener(Self::on_context_menu_submenu_hover))
-                        .child(
-                            div()
-                                .id("editor-context-menu-insert-table")
-                                .h(px(d.menu_item_height))
-                                .px(px(d.menu_item_padding_x))
-                                .flex()
-                                .items_center()
-                                .rounded(px(d.menu_item_radius))
-                                .bg(c.dialog_surface)
-                                .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                                .active(|this| this.opacity(0.92))
-                                .cursor_pointer()
-                                .text_size(px(d.menu_text_size))
-                                .font_weight(t.dialog_body_weight.to_font_weight())
-                                .text_color(c.dialog_secondary_button_text)
-                                .child(s.context_menu_table.clone())
-                                .on_click(cx.listener(Self::on_open_table_insert_dialog)),
-                        )
-                });
+                let submenu = match open_submenu {
+                    Some(ContextMenuSubmenu::Insert) if show_insert => Some(
+                        div()
+                            .id("editor-context-menu-insert-submenu")
+                            .absolute()
+                            .left(panel_x + panel_width + px(d.context_menu_submenu_gap))
+                            .top(panel_y)
+                            .w(px(d.context_menu_submenu_width))
+                            .p(px(d.menu_panel_padding))
+                            .flex()
+                            .flex_col()
+                            .gap(px(d.menu_panel_gap))
+                            .occlude()
+                            .bg(c.dialog_surface)
+                            .border(px(d.dialog_border_width))
+                            .border_color(c.dialog_border)
+                            .rounded(px(d.menu_panel_radius))
+                            .shadow_lg()
+                            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                                cx.stop_propagation()
+                            })
+                            .on_hover(cx.listener(Self::on_context_menu_submenu_hover))
+                            .child(
+                                div()
+                                    .id("editor-context-menu-insert-table")
+                                    .h(px(d.menu_item_height))
+                                    .px(px(d.menu_item_padding_x))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(px(d.menu_item_radius))
+                                    .bg(c.dialog_surface)
+                                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                    .active(|this| this.opacity(0.92))
+                                    .cursor_pointer()
+                                    .text_size(px(d.menu_text_size))
+                                    .font_weight(t.dialog_body_weight.to_font_weight())
+                                    .text_color(c.dialog_secondary_button_text)
+                                    .child(s.context_menu_table.clone())
+                                    .on_click(cx.listener(Self::on_open_table_insert_dialog)),
+                            ),
+                    ),
+                    Some(ContextMenuSubmenu::Ai) if has_selection => Some(
+                        div()
+                            .id("editor-context-menu-ai-submenu")
+                            .absolute()
+                            .left(panel_x + panel_width + px(d.context_menu_submenu_gap))
+                            .top(panel_y)
+                            .w(panel_width)
+                            .p(px(d.menu_panel_padding))
+                            .flex()
+                            .flex_col()
+                            .gap(px(d.menu_panel_gap))
+                            .occlude()
+                            .bg(c.dialog_surface)
+                            .border(px(d.dialog_border_width))
+                            .border_color(c.dialog_border)
+                            .rounded(px(d.menu_panel_radius))
+                            .shadow_lg()
+                            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                                cx.stop_propagation()
+                            })
+                            .on_hover(cx.listener(Self::on_context_menu_ai_submenu_hover))
+                            .children([
+                                Self::render_edit_menu_item(
+                                    theme,
+                                    "editor-context-menu-ai-improve",
+                                    "润色".to_string(),
+                                    true,
+                                    Self::on_context_menu_ai_improve,
+                                    cx,
+                                ),
+                                Self::render_edit_menu_item(
+                                    theme,
+                                    "editor-context-menu-ai-summarize",
+                                    "总结".to_string(),
+                                    true,
+                                    Self::on_context_menu_ai_summarize,
+                                    cx,
+                                ),
+                                Self::render_edit_menu_item(
+                                    theme,
+                                    "editor-context-menu-ai-expand",
+                                    "扩写".to_string(),
+                                    true,
+                                    Self::on_context_menu_ai_expand,
+                                    cx,
+                                ),
+                                Self::render_edit_menu_item(
+                                    theme,
+                                    "editor-context-menu-ai-explain",
+                                    "解释".to_string(),
+                                    true,
+                                    Self::on_context_menu_ai_explain,
+                                    cx,
+                                ),
+                                Self::render_edit_menu_item(
+                                    theme,
+                                    "editor-context-menu-ai-tasks",
+                                    "转任务".to_string(),
+                                    true,
+                                    Self::on_context_menu_ai_tasks,
+                                    cx,
+                                ),
+                                Self::render_edit_menu_item(
+                                    theme,
+                                    "editor-context-menu-ai-translate",
+                                    "翻译".to_string(),
+                                    true,
+                                    Self::on_context_menu_ai_translate,
+                                    cx,
+                                ),
+                            ]),
+                    ),
+                    _ => None,
+                };
 
                 let overlay = div()
                     .id("editor-context-menu-overlay")
@@ -1528,7 +1652,7 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContextMenuState, Editor, TableInsertTarget};
+    use super::{ContextMenuHoverTarget, ContextMenuState, ContextMenuSubmenu, Editor, TableInsertTarget};
     use gpui::{AppContext, Point, TestAppContext, px};
 
     #[gpui::test]
@@ -1546,28 +1670,28 @@ mod tests {
                 cx,
             );
 
-            editor.set_context_menu_hover_state(true, false, cx);
-            let Some(ContextMenuState::Insert { submenu_open, .. }) = editor.context_menu.as_ref()
+            editor.set_context_menu_hover_state(ContextMenuHoverTarget::InsertParent, true, cx);
+            let Some(ContextMenuState::Insert { open_submenu, .. }) = editor.context_menu.as_ref()
             else {
                 panic!("expected insert context menu");
             };
-            assert!(*submenu_open);
+            assert_eq!(*open_submenu, Some(ContextMenuSubmenu::Insert));
             assert!(editor.context_menu_submenu_close_task.is_none());
 
-            editor.set_context_menu_hover_state(false, false, cx);
-            let Some(ContextMenuState::Insert { submenu_open, .. }) = editor.context_menu.as_ref()
+            editor.set_context_menu_hover_state(ContextMenuHoverTarget::InsertParent, false, cx);
+            let Some(ContextMenuState::Insert { open_submenu, .. }) = editor.context_menu.as_ref()
             else {
                 panic!("expected insert context menu");
             };
-            assert!(*submenu_open);
+            assert_eq!(*open_submenu, Some(ContextMenuSubmenu::Insert));
             assert!(editor.context_menu_submenu_close_task.is_some());
 
-            editor.set_context_menu_hover_state(true, true, cx);
-            let Some(ContextMenuState::Insert { submenu_open, .. }) = editor.context_menu.as_ref()
+            editor.set_context_menu_hover_state(ContextMenuHoverTarget::InsertSubmenu, true, cx);
+            let Some(ContextMenuState::Insert { open_submenu, .. }) = editor.context_menu.as_ref()
             else {
                 panic!("expected insert context menu");
             };
-            assert!(*submenu_open);
+            assert_eq!(*open_submenu, Some(ContextMenuSubmenu::Insert));
             assert!(editor.context_menu_submenu_close_task.is_none());
         });
     }

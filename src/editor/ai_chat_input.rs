@@ -451,9 +451,6 @@ impl Editor {
             return;
         }
 
-        self.ai_chat.context_dropdown_open = false;
-        self.ai_chat.context_dropdown_position = None;
-
         self.scroll_ai_chat_to_bottom();
         self.request_ai_chat_completion(prompt, context, history, cx);
     }

@@ -49,8 +49,6 @@ pub(in crate::editor) struct AiChatPanelState {
     pub messages: Vec<AiChatMessage>,
     pub draft: String,
     pub context_mode: AiChatContextMode,
-    pub context_dropdown_open: bool,
-    pub context_dropdown_position: Option<Point<Pixels>>,
     pub has_selection_context: bool,
     pub pinned_selection_context: Option<AiContextSnapshot>,
     pub in_flight: bool,
@@ -75,8 +73,6 @@ impl AiChatPanelState {
             messages: Vec::new(),
             draft: String::new(),
             context_mode: AiChatContextMode::default(),
-            context_dropdown_open: false,
-            context_dropdown_position: None,
             has_selection_context: false,
             pinned_selection_context: None,
             in_flight: false,
@@ -101,8 +97,8 @@ impl AiChatPanelState {
         self.draft.clear();
         self.error = None;
         self.in_flight = false;
-        self.context_dropdown_open = false;
-        self.context_dropdown_position = None;
+        self.context_mode = AiChatContextMode::Blank;
+        self.pinned_selection_context = None;
         self.input_selected_range = 0..0;
         self.input_selection_reversed = false;
         self.input_marked_range = None;
@@ -310,8 +306,6 @@ impl Editor {
         self.ai_chat.pinned_selection_context = Some(snapshot);
         self.ai_chat.context_mode = AiChatContextMode::Selection;
         self.ai_chat.has_selection_context = true;
-        self.ai_chat.context_dropdown_open = false;
-        self.ai_chat.context_dropdown_position = None;
         self.open_ai_chat_tab(window, cx);
         cx.notify();
     }
@@ -329,45 +323,67 @@ impl Editor {
         window: &Window,
         cx: &App,
     ) -> Result<AiContextSnapshot, String> {
-        if self.ai_chat.context_mode == AiChatContextMode::Selection
-            && let Some(pinned) = self.ai_chat.pinned_selection_context.as_ref()
-        {
-            if pinned.context_markdown.trim().is_empty() {
-                return Err("当前没有选中文本。".to_string());
+        match self.ai_chat.context_mode {
+            AiChatContextMode::Selection => {
+                if let Some(pinned) = self.ai_chat.pinned_selection_context.as_ref() {
+                    if pinned.context_markdown.trim().is_empty() {
+                        return Err("当前没有选中文本。".to_string());
+                    }
+                    return Ok(pinned.clone());
+                }
+                let mode = ai_chat_context_mode_to_ai_context(AiChatContextMode::Selection);
+                ai_context::collect_editor_ai_context(self, mode, None, window, cx)
             }
-            return Ok(pinned.clone());
-        }
-
-        let mode = ai_chat_context_mode_to_ai_context(self.ai_chat.context_mode);
-        let mut snapshot = ai_context::collect_editor_ai_context(self, mode, None, window, cx)?;
-        let preferences = read_app_preferences()
-            .map_err(|err| format!("Failed to read AI preferences: {err}"))?;
-        if self.ai_chat.context_mode == AiChatContextMode::Workspace
-            && preferences.ai.allow_workspace_context
-            && let Some(workspace_context) = self.ai_workspace_context()
-        {
-            if !snapshot.context_markdown.trim().is_empty() {
-                snapshot.context_markdown.push_str("\n\n---\nWorkspace context:\n\n");
+            AiChatContextMode::FullDocument => Ok(AiContextSnapshot {
+                context_markdown: self.serialized_document_text(cx),
+                target_label: self
+                    .document_file_display_name()
+                    .map(|file| format!("{file} 全文"))
+                    .unwrap_or_else(|| "全文".to_string()),
+                source_file_name: self.document_file_display_name(),
+                start_line: None,
+                end_line: None,
+            }),
+            AiChatContextMode::Workspace => {
+                let workspace_context = self
+                    .ai_workspace_context()
+                    .filter(|context| !context.trim().is_empty())
+                    .ok_or_else(|| "工作区中没有可用的上下文。".to_string())?;
+                Ok(AiContextSnapshot {
+                    context_markdown: workspace_context,
+                    target_label: "工作区".to_string(),
+                    source_file_name: None,
+                    start_line: None,
+                    end_line: None,
+                })
             }
-            snapshot.context_markdown.push_str(&workspace_context);
-        }
-        if self.ai_chat.context_mode == AiChatContextMode::Command
-            && preferences.ai.allow_command_context
-            && let Some(command_context) = self.ai_command_context(window, cx)
-        {
-            if !snapshot.context_markdown.trim().is_empty() {
-                snapshot.context_markdown.push_str("\n\n---\nCommand/code context:\n\n");
+            AiChatContextMode::Blank | AiChatContextMode::Command => {
+                let mode = ai_chat_context_mode_to_ai_context(self.ai_chat.context_mode);
+                let mut snapshot =
+                    ai_context::collect_editor_ai_context(self, mode, None, window, cx)?;
+                let preferences = read_app_preferences()
+                    .map_err(|err| format!("Failed to read AI preferences: {err}"))?;
+                if self.ai_chat.context_mode == AiChatContextMode::Command
+                    && preferences.ai.allow_command_context
+                    && let Some(command_context) = self.ai_command_context(window, cx)
+                {
+                    if !snapshot.context_markdown.trim().is_empty() {
+                        snapshot
+                            .context_markdown
+                            .push_str("\n\n---\nCommand/code context:\n\n");
+                    }
+                    snapshot.context_markdown.push_str(&command_context);
+                }
+                Ok(snapshot)
             }
-            snapshot.context_markdown.push_str(&command_context);
         }
-        Ok(snapshot)
     }
 
     fn ai_chat_workspace_context_available(&self) -> bool {
-        read_app_preferences()
-            .ok()
-            .is_some_and(|preferences| preferences.ai.allow_workspace_context)
-            && self.effective_workspace_root().is_some()
+        self.effective_workspace_root().is_some()
+            && self
+                .ai_workspace_context()
+                .is_some_and(|context| !context.trim().is_empty())
     }
 
     fn ai_chat_command_context_available(&self, window: &Window, cx: &App) -> bool {
@@ -377,128 +393,64 @@ impl Editor {
             && self.ai_command_context(window, cx).is_some()
     }
 
-    fn toggle_ai_chat_context_dropdown(
-        &mut self,
-        event: &ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.ai_chat.context_dropdown_open = !self.ai_chat.context_dropdown_open;
-        if self.ai_chat.context_dropdown_open {
-            self.refresh_ai_chat_context_availability(window, cx);
-            let position = event.position();
-            self.ai_chat.context_dropdown_position =
-                Some(point(position.x, position.y + px(4.0)));
-        } else {
-            self.ai_chat.context_dropdown_position = None;
-        }
-        cx.notify();
-    }
-
     fn select_ai_chat_context_mode(
         &mut self,
         mode: AiChatContextMode,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        match mode {
+            AiChatContextMode::FullDocument
+            | AiChatContextMode::Workspace
+            | AiChatContextMode::Blank => {
+                self.ai_chat.pinned_selection_context = None;
+            }
+            _ => {}
+        }
         self.ai_chat.context_mode = mode;
-        self.ai_chat.context_dropdown_open = false;
-        self.ai_chat.context_dropdown_position = None;
+        self.refresh_ai_chat_context_availability(window, cx);
         cx.notify();
     }
 
-    fn render_ai_chat_context_dropdown(
+    fn ai_chat_context_mode_chip(
         &self,
+        id: &'static str,
+        label: &str,
+        mode: AiChatContextMode,
+        enabled: bool,
         theme: &Theme,
-        strings: &I18nStrings,
-        window: &Window,
         cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        if !self.ai_chat.context_dropdown_open {
-            return None;
-        }
-        let position = self.ai_chat.context_dropdown_position?;
-        let c = &theme.colors;
-        let d = &theme.dimensions;
-        let workspace_available = self.ai_chat_workspace_context_available();
-        let command_available = self.ai_chat_command_context_available(window, cx);
-        Some(
-            div()
-                .id("ai-chat-context-options")
-                .absolute()
-                .left(position.x)
-                .top(position.y)
-                .w(px(180.0))
-                .p(px(d.menu_panel_padding))
-                .flex()
-                .flex_col()
-                .gap(px(d.menu_panel_gap))
-                .occlude()
-                .rounded(px(d.menu_panel_radius))
-                .border(px(d.dialog_border_width))
-                .border_color(c.dialog_border)
-                .bg(c.dialog_surface)
-                .shadow_lg()
-                .child(ai_prompt_dropdown_item(
-                    "ai-chat-context-selection",
-                    &strings.workspace_ai_context_selection,
-                    self.ai_chat.context_mode == AiChatContextMode::Selection,
-                    self.ai_chat.has_selection_context,
-                    theme,
-                    cx.listener(|editor, _, _, cx| {
-                        if !editor.ai_chat.has_selection_context {
-                            return;
-                        }
-                        editor.select_ai_chat_context_mode(AiChatContextMode::Selection, cx);
-                    }),
-                ))
-                .child(ai_prompt_dropdown_item(
-                    "ai-chat-context-full-document",
-                    &strings.workspace_ai_context_full,
-                    self.ai_chat.context_mode == AiChatContextMode::FullDocument,
-                    true,
-                    theme,
-                    cx.listener(|editor, _, _, cx| {
-                        editor.select_ai_chat_context_mode(AiChatContextMode::FullDocument, cx);
-                    }),
-                ))
-                .child(ai_prompt_dropdown_item(
-                    "ai-chat-context-blank",
-                    &strings.workspace_ai_context_blank,
-                    self.ai_chat.context_mode == AiChatContextMode::Blank,
-                    true,
-                    theme,
-                    cx.listener(|editor, _, _, cx| {
-                        editor.select_ai_chat_context_mode(AiChatContextMode::Blank, cx);
-                    }),
-                ))
-                .child(ai_prompt_dropdown_item(
-                    "ai-chat-context-workspace",
-                    &strings.workspace_ai_context_workspace,
-                    self.ai_chat.context_mode == AiChatContextMode::Workspace,
-                    workspace_available,
-                    theme,
-                    cx.listener(|editor, _, _, cx| {
-                        if !editor.ai_chat_workspace_context_available() {
-                            return;
-                        }
-                        editor.select_ai_chat_context_mode(AiChatContextMode::Workspace, cx);
-                    }),
-                ))
-                .child(ai_prompt_dropdown_item(
-                    "ai-chat-context-command",
-                    &strings.workspace_ai_context_command,
-                    self.ai_chat.context_mode == AiChatContextMode::Command,
-                    command_available,
-                    theme,
-                    cx.listener(|editor, _, window, cx| {
-                        if !editor.ai_chat_command_context_available(window, cx) {
-                            return;
-                        }
-                        editor.select_ai_chat_context_mode(AiChatContextMode::Command, cx);
-                    }),
-                ))
-                .into_any_element(),
+    ) -> AnyElement {
+        let selected = self.ai_chat.context_mode == mode;
+        ai_prompt_dropdown_item(
+            id,
+            label,
+            selected,
+            enabled,
+            theme,
+            cx.listener(move |editor, _, window, cx| {
+                if !enabled {
+                    return;
+                }
+                editor.select_ai_chat_context_mode(mode, window, cx);
+            }),
         )
+    }
+
+    fn ai_chat_full_document_context_label(&self, strings: &I18nStrings) -> String {
+        self.document_file_display_name()
+            .map(|file| format!("{file} · {}", strings.workspace_ai_context_full))
+            .unwrap_or_else(|| strings.workspace_ai_context_full.clone())
+    }
+
+    fn ai_chat_workspace_context_label(&self, strings: &I18nStrings) -> String {
+        self.effective_workspace_root()
+            .and_then(|root| {
+                root.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| format!("{name} · {}", strings.workspace_ai_context_workspace))
+            })
+            .unwrap_or_else(|| strings.workspace_ai_context_workspace.clone())
     }
 
     pub(super) fn render_ai_chat_panel(
@@ -564,14 +516,20 @@ impl Editor {
             );
 
         let preferences_ready = read_app_preferences().is_ok();
-        let selection_mode_disabled = self.ai_chat.context_mode == AiChatContextMode::Selection
-            && !self.ai_chat.has_selection_context;
+        let selection_context_available = self.ai_chat.has_selection_context;
+        let workspace_context_available = self.ai_chat_workspace_context_available();
+        let command_context_available = self.ai_chat_command_context_available(window, cx);
 
-        let pinned_reference_label = self
-            .ai_chat
-            .pinned_selection_context
-            .as_ref()
-            .and_then(|context| context.format_reference_label(&strings.workspace_ai_untitled_document));
+        let pinned_reference_label = (self.ai_chat.context_mode == AiChatContextMode::Selection)
+            .then(|| {
+                self.ai_chat
+                    .pinned_selection_context
+                    .as_ref()
+                    .and_then(|context| {
+                        context.format_reference_label(&strings.workspace_ai_untitled_document)
+                    })
+            })
+            .flatten();
 
         let messages = if self.ai_chat.messages.is_empty() {
             let mut empty = div()
@@ -802,46 +760,60 @@ impl Editor {
             })
             .child(
                 div()
+                    .id("ai-chat-context-modes")
+                    .w_full()
+                    .px(px(4.0))
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.0))
+                    .child(self.ai_chat_context_mode_chip(
+                        "ai-chat-context-selection",
+                        &strings.workspace_ai_context_selection,
+                        AiChatContextMode::Selection,
+                        selection_context_available,
+                        theme,
+                        cx,
+                    ))
+                    .child(self.ai_chat_context_mode_chip(
+                        "ai-chat-context-full-document",
+                        &self.ai_chat_full_document_context_label(strings),
+                        AiChatContextMode::FullDocument,
+                        true,
+                        theme,
+                        cx,
+                    ))
+                    .child(self.ai_chat_context_mode_chip(
+                        "ai-chat-context-workspace",
+                        &self.ai_chat_workspace_context_label(strings),
+                        AiChatContextMode::Workspace,
+                        workspace_context_available,
+                        theme,
+                        cx,
+                    ))
+                    .child(self.ai_chat_context_mode_chip(
+                        "ai-chat-context-blank",
+                        ai_chat_context_label(AiChatContextMode::Blank, strings),
+                        AiChatContextMode::Blank,
+                        true,
+                        theme,
+                        cx,
+                    ))
+                    .child(self.ai_chat_context_mode_chip(
+                        "ai-chat-context-command",
+                        ai_chat_context_label(AiChatContextMode::Command, strings),
+                        AiChatContextMode::Command,
+                        command_context_available,
+                        theme,
+                        cx,
+                    )),
+            )
+            .child(
+                div()
                     .w_full()
                     .flex()
                     .items_center()
-                    .justify_between()
+                    .justify_end()
                     .gap(px(6.0))
-                    .child(
-                        div()
-                            .id("ai-chat-context-dropdown")
-                            .h(px(28.0))
-                            .px(px(8.0))
-                            .flex()
-                            .items_center()
-                            .gap(px(6.0))
-                            .rounded(px(d.menu_item_radius))
-                            .bg(c.dialog_surface)
-                            .when(!selection_mode_disabled, |this| {
-                                this.hover(|this| this.bg(c.dialog_secondary_button_hover))
-                                    .cursor_pointer()
-                            })
-                            .text_size(px((t.dialog_body_size - 1.0).max(11.0)))
-                            .text_color(if selection_mode_disabled {
-                                c.dialog_muted
-                            } else {
-                                c.dialog_body
-                            })
-                            .child(
-                                ai_chat_context_label(self.ai_chat.context_mode, strings).to_string(),
-                            )
-                            .child(
-                                svg()
-                                    .path("icon/toolbar/chevron-down.svg")
-                                    .size(px(14.0))
-                                    .text_color(if selection_mode_disabled {
-                                        c.dialog_muted
-                                    } else {
-                                        c.dialog_secondary_button_text
-                                    }),
-                            )
-                            .on_click(cx.listener(Self::toggle_ai_chat_context_dropdown)),
-                    )
                     .child(
                         div()
                             .id("ai-chat-send")
@@ -878,9 +850,6 @@ impl Editor {
                     ),
             );
 
-        let context_dropdown =
-            self.render_ai_chat_context_dropdown(theme, strings, window, cx);
-
         div()
             .id("ai-chat-panel")
             .relative()
@@ -903,7 +872,6 @@ impl Editor {
                     .child(message_list),
             )
             .child(input_area)
-            .children(context_dropdown)
             .into_any()
     }
 }
