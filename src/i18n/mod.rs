@@ -248,6 +248,8 @@ pub struct I18nStrings {
     pub workspace_graph_fit_view: String,
     /// Toolbar button to recompute graph layout.
     pub workspace_graph_reset_layout: String,
+    /// Toolbar button to open graph in a new window.
+    pub workspace_graph_popout: String,
     /// Toggle: keep graph nodes from overlapping.
     pub workspace_graph_mutual_repulsion: String,
     /// Toggle: velocity-based node collisions while dragging.
@@ -613,6 +615,7 @@ struct I18nStringsDe {
     workspace_graph_empty: Option<String>,
     workspace_graph_fit_view: Option<String>,
     workspace_graph_reset_layout: Option<String>,
+    workspace_graph_popout: Option<String>,
     workspace_graph_mutual_repulsion: Option<String>,
     workspace_graph_physics_collisions: Option<String>,
     workspace_graph_uncross_crossings: Option<String>,
@@ -868,6 +871,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_graph_empty",
     "workspace_graph_fit_view",
     "workspace_graph_reset_layout",
+    "workspace_graph_popout",
     "workspace_graph_mutual_repulsion",
     "workspace_graph_physics_collisions",
     "workspace_graph_uncross_crossings",
@@ -1367,6 +1371,9 @@ impl I18nStringsDe {
             workspace_graph_reset_layout: self
                 .workspace_graph_reset_layout
                 .unwrap_or(defaults.workspace_graph_reset_layout),
+            workspace_graph_popout: self
+                .workspace_graph_popout
+                .unwrap_or(defaults.workspace_graph_popout),
             workspace_graph_mutual_repulsion: self
                 .workspace_graph_mutual_repulsion
                 .unwrap_or(defaults.workspace_graph_mutual_repulsion),
@@ -1845,6 +1852,7 @@ impl I18nStrings {
             workspace_graph_empty: "工作区中没有可显示的图谱节点".into(),
             workspace_graph_fit_view: "适应窗口".into(),
             workspace_graph_reset_layout: "重置布局".into(),
+            workspace_graph_popout: "在新窗口中打开".into(),
             workspace_graph_mutual_repulsion: "互相排斥".into(),
             workspace_graph_physics_collisions: "物理碰撞".into(),
             workspace_graph_uncross_crossings: "去除交叉".into(),
@@ -2119,6 +2127,7 @@ impl I18nStrings {
             workspace_graph_empty: "No graph nodes to display in this workspace".into(),
             workspace_graph_fit_view: "Fit view".into(),
             workspace_graph_reset_layout: "Reset layout".into(),
+            workspace_graph_popout: "Open in new window".into(),
             workspace_graph_mutual_repulsion: "Repel".into(),
             workspace_graph_physics_collisions: "Physics".into(),
             workspace_graph_uncross_crossings: "Uncross edges".into(),

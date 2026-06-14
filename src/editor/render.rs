@@ -1391,6 +1391,10 @@ impl Render for Editor {
         self.sync_pending_open_link(window, cx);
         self.sync_window_edited_state(window);
 
+        if let Some(action) = self.pending_graph_popout_action.take() {
+            self.apply_knowledge_graph_node_click(action, window, cx);
+        }
+
         let viewport_bounds = self.scroll_handle.bounds();
         let viewport_size = viewport_bounds.size;
         self.sync_scroll_viewport(viewport_size, cx);
@@ -1812,16 +1816,21 @@ impl Render for Editor {
             .w_full()
             .h_full()
             .pt(px(titlebar_height + menu_bar_height))
-            .flex()
             .min_w(px(0.0));
-        let main_content = if let Some(workspace_panel) =
-            self.render_workspace_panel(&theme, &strings, viewport_width, cx)
-        {
-            main_content.child(workspace_panel)
+        let base = if self.graph_only_window {
+            let graph_panel = self.render_workspace_graph_panel(&theme, &strings, &cx.entity().downgrade());
+            base.child(main_content.child(graph_panel))
         } else {
-            main_content
+            let main_content = main_content.flex();
+            let main_content = if let Some(workspace_panel) =
+                self.render_workspace_panel(&theme, &strings, viewport_width, cx)
+            {
+                main_content.child(workspace_panel)
+            } else {
+                main_content
+            };
+            base.child(main_content.child(content_area))
         };
-        let base = base.child(main_content.child(content_area));
         let base = if let Some(menu_panel) = self.render_in_window_menu_panel(
             &theme,
             cx,

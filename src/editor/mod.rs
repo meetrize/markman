@@ -178,6 +178,12 @@ pub struct Editor {
     graph_animation_task: Option<Task<()>>,
     graph_active_node_pulse_task: Option<Task<()>>,
     graph_physics_task: Option<Task<()>>,
+    /// When true, the window renders only the knowledge graph without sidebar or editor.
+    graph_only_window: bool,
+    /// Original editor entity when this is a graph-only popout window.
+    graph_popout_parent: Option<Entity<Editor>>,
+    /// Pending click action from a graph popout window to be applied in the next render.
+    pending_graph_popout_action: Option<graph_view::GraphNodeClickAction>,
     ai: controllers::AiController,
 }
 
@@ -388,6 +394,9 @@ impl Editor {
             graph_animation_task: None,
             graph_active_node_pulse_task: None,
             graph_physics_task: None,
+            graph_only_window: false,
+            graph_popout_parent: None,
+            pending_graph_popout_action: None,
             ai: controllers::AiController::new(cx),
         };
         editor.rebuild_table_runtimes(cx);
@@ -396,5 +405,9 @@ impl Editor {
         editor.active_entity_id = editor.pending_focus;
         editor.refresh_stable_document_snapshot(cx);
         editor
+    }
+
+    pub fn empty(cx: &mut Context<Self>) -> Self {
+        Self::from_markdown(cx, String::new(), None)
     }
 }

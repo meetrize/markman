@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use gpui::*;
+use gpui::prelude::FluentBuilder;
 
 use super::graph_layout::{LayoutConfig, LayoutSimulation, uncross_graph_layout};
 use super::graph_physics::{
@@ -20,14 +21,18 @@ use super::link_index::{
 };
 use super::tag_index::WorkspaceTagIndex;
 use super::Editor;
+use crate::app_identity::app_window_title;
+use crate::i18n::I18nManager;
 use crate::i18n::I18nStrings;
 use crate::theme::{Theme, ThemeColors, ThemeTypography};
+use crate::window_chrome::velotype_window_options;
 
 const GRAPH_REPEL_ICON: &str = "icon/workspace/graph-repel.svg";
 const GRAPH_PHYSICS_ICON: &str = "icon/workspace/graph-physics.svg";
 const GRAPH_UNCROSS_ICON: &str = "icon/workspace/graph-uncross.svg";
 const GRAPH_FIT_ICON: &str = "icon/workspace/graph-fit.svg";
 const GRAPH_RESET_ICON: &str = "icon/workspace/graph-reset.svg";
+const GRAPH_POPOUT_ICON: &str = "icon/workspace/graph-popout.svg";
 const GRAPH_TOOLBAR_ICON_SIZE: f32 = 12.0;
 
 fn graph_source_revision(tag_index: &WorkspaceTagIndex, link_index: &WorkspaceLinkIndex) -> u64 {
@@ -510,6 +515,43 @@ impl Editor {
         cx.notify();
     }
 
+    pub(super) fn popout_knowledge_graph(&mut self, cx: &mut Context<Self>) {
+        if self.knowledge_graph_view.is_none() {
+            return;
+        }
+
+        let workspace_root = self.effective_workspace_root();
+        let original_editor = cx.entity().clone();
+        let title = cx.global::<I18nManager>().strings().workspace_tab_graph.clone();
+        let bounds = Bounds::centered(None, size(px(1080.0), px(720.0)), cx);
+        let mut options = velotype_window_options(app_window_title(Some(&title)).into(), bounds);
+        options.focus = true;
+        options.show = true;
+
+        let handle = match cx.open_window(options, move |_window, cx| {
+            cx.new(move |cx| {
+                let mut editor = Editor::empty(cx);
+                editor.graph_only_window = true;
+                editor.graph_popout_parent = Some(original_editor);
+                editor
+            })
+        }) {
+            Ok(handle) => handle,
+            Err(err) => {
+                eprintln!("failed to open knowledge graph window: {err}");
+                return;
+            }
+        };
+
+        let _ = handle.update(cx, move |editor, window, cx| {
+            if let Some(root) = workspace_root {
+                editor.open_workspace_folder(root, window, cx);
+            }
+            editor.force_install_close_guard(cx, window);
+            window.activate_window();
+        });
+    }
+
     pub(super) fn render_workspace_graph_panel(
         &self,
         theme: &Theme,
@@ -544,6 +586,7 @@ impl Editor {
         let repulsion_editor = editor.clone();
         let physics_editor = editor.clone();
         let uncross_editor = editor.clone();
+        let popout_editor = editor.clone();
         let filter = self
             .knowledge_graph_view
             .as_ref()
@@ -649,12 +692,23 @@ impl Editor {
                             .child(graph_toolbar_button(
                                 "workspace-graph-reset-layout",
                                 GRAPH_RESET_ICON,
-                                tooltip_colors,
-                                tooltip_typography,
+                                tooltip_colors.clone(),
+                                tooltip_typography.clone(),
                                 strings.workspace_graph_reset_layout.clone(),
                                 reset_editor,
                                 |editor, cx| editor.reset_knowledge_graph_layout(cx),
-                            )),
+                            ))
+                            .when(!self.graph_only_window, |this| {
+                                this.child(graph_toolbar_button(
+                                    "workspace-graph-popout",
+                                    GRAPH_POPOUT_ICON,
+                                    tooltip_colors,
+                                    tooltip_typography,
+                                    strings.workspace_graph_popout.clone(),
+                                    popout_editor,
+                                    |editor, cx| editor.popout_knowledge_graph(cx),
+                                ))
+                            }),
                     ),
             )
             .child(

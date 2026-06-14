@@ -844,7 +844,7 @@ impl Element for KnowledgeGraphElement {
     }
 }
 
-enum GraphNodeClickAction {
+pub(super) enum GraphNodeClickAction {
     Document(PathBuf),
     Tag(String),
 }
@@ -1082,15 +1082,25 @@ impl Editor {
         cx.notify();
     }
 
-    fn apply_knowledge_graph_node_click(
+    pub(super) fn apply_knowledge_graph_node_click(
         &mut self,
         action: GraphNodeClickAction,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.graph_only_window {
+            if let Some(parent) = self.graph_popout_parent.clone() {
+                let _ = parent.update(cx, move |parent_editor, cx| {
+                    parent_editor.pending_graph_popout_action = Some(action);
+                    cx.notify();
+                });
+            }
+            return;
+        }
+
         match action {
             GraphNodeClickAction::Document(path) => {
-                self.open_workspace_path(path, window, cx);
+                self.open_workspace_path(path, _window, cx);
             }
             GraphNodeClickAction::Tag(name) => {
                 self.filter_workspace_by_tag(name, cx);
