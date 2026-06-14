@@ -21,8 +21,6 @@ const LINK_ACTION_ICON_SIZE_RATIO: f32 = 0.68;
 /// Applied in `link_action_icon_layout()` as `bg_right = anchor_x - trailing_gap`.
 const LINK_ACTION_ICON_MARKER_GAP: f32 = 3.0;
 const LINK_ACTION_ICON_BG_PAD: f32 = 1.5;
-/// Inline links: gap from preceding content right edge to icon background left edge.
-const LINK_ACTION_ICON_PRECEDING_GAP: f32 = 2.0;
 const LINK_ACTION_ICON_BG_RADIUS: f32 = 3.0;
 const LINK_ACTION_ICON_VISUAL_INSET: f32 = 1.5;
 const LINK_ACTION_ICON_BG_OPACITY: f32 = 0.14;
@@ -1008,141 +1006,77 @@ struct LinkActionIconLayout {
 }
 
 fn link_action_icon_layout(
-    anchor_x: Pixels,
+    text_start_x: Pixels,
     vertical_segment: Bounds<Pixels>,
     layout_bounds: Bounds<Pixels>,
     line_height: Pixels,
     trailing_gap: Pixels,
     pin_leading: bool,
-    min_icon_left: Pixels,
 ) -> LinkActionIconLayout {
     let icon_size = link_action_icon_size(line_height);
     let bg_pad = px(LINK_ACTION_ICON_BG_PAD);
 
-    // Spacing is ONLY controlled here: chrome right = anchor_x - trailing_gap.
-    let bg_right = anchor_x - trailing_gap;
+    // `text_start_x` is the painted left edge of link text; icon sits in the fixed slot before it.
+    let bg_right = text_start_x - trailing_gap;
     let paint_right = bg_right - bg_pad;
     let paint_left = paint_right - icon_size;
 
-    // Line-start links: align icon to the row/content left edge inside the reserved gutter.
-    // Inline links: icon background left edge starts at preceding content right + gap.
-    // `min_icon_left` is the preceding content right edge (including whitespace before anchor).
-    let min_bg_left = min_icon_left + px(LINK_ACTION_ICON_PRECEDING_GAP);
-    let min_paint_left = min_bg_left + bg_pad;
     let final_paint_left = if pin_leading {
         // Anchor-relative: keep icon adjacent to link text / delimiters instead of
         // pinning to the reserved gutter's far left (which creates a large visual gap
         // when text is center/right aligned or the anchor sits away from text_bounds.left()).
         paint_left.max(layout_bounds.left())
     } else {
-        paint_left.max(min_paint_left)
-    };
-
-    let chrome_right = final_paint_left + icon_size + bg_pad;
-    let clamped_text_inset = if pin_leading {
-        // Leading gutter already reserves horizontal space; never shift text again.
-        px(0.0)
-    } else if chrome_right + trailing_gap > anchor_x + px(0.5) {
-        (chrome_right + trailing_gap).max(anchor_x) - anchor_x
-    } else {
-        px(0.0)
+        paint_left
     };
 
     let icon_top = vertical_segment.top()
         + px((f32::from(line_height) - f32::from(icon_size)) / 2.0);
     LinkActionIconLayout {
         paint_bounds: Bounds::new(point(final_paint_left, icon_top), size(icon_size, icon_size)),
-        clamped_text_inset,
+        clamped_text_inset: px(0.0),
     }
 }
 
-fn content_right_before_anchor(
-    lines: &[WrappedLine],
-    bounds: Bounds<Pixels>,
-    line_height: Pixels,
-    text: &str,
-    anchor_offset: usize,
-    align: TextAlign,
-    link_insets: &[LinkIconTextInset],
-) -> Pixels {
-    let line_start = text[..anchor_offset]
-        .rfind('\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    if anchor_offset <= line_start {
-        return bounds.left();
-    }
-
-    range_segment_bounds_with_link_insets(
-        lines,
-        bounds,
-        line_height,
-        text,
-        line_start..anchor_offset,
-        align,
-        link_insets,
-    )
-    .last()
-    .map(|segment| segment.right())
-    .unwrap_or(bounds.left())
-}
-
+/// Reserve a fixed icon slot before each inline link so text and icon spacing stay uniform.
 pub(super) fn compute_link_icon_text_insets(
     input: &Block,
-    lines: &[WrappedLine],
-    layout_bounds: Bounds<Pixels>,
-    text_bounds: Bounds<Pixels>,
+    _lines: &[WrappedLine],
+    _layout_bounds: Bounds<Pixels>,
+    _text_bounds: Bounds<Pixels>,
     line_height: Pixels,
-    align: TextAlign,
+    _align: TextAlign,
 ) -> Vec<LinkIconTextInset> {
     if input.is_source_raw_mode() || input.display_text().is_empty() {
         return Vec::new();
     }
 
     let text = input.display_text();
-    let mut link_spans: Vec<_> = input
-        .inline_spans()
-        .iter()
-        .filter(|span| span.link.is_some() && !span.range.is_empty())
-        .collect();
-    link_spans.sort_by_key(|span| {
-        link_icon_anchor_offset(input, &span.range, span.link.as_ref().expect("link span"))
-    });
-
-    let mut insets = Vec::new();
-    for span in link_spans {
-        let link = span.link.as_ref().expect("link span");
+    let mut insets: Vec<LinkIconTextInset> = Vec::new();
+    for span in input.inline_spans() {
+        let Some(link) = span.link.as_ref() else {
+            continue;
+        };
+        if span.range.is_empty() {
+            continue;
+        }
         let anchor_offset = link_icon_anchor_offset(input, &span.range, link);
         if offset_is_leading_on_hard_line(text, anchor_offset) {
             continue;
         }
-        let Some(layout) = link_action_icon_layout_for_span(
-            input,
-            lines,
-            layout_bounds,
-            text_bounds,
-            line_height,
-            text,
-            span.range.clone(),
-            link,
-            align,
-            &insets,
-        ) else {
+        if insets
+            .iter()
+            .any(|inset| inset.anchor_offset == anchor_offset)
+        {
             continue;
-        };
-        if layout.clamped_text_inset > px(0.5) {
-            let duplicate = insets
-                .iter()
-                .any(|inset| inset.anchor_offset == anchor_offset);
-            if !duplicate {
-                insets.push(LinkIconTextInset {
-                    anchor_offset,
-                    extra_x: layout.clamped_text_inset,
-                });
-            }
         }
+        let trailing_gap = link_icon_trailing_gap(link, anchor_offset, span.range.start);
+        insets.push(LinkIconTextInset {
+            anchor_offset,
+            extra_x: link_action_icon_slot_width(line_height, trailing_gap),
+        });
     }
-
+    insets.sort_by_key(|inset| inset.anchor_offset);
     insets
 }
 
@@ -1158,16 +1092,6 @@ fn link_action_icon_layout_for_span(
     align: TextAlign,
     link_insets: &[LinkIconTextInset],
 ) -> Option<LinkActionIconLayout> {
-    let segments = range_segment_bounds_with_link_insets(
-        lines,
-        text_bounds,
-        line_height,
-        text,
-        span_range.clone(),
-        align,
-        link_insets,
-    );
-    let vertical_segment = segments.first()?;
     let anchor_offset = link_icon_anchor_offset(input, &span_range, link);
     if anchor_offset >= text.len() {
         return None;
@@ -1180,39 +1104,49 @@ fn link_action_icon_layout_for_span(
     if anchor_end <= anchor_offset {
         return None;
     }
-    let anchor_segments = range_segment_bounds(
+
+    let segments = range_segment_bounds_with_link_insets(
+        lines,
+        text_bounds,
+        line_height,
+        text,
+        span_range.clone(),
+        align,
+        link_insets,
+    );
+    let vertical_segment = segments.first()?;
+    let trailing_gap = link_icon_trailing_gap(link, anchor_offset, span_range.start);
+    let pin_leading = offset_is_leading_on_hard_line(text, anchor_offset);
+    let base_anchor_x = range_segment_bounds(
         lines,
         text_bounds,
         line_height,
         text,
         anchor_offset..anchor_end,
         align,
-    );
-    let anchor_x = anchor_segments.first()?.left();
-    let trailing_gap = link_icon_trailing_gap(link, anchor_offset, span_range.start);
-    let pin_leading = offset_is_leading_on_hard_line(text, anchor_offset);
-    let min_icon_left = if pin_leading {
-        layout_bounds.left()
+    )
+    .first()?
+    .left();
+    let text_start_x = if pin_leading {
+        base_anchor_x
     } else {
-        content_right_before_anchor(
+        let shift_before = link_icon_x_shift_for_offset_at(
             lines,
-            text_bounds,
-            line_height,
             text,
             anchor_offset,
-            align,
             link_insets,
-        )
-        .max(layout_bounds.left())
+            false,
+        );
+        let slot = link_action_icon_slot_width(line_height, trailing_gap);
+        base_anchor_x + shift_before + slot
     };
     Some(link_action_icon_layout(
-        anchor_x,
+        text_start_x,
         *vertical_segment,
         layout_bounds,
         line_height,
         trailing_gap,
         pin_leading,
-        min_icon_left,
     ))
 }
 
@@ -2855,7 +2789,7 @@ mod tests {
         range_segment_bounds, range_segment_bounds_with_link_insets,
         source_line_number_gutter_width, source_line_number_tops, source_text_bounds,
         wrapped_line_height, LINK_ACTION_ICON_BG_PAD, LINK_ACTION_ICON_MARKER_GAP,
-        LINK_ACTION_ICON_PRECEDING_GAP, LINK_ACTION_ICON_TEXT_GAP,
+        LINK_ACTION_ICON_TEXT_GAP,
     };
     use crate::components::{Block, BlockKind, BlockRecord, InlineTextTree, TableCellPosition};
     use gpui::{
@@ -3068,8 +3002,7 @@ mod tests {
                 link_text_at_position(block, &lines, text_bounds, line_height, text_position)
                     .map(|link| link.open_target.clone()),
                 link_text_at_position(block, &lines, text_bounds, line_height, icon_position).is_none(),
-                icon_bg.left() + px(0.5)
-                    >= preceding_right + px(LINK_ACTION_ICON_PRECEDING_GAP),
+                icon_bg.left() + px(0.5) >= preceding_right,
                 icon_before_link,
             )
         });
@@ -3670,6 +3603,91 @@ mod tests {
                 "cursor ({:?}) should align with text end ({:?})",
                 end_cursor.left(),
                 text_end.right(),
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn multiple_preview_file_links_keep_uniform_icon_text_gap(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let block = cx.new(|cx| {
+            Block::with_record(
+                cx,
+                BlockRecord::new(
+                    BlockKind::Paragraph,
+                    InlineTextTree::from_markdown("[[file-a.md]] [[file-b.md]] [[file-c.md]]"),
+                ),
+            )
+        });
+
+        let display_text = block.read_with(cx, |block, _cx| block.display_text().to_string());
+        let line_height = px(20.0);
+        let link_gutter = block.read_with(cx, |block, _cx| {
+            block_link_icon_gutter(block, line_height)
+        });
+        let wrap_width = px(480.0) - link_gutter;
+        let lines = shaped_lines(&display_text, wrap_width, cx);
+
+        block.read_with(cx, |block, _cx| {
+            let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(480.0), px(20.0)));
+            let text_bounds = source_text_bounds(bounds, link_gutter);
+            let layout_bounds = link_icon_layout_bounds(text_bounds, link_gutter);
+            let insets = compute_link_icon_text_insets(
+                block,
+                &lines,
+                layout_bounds,
+                text_bounds,
+                line_height,
+                block.text_align(),
+            );
+            let link_spans: Vec<_> = block
+                .inline_spans()
+                .iter()
+                .filter(|span| span.link.is_some())
+                .collect();
+            assert_eq!(link_spans.len(), 3);
+
+            let mut gaps = Vec::new();
+            for span in link_spans {
+                let link = span.link.as_ref().expect("link");
+                let layout = link_action_icon_layout_for_span(
+                    block,
+                    &lines,
+                    layout_bounds,
+                    text_bounds,
+                    line_height,
+                    &display_text,
+                    span.range.clone(),
+                    link,
+                    block.text_align(),
+                    &insets,
+                )
+                .expect("icon layout");
+                let icon_bg =
+                    link_action_icon_background_bounds(layout.paint_bounds, line_height);
+                let text_segments = range_segment_bounds_with_link_insets(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    &display_text,
+                    span.range.clone(),
+                    block.text_align(),
+                    &insets,
+                );
+                let text_segment = text_segments.first().expect("link text segment");
+                gaps.push(text_segment.left() - icon_bg.right());
+            }
+
+            let first_gap = gaps[0];
+            for (index, gap) in gaps.iter().enumerate().skip(1) {
+                assert!(
+                    (*gap - first_gap).abs() <= px(0.5),
+                    "link {index} icon-to-text gap ({gap:?}) should match first link ({first_gap:?})"
+                );
+            }
+            assert!(
+                first_gap <= px(LINK_ACTION_ICON_TEXT_GAP) + px(0.5),
+                "icon-to-text gap ({first_gap:?}) should be at most TEXT_GAP"
             );
         });
     }
