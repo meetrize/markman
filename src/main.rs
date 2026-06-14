@@ -63,6 +63,15 @@ impl AssetSource for VelotypeAssets {
             "icon/workspace/graph.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/workspace/graph.svg"
             )))),
+            "icon/workspace/graph-repel.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/workspace/graph-repel.svg"
+            )))),
+            "icon/workspace/graph-fit.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/workspace/graph-fit.svg"
+            )))),
+            "icon/workspace/graph-reset.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/workspace/graph-reset.svg"
+            )))),
             "icon/workspace/search.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/workspace/search.svg"
             )))),

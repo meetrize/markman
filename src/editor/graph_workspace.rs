@@ -18,6 +18,11 @@ use super::Editor;
 use crate::i18n::I18nStrings;
 use crate::theme::{Theme, ThemeColors, ThemeTypography};
 
+const GRAPH_REPEL_ICON: &str = "icon/workspace/graph-repel.svg";
+const GRAPH_FIT_ICON: &str = "icon/workspace/graph-fit.svg";
+const GRAPH_RESET_ICON: &str = "icon/workspace/graph-reset.svg";
+const GRAPH_TOOLBAR_ICON_SIZE: f32 = 12.0;
+
 fn graph_source_revision(tag_index: &WorkspaceTagIndex, link_index: &WorkspaceLinkIndex) -> u64 {
     tag_index
         .revision
@@ -403,26 +408,23 @@ impl Editor {
                             .gap(px(6.0))
                             .child(graph_toggle_button(
                                 "workspace-graph-mutual-repulsion",
-                                &strings.workspace_graph_mutual_repulsion,
+                                GRAPH_REPEL_ICON,
                                 mutual_repulsion,
                                 c,
-                                t,
                                 repulsion_editor,
                                 |editor, cx| editor.toggle_knowledge_graph_mutual_repulsion(cx),
                             ))
                             .child(graph_toolbar_button(
                                 "workspace-graph-fit-view",
-                                &strings.workspace_graph_fit_view,
+                                GRAPH_FIT_ICON,
                                 c,
-                                t,
                                 fit_editor,
                                 |editor, cx| editor.fit_knowledge_graph_viewport(cx),
                             ))
                             .child(graph_toolbar_button(
                                 "workspace-graph-reset-layout",
-                                &strings.workspace_graph_reset_layout,
+                                GRAPH_RESET_ICON,
                                 c,
-                                t,
                                 reset_editor,
                                 |editor, cx| editor.reset_knowledge_graph_layout(cx),
                             )),
@@ -482,33 +484,43 @@ fn graph_filter_button(
         .into_any_element()
 }
 
+fn graph_toolbar_icon(icon: &'static str, text_color: Hsla) -> impl IntoElement {
+    svg()
+        .path(icon)
+        .size(px(GRAPH_TOOLBAR_ICON_SIZE))
+        .flex_shrink_0()
+        .text_color(text_color)
+}
+
 fn graph_toggle_button(
     id: &'static str,
-    label: &str,
+    icon: &'static str,
     active: bool,
     c: &ThemeColors,
-    t: &ThemeTypography,
     editor: WeakEntity<Editor>,
     action: fn(&mut Editor, &mut Context<Editor>),
 ) -> AnyElement {
-    let label = label.to_string();
+    let icon_color = if active {
+        c.text_default
+    } else {
+        c.dialog_muted
+    };
     let mut element = div()
         .id(id)
-        .px(px(6.0))
-        .py(px(2.0))
+        .p(px(4.0))
         .rounded(px(4.0))
-        .text_size(px(t.text_size * 0.75))
         .cursor_pointer()
-        .child(label);
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(graph_toolbar_icon(icon, icon_color));
 
     element = if active {
         element
             .bg(c.dialog_secondary_button_hover)
-            .text_color(c.text_default)
     } else {
-        element.text_color(c.dialog_muted).hover(|this| {
+        element.hover(|this| {
             this.bg(c.dialog_secondary_button_hover)
-                .text_color(c.text_default)
         })
     };
 
@@ -523,26 +535,21 @@ fn graph_toggle_button(
 
 fn graph_toolbar_button(
     id: &'static str,
-    label: &str,
+    icon: &'static str,
     c: &ThemeColors,
-    t: &ThemeTypography,
     editor: WeakEntity<Editor>,
     action: fn(&mut Editor, &mut Context<Editor>),
 ) -> AnyElement {
-    let label = label.to_string();
     div()
         .id(id)
-        .px(px(6.0))
-        .py(px(2.0))
+        .p(px(4.0))
         .rounded(px(4.0))
-        .text_size(px(t.text_size * 0.75))
-        .text_color(c.dialog_muted)
-        .hover(|this| {
-            this.bg(c.dialog_secondary_button_hover)
-                .text_color(c.text_default)
-        })
         .cursor_pointer()
-        .child(label)
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+        .child(graph_toolbar_icon(icon, c.dialog_muted))
         .on_click(move |_event, _window, cx| {
             let _ = editor.update(cx, |editor, cx| {
                 action(editor, cx);
