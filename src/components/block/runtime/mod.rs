@@ -422,6 +422,19 @@ impl Block {
         self.current_cache().visible_text()
     }
 
+    /// Clamp a byte range to valid UTF-8 character boundaries in display text.
+    pub(crate) fn clamped_display_range(&self, range: Range<usize>) -> Range<usize> {
+        let text = self.display_text();
+        let start = clamp_to_char_boundary(text, range.start.min(text.len()));
+        let end = clamp_to_char_boundary(text, range.end.min(text.len()));
+        start..end.max(start)
+    }
+
+    pub(crate) fn selected_display_text(&self) -> String {
+        let range = self.clamped_display_range(self.selected_range.clone());
+        self.display_text()[range].to_string()
+    }
+
     /// Cheap clone of the current display text as a `SharedString` (Arc bump)
     /// — avoids a fresh String allocation per render. The cached value is
     /// refreshed by [`Self::refresh_cached_display_text`] whenever the
@@ -2377,8 +2390,10 @@ impl Block {
     }
 
     fn set_selection_from_anchor_focus(&mut self, anchor: usize, focus: usize) {
-        let clamped_anchor = anchor.min(self.visible_len());
-        let clamped_focus = focus.min(self.visible_len());
+        let text = self.display_text();
+        let len = self.visible_len();
+        let clamped_anchor = clamp_to_char_boundary(text, anchor.min(len));
+        let clamped_focus = clamp_to_char_boundary(text, focus.min(len));
         self.selected_range = clamped_anchor.min(clamped_focus)..clamped_anchor.max(clamped_focus);
         self.selection_reversed = !self.selected_range.is_empty() && clamped_focus < clamped_anchor;
     }
@@ -2395,7 +2410,8 @@ impl Block {
     }
 
     pub fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let clamped_offset = offset.min(self.visible_len());
+        let clamped_offset =
+            clamp_to_char_boundary(self.display_text(), offset.min(self.visible_len()));
         if self.selection_reversed {
             self.selected_range.start = clamped_offset;
         } else {
@@ -2408,9 +2424,6 @@ impl Block {
         self.cursor_blink_epoch = Instant::now();
         self.clear_vertical_motion();
         self.sync_collapsed_caret_affinity();
-        if !self.selected_range.is_empty() && self.shows_text_selection_highlight() {
-            self.editor_selection_range = Some(self.selected_range.clone());
-        }
         cx.notify();
     }
 

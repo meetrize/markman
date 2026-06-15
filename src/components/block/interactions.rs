@@ -807,9 +807,7 @@ impl Block {
 
     pub(crate) fn on_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.display_text()[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(self.selected_display_text()));
         }
     }
 
@@ -905,9 +903,7 @@ impl Block {
     pub(crate) fn on_cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.display_text()[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(self.selected_display_text()));
             self.replace_text_in_range(None, "", window, cx);
         }
     }
@@ -1103,10 +1099,7 @@ impl Block {
         {
             self.sync_inline_projection_for_focus(true);
         }
-        if !self.selected_range.is_empty() && self.shows_text_selection_highlight() {
-            self.editor_selection_range = Some(self.selected_range.clone());
-            cx.notify();
-        } else if !self.shows_text_selection_highlight() && self.editor_selection_range.is_some() {
+        if !self.shows_text_selection_highlight() && self.editor_selection_range.is_some() {
             self.editor_selection_range = None;
             cx.notify();
         }

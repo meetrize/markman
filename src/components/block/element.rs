@@ -542,10 +542,20 @@ pub(super) fn offset_for_mouse_position(
     let hard_range = &ranges[line_idx];
 
     // Match caret geometry from `cursor_bounds_for_offset` on the active hard line.
+    let line_end = hard_range.end.min(text.len());
+    let line_slice = &text[hard_range.start..line_end];
+    let mut candidate_offsets: Vec<usize> = line_slice
+        .char_indices()
+        .map(|(index, _)| hard_range.start + index)
+        .collect();
+    if text.is_char_boundary(line_end) && !candidate_offsets.contains(&line_end) {
+        candidate_offsets.push(line_end);
+    }
+
     let mut best_offset = hard_range.start;
     let mut best_distance = px(f32::MAX);
     let y_tolerance = line_height * 0.6;
-    for abs_offset in hard_range.start..=hard_range.end.min(text.len()) {
+    for abs_offset in candidate_offsets {
         let Some(cursor) = cursor_bounds_for_offset(
             lines,
             bounds,
