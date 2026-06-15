@@ -4,7 +4,7 @@
 
 ![Markman](./assets/icon/markman-banner.png)
 
-**A native Markdown memo app built with Rust and GPUI — WYSIWYG editing, source mode, and a full workspace.**
+**Think in connections. Write in flow. A next-generation native Markdown workspace — built with Rust and GPUI.**
 
 ![Markman app screenshot](./assets/screenshots/markman.png)
 
@@ -15,62 +15,74 @@
 [![Rust](https://img.shields.io/badge/Rust-2024-f74c00?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![GPUI](https://img.shields.io/badge/GUI-GPUI%200.2-4b7bec)](https://gpui.rs/)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-2ea44f)](#quick-start)
-[![Portable](https://img.shields.io/badge/app-portable%20single%20binary-8b5cf6)](#features)
-[![Export](https://img.shields.io/badge/export-HTML%20%7C%20PDF-0ea5e9)](#features)
+[![Portable](https://img.shields.io/badge/app-portable%20single%20binary-8b5cf6)](#more-capabilities)
+[![Export](https://img.shields.io/badge/export-HTML%20%7C%20PDF-0ea5e9)](#more-capabilities)
 [![Release](https://img.shields.io/badge/releases-GitHub-181717?logo=github)](https://github.com/meetrize/markman/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
 
-Markman is a block-based Markdown editor and memo app powered by Rust and [GPUI](https://gpui.rs/). Edit in rendered WYSIWYG mode or switch to Markdown source — no WebView, no preview-pane sync loop.
+Markman is a block-native Markdown editor and personal knowledge workspace. No Electron. No WebView. No preview-pane sync loop — just a single, high-performance surface where structure, rendering, and editing stay in lockstep.
 
-> **Note:** The display name is **Markman**. The executable and CLI command are `markman`. Older releases used `velotype`. User settings are stored under the Markman config directory (for example `~/Library/Application Support/Markman` on macOS) and are migrated automatically from the legacy Velotype location on first launch.
+> **Note:** The display name is **Markman**. The executable and CLI command are `markman`. Older releases used `velotype`. User settings live under the Markman config directory (for example `~/Library/Application Support/Markman` on macOS) and migrate automatically from the legacy Velotype location on first launch.
 
-## Features
+## Highlights
 
-### Editing experience
+### Knowledge graph — see how your notes connect
 
-- **Block model** — Markdown structure lives in an editable block tree; parsing and rendering stay in sync without a separate preview pane.
-- **Dual view modes** — WYSIWYG rendered editing and raw Markdown source mode with line numbers.
-- **Format toolbar** — One-click formatting for headings, bold, italic, lists, tasks, quotes, links, images, tables, and more.
-- **Rich navigation** — Word-by-word and block-by-block movement, cross-block selection, double-click word select, and configurable keyboard shortcuts.
-- **Document tools** — In-document search, global search, quick-open file picker, auto-save, and context menus (copy, cut, paste, select all).
+Turn a folder of Markdown into a living network. Markman scans `#tags` and `[[wiki links]]` across your workspace and renders an interactive force-directed graph — native GPUI, no embedded browser. Drag nodes, pan and zoom the canvas, click to jump to a note or filter by tag. Pop the graph into its own window when you need a bird's-eye view of your thinking.
+
+### AI knowledge base — your workspace, understood
+
+Your notes are the knowledge source. Markman feeds your entire workspace into AI conversations — summarize themes across files, compare notes, surface related content through tags and wiki links, and keep answers grounded in what you actually wrote. Context modes let you scope from a selection to the full document to the whole library.
+
+### Sidebar AI chat — sustained, streaming dialogue
+
+A dedicated **AI** tab sits alongside Files, Outline, Tags, and Graph. Hold multi-turn conversations with streaming responses, switch context on the fly (selection, full document, workspace, code block), pin selections into the thread, and start fresh whenever you need a clean slate. Selection toolbar actions and the pop-up AI dialog remain for quick in-place edits.
+
+### True preview editing — WYSIWYG without the split brain
+
+Most editors force a choice: raw source *or* a read-only preview. Markman merges them. Edit directly in rendered mode — headings, lists, tables, code, math, and more — while a block tree keeps parsing and display perfectly aligned. Toggle to Markdown source with line numbers whenever you want the raw text. One model, two views, zero sync lag.
+
+### Multi-column layout — write side by side
+
+Break out of single-column flow with native column blocks. Arrange content in parallel columns — comparisons, kanban-style boards, summary + detail panels — right inside your Markdown. Columns render inline in the editor and export faithfully to HTML and PDF.
+
+## More capabilities
+
+### Editing & navigation
+
+- **Block model** — Markdown as an editable block tree; structure and rendering stay unified.
+- **Format toolbar** — Headings, bold, italic, lists, tasks, quotes, links, images, tables, and more.
+- **Rich navigation** — Word/block movement, cross-block selection, double-click word select, configurable shortcuts.
+- **Document tools** — In-document search, workspace-wide search, quick-open, auto-save, context menus.
 
 ### Workspace
 
-- **Folder workspace** — Open a directory, browse files in a side drawer, and jump between notes quickly.
-- **Outline panel** — Navigate document structure from headings and blocks.
-- **Workspace search** — Search across files with match highlighting and jump-to-result.
+- **Folder workspace** — Open a directory, browse files in the side drawer, switch notes instantly.
+- **Outline panel** — Jump through headings and block structure.
+- **Tags panel** — Browse and filter notes by `#tag` with occurrence previews.
 
 ### Markdown & content
 
-- **Common syntax** — Headings, paragraphs, lists, task lists, quotes, callouts, tables, footnotes, reference-style links and images, standalone images, and comment blocks.
-- **Column blocks** — Multi-column layout blocks with inline tree preview.
-- **Code blocks** — Tree-sitter syntax highlighting, line numbers, folding, language picker, copy, and run-in-terminal with an expandable output panel.
-- **Inline code** — Run snippets in the system terminal directly from rendered mode.
-- **Mermaid** — Render diagrams in the editor; insert from built-in templates.
-- **Tables** — Adjustable column widths and extended cell border styling.
-- **Safe HTML** — Controlled native HTML handling where supported.
-- **Math & extras** — Superscript/subscript inline editing; RaTeX-based math rendering where enabled.
-
-### AI assistance
-
-- **Selection-aware AI** — Invoke AI on the current selection or block context.
-- **Streaming responses** — Results stream in with a draggable preview panel and scroll support.
-- **Custom prompts** — Save and reuse prompt buttons from the toolbar or preferences.
+- **Full syntax support** — Headings, lists, task lists, quotes, callouts, tables, footnotes, reference links, images, comment blocks.
+- **Code blocks** — Tree-sitter highlighting, line numbers, folding, language picker, run-in-terminal with output panel.
+- **Mermaid** — Render diagrams in-editor; insert from built-in templates.
+- **Math** — Superscript/subscript editing; RaTeX-based formula rendering.
+- **Safe HTML** — Controlled native HTML where supported.
 
 ### Export & customization
 
-- **HTML & PDF export** — HTML maps the active theme to CSS; PDF reuses the same themed pipeline via local Chromium.
-- **Themes** — Import JSONC theme packs for colors, typography, spacing, menus, dialogs, code highlighting, and layout tokens.
+- **HTML & PDF export** — Theme-aware CSS for HTML; PDF via local Chromium with the same pipeline.
+- **Themes** — Import JSONC theme packs for colors, typography, spacing, menus, code highlighting, and layout.
 - **Language packs** — Partial JSONC locale files with English fallback.
 - **Global hotkey** — Toggle app visibility from anywhere on supported platforms.
 
 ### Platform
 
-- **Native GPUI UI** — No Electron, Tauri, or WebView shell.
-- **Portable binary** — Single executable after build; runs on Windows, Linux, and macOS.
-- **macOS packaging** — `.app` bundle or PKG installer with optional CLI symlink setup.
+- **Native GPUI UI** — Pure Rust desktop rendering; no Electron, Tauri, or WebView shell.
+- **Portable binary** — Single executable after build; Windows, Linux, and macOS.
+- **macOS packaging** — `.app` bundle or PKG installer with optional CLI symlink.
 
 ## Quick Start
 
@@ -121,10 +133,11 @@ For development, testing, and packaging, see the [Development & Build guide](doc
 
 ## Roadmap
 
-Markman already covers most day-to-day Markdown authoring needs. Planned work includes:
+Markman already covers most day-to-day Markdown authoring and knowledge-work needs. Planned work includes:
 
 - [x] Performance for very large documents
-- [x] Workspace mode and outline navigation
+- [x] Workspace mode, outline navigation, and knowledge graph
+- [x] Sidebar AI chat with workspace context
 - [ ] Built-in image hosting
 - [ ] More complete IME behavior
 
@@ -145,14 +158,14 @@ Import via **Theme → Add Theme Config** or **Language → Add Language Config*
 
 | Layer | Responsibility |
 | --- | --- |
-| `editor` | Window state: view mode, save/close, undo, selection, source mapping, tree mutation, export, workspace, AI, and file drop. |
+| `editor` | Window state: view mode, save/close, undo, selection, source mapping, tree mutation, export, workspace, AI, knowledge graph, and file drop. |
 | `components::block` | Editable block runtime, GPUI input, rendering, block events, image/table/code runtime state. |
 | `components::markdown` | Markdown models and parse/serialize helpers for inline text, links, images, footnotes, tables, HTML, and code highlighting. |
 | `config` | App behavior and theme configuration. |
 | `export` | HTML and PDF export pipelines. |
 | `theme` | Visual tokens, built-in defaults, custom theme import, global theme manager. |
 | `i18n` | Built-in UI strings, language packs, locale matching, runtime language selection. |
-| `net` | HTTP client for remote image loading. |
+| `net` | HTTP client for AI streaming and remote image loading. |
 
 The editor uses a native block tree as its runtime model. Supported Markdown is converted to structured blocks on import and serialized back to canonical Markdown on save. Unstable syntax is preserved as raw source and remains visible and editable.
 
