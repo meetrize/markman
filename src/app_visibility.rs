@@ -1,29 +1,55 @@
 //! Global show/hide hotkey and application visibility toggling.
 
+use std::collections::{BTreeMap, HashSet};
+
 use gpui::*;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
-    hotkey::{Code, HotKey, Modifiers},
+    hotkey::HotKey,
 };
+
+use crate::components::{ShortcutCommand, resolved_shortcut_keys};
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 struct AppVisibilityState {
-    _hotkey_manager: GlobalHotKeyManager,
+    hotkey_manager: GlobalHotKeyManager,
+    registered_hotkeys: Vec<HotKey>,
+    registered_hotkey_ids: HashSet<u32>,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl Global for AppVisibilityState {}
 
-/// Register the global ⌘⇧⌥7 hotkey and dispatch visibility toggles immediately.
-pub(crate) fn init(cx: &mut App) {
+/// Register global visibility hotkeys from preferences and dispatch toggles immediately.
+pub(crate) fn init(cx: &mut App, keybindings: &BTreeMap<String, Vec<String>>) {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    register_visibility_hotkey(cx);
+    register_visibility_hotkeys(cx, keybindings);
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let _ = (cx, keybindings);
+}
+
+/// Re-register global visibility hotkeys after preferences change.
+pub(crate) fn update_hotkeys(cx: &mut App, keybindings: &BTreeMap<String, Vec<String>>) {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        if cx.try_global::<AppVisibilityState>().is_some() {
+            let state = cx.global_mut::<AppVisibilityState>();
+            let _ = state.hotkey_manager.unregister_all(&state.registered_hotkeys);
+            state.registered_hotkeys.clear();
+            state.registered_hotkey_ids.clear();
+            register_hotkeys_into_state(state, keybindings);
+            return;
+        }
+        register_visibility_hotkeys(cx, keybindings);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let _ = (cx, keybindings);
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-fn register_visibility_hotkey(cx: &mut App) {
+fn register_visibility_hotkeys(cx: &mut App, keybindings: &BTreeMap<String, Vec<String>>) {
     let manager = match GlobalHotKeyManager::new() {
         Ok(manager) => manager,
         Err(err) => {
@@ -32,19 +58,18 @@ fn register_visibility_hotkey(cx: &mut App) {
         }
     };
 
-    let hotkey = HotKey::new(
-        Some(Modifiers::SUPER | Modifiers::SHIFT | Modifiers::ALT),
-        Code::Digit7,
-    );
-    let hotkey_id = hotkey.id();
-    if let Err(err) = manager.register(hotkey) {
-        eprintln!("failed to register global visibility hotkey: {err}");
+    let mut state = AppVisibilityState {
+        hotkey_manager: manager,
+        registered_hotkeys: Vec::new(),
+        registered_hotkey_ids: HashSet::new(),
+    };
+    register_hotkeys_into_state(&mut state, keybindings);
+    if state.registered_hotkeys.is_empty() {
+        eprintln!("no valid global visibility hotkeys were registered");
         return;
     }
 
-    cx.set_global(AppVisibilityState {
-        _hotkey_manager: manager,
-    });
+    cx.set_global(state);
 
     cx.spawn(async move |cx| {
         loop {
@@ -56,13 +81,63 @@ fn register_visibility_hotkey(cx: &mut App) {
             let Some(event) = event else {
                 break;
             };
-            if event.id != hotkey_id || event.state != HotKeyState::Pressed {
+            if event.state != HotKeyState::Pressed {
+                continue;
+            }
+            let should_toggle = cx
+                .update(|cx| {
+                    cx.global::<AppVisibilityState>()
+                        .registered_hotkey_ids
+                        .contains(&event.id)
+                })
+                .unwrap_or(false);
+            if !should_toggle {
                 continue;
             }
             let _ = cx.update(toggle_application_visibility);
         }
     })
     .detach();
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn register_hotkeys_into_state(
+    state: &mut AppVisibilityState,
+    keybindings: &BTreeMap<String, Vec<String>>,
+) {
+    let keys = resolved_shortcut_keys(keybindings, ShortcutCommand::ToggleApplicationVisibility);
+    for key in keys {
+        let Some(hotkey) = keystroke_to_hotkey(&key) else {
+            eprintln!("failed to convert visibility hotkey '{key}'");
+            continue;
+        };
+        if let Err(err) = state.hotkey_manager.register(hotkey) {
+            eprintln!("failed to register global visibility hotkey '{key}': {err}");
+            continue;
+        }
+        state.registered_hotkey_ids.insert(hotkey.id());
+        state.registered_hotkeys.push(hotkey);
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn keystroke_to_hotkey(key: &str) -> Option<HotKey> {
+    let keystroke = Keystroke::parse(key).ok()?;
+    let mut parts = Vec::new();
+    if keystroke.modifiers.shift {
+        parts.push("shift");
+    }
+    if keystroke.modifiers.control {
+        parts.push("control");
+    }
+    if keystroke.modifiers.alt {
+        parts.push("alt");
+    }
+    if keystroke.modifiers.platform {
+        parts.push("super");
+    }
+    parts.push(keystroke.key.as_str());
+    parts.join("+").parse().ok()
 }
 
 /// Hide the application when it is visible, or show and focus it when hidden.

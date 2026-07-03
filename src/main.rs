@@ -337,7 +337,7 @@ fn main() {
             platform::init_document_gestures(cx);
             init_editor(cx, &preferences.keybindings);
             init_app_menu(cx);
-            app_visibility::init(cx);
+            app_visibility::init(cx, &preferences.keybindings);
 
             if input_paths.is_empty() {
                 platform::init_external_open_handling(cx, Some(preferences));

@@ -802,6 +802,7 @@ impl PreferencesWindow {
         }
         cx.clear_key_bindings();
         install_keybindings(cx, &preferences.keybindings);
+        crate::app_visibility::update_hotkeys(cx, &preferences.keybindings);
         crate::app_menu::install_menus(cx);
         cx.refresh_windows();
         window.activate_window();
@@ -1797,6 +1798,9 @@ impl PreferencesWindow {
             }
             ShortcutCommand::ToggleWorkspace => {
                 strings.preferences_shortcut_toggle_workspace.clone()
+            }
+            ShortcutCommand::ToggleApplicationVisibility => {
+                strings.preferences_shortcut_toggle_application_visibility.clone()
             }
             ShortcutCommand::FindNextInDocument => {
                 strings.preferences_shortcut_find_next_in_document.clone()

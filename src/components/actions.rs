@@ -168,6 +168,7 @@ pub(crate) enum ShortcutCommand {
     DismissTransientUi,
     ToggleViewMode,
     ToggleWorkspace,
+    ToggleApplicationVisibility,
     FindNextInDocument,
     FindPreviousInDocument,
     QuickFileOpen,
@@ -501,6 +502,13 @@ const SHORTCUT_DEFINITIONS: &[ShortcutDefinition] = &[
         context: None,
     },
     ShortcutDefinition {
+        command: ShortcutCommand::ToggleApplicationVisibility,
+        id: "toggle_application_visibility",
+        category: ShortcutCategory::Other,
+        default_keys: &["cmd-shift-alt-7", "ctrl-shift-alt-7"],
+        context: None,
+    },
+    ShortcutDefinition {
         command: ShortcutCommand::FindNextInDocument,
         id: "find_next_in_document",
         category: ShortcutCategory::Navigation,
@@ -713,6 +721,9 @@ fn key_binding_for(
         ShortcutCommand::DismissTransientUi => KeyBinding::new(key, DismissTransientUi, context),
         ShortcutCommand::ToggleViewMode => KeyBinding::new(key, ToggleViewMode, context),
         ShortcutCommand::ToggleWorkspace => KeyBinding::new(key, ToggleWorkspace, context),
+        ShortcutCommand::ToggleApplicationVisibility => {
+            KeyBinding::new(key, ToggleApplicationVisibility, context)
+        }
         ShortcutCommand::FindNextInDocument => KeyBinding::new(key, FindNextInDocument, context),
         ShortcutCommand::FindPreviousInDocument => {
             KeyBinding::new(key, FindPreviousInDocument, context)
@@ -778,6 +789,17 @@ mod tests {
         assert_eq!(
             resolved_shortcut_keys(&BTreeMap::new(), ShortcutCommand::ToggleWorkspace),
             vec!["ctrl-w".to_string()]
+        );
+    }
+
+    #[test]
+    fn toggle_application_visibility_has_default_shortcuts() {
+        assert_eq!(
+            resolved_shortcut_keys(
+                &BTreeMap::new(),
+                ShortcutCommand::ToggleApplicationVisibility
+            ),
+            vec!["cmd-shift-alt-7".to_string(), "ctrl-shift-alt-7".to_string()]
         );
     }
 
