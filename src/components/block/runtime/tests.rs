@@ -2989,3 +2989,36 @@ async fn inline_code_span_for_range_locates_unique_code_span(cx: &mut TestAppCon
         assert_eq!(span.range, 4..11);
     });
 }
+
+#[gpui::test]
+async fn cut_clamps_mid_cjk_byte_selection_in_rendered_preview(cx: &mut TestAppContext) {
+    let markdown = "文件列表中,点击表头的列,无法排序,现在有一个size列,和date modified列表,\n\n\ntest.md";
+    let cx = cx.add_empty_window();
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown(markdown)),
+        )
+    });
+
+    let he_byte = markdown
+        .char_indices()
+        .find(|(_, ch)| *ch == '和')
+        .map(|(byte, _)| byte + 1)
+        .expect("和");
+    assert!(!markdown.is_char_boundary(he_byte));
+
+    cx.update(|window, cx| {
+        block.update(cx, |block, block_cx| {
+            block.focus_handle.focus(window);
+            block.sync_inline_projection_for_focus(true);
+            block.selected_range = he_byte..markdown.len();
+            block.on_cut(&crate::components::Cut, window, block_cx);
+        });
+    });
+
+    block.read_with(cx, |block, _cx| {
+        assert!(!block.display_text().contains('和'));
+        assert!(block.selected_range.is_empty() || block.selected_range.start == block.selected_range.end);
+    });
+}

@@ -806,7 +806,7 @@ impl Block {
     }
 
     pub(crate) fn on_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if self.has_active_text_selection() {
             cx.write_to_clipboard(ClipboardItem::new_string(self.selected_display_text()));
         }
     }
@@ -901,11 +901,13 @@ impl Block {
     }
 
     pub(crate) fn on_cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
-            cx.write_to_clipboard(ClipboardItem::new_string(self.selected_display_text()));
-            self.replace_text_in_range(None, "", window, cx);
+        if !self.has_active_text_selection() {
+            return;
         }
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        cx.write_to_clipboard(ClipboardItem::new_string(self.selected_display_text()));
+        self.apply_active_text_selection_for_local_edit();
+        self.replace_text_in_range(None, "", window, cx);
     }
 
     pub(crate) fn on_paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {

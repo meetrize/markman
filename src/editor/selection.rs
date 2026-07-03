@@ -10,10 +10,17 @@ use super::{
     ai_context, CrossBlockDrag, CrossBlockSelection, CrossBlockSelectionEndpoint, Editor,
     SourceTargetMapping, UndoSelectionSnapshot, ViewMode,
 };
+use crate::components::markdown::inline::clamp_to_char_boundary;
 use crate::components::{
     Block, BlockKind, Copy, Cut, Delete, DeleteBack, UndoCaptureKind,
     serialize_table_markdown_lines,
 };
+
+fn clamp_source_byte_range(source: &str, range: Range<usize>) -> Range<usize> {
+    let start = clamp_to_char_boundary(source, range.start.min(source.len()));
+    let end = clamp_to_char_boundary(source, range.end.min(source.len()));
+    start.min(end)..start.max(end)
+}
 
 /// Cross-block selection with endpoints ordered by visible block position.
 #[derive(Clone, Copy)]
@@ -429,10 +436,12 @@ impl Editor {
         cx: &App,
     ) -> Option<CrossBlockSelectionEndpoint> {
         let entity = self.document.block_entity_by_id(endpoint.entity_id)?;
-        let len = entity.read(cx).visible_len();
+        let block = entity.read(cx);
+        let text = block.display_text();
+        let len = block.visible_len();
         Some(CrossBlockSelectionEndpoint {
             entity_id: endpoint.entity_id,
-            offset: endpoint.offset.min(len),
+            offset: clamp_to_char_boundary(text, endpoint.offset.min(len)),
         })
     }
 
@@ -901,7 +910,8 @@ impl Editor {
                     cx,
                 )
                 .unwrap_or(mapping.full_source_range.end);
-            return source[start.min(end)..start.max(end)].to_string();
+            let range = clamp_source_byte_range(source, start..end);
+            return source[range].to_string();
         }
 
         let block = entity.read(cx);
@@ -941,9 +951,9 @@ impl Editor {
 
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
         let mut source = self.current_document_source(cx);
-        let start = source_range.start.min(source.len());
-        let end = source_range.end.min(source.len());
-        source.replace_range(start..end, "");
+        let range = clamp_source_byte_range(&source, source_range);
+        source.replace_range(range.clone(), "");
+        let start = range.start;
         self.cross_block_selection = None;
         self.cross_block_drag = None;
 

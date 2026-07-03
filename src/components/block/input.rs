@@ -113,7 +113,7 @@ impl EntityInputHandler for Block {
             .as_ref()
             .map(|range| self.range_from_utf16(range))
             .or(self.marked_range.clone())
-            .unwrap_or(self.selected_range.clone());
+            .unwrap_or(self.active_text_selection_range());
         self.replace_text_in_visible_range(visible_range, new_text, None, false, cx);
     }
 
@@ -166,7 +166,7 @@ impl EntityInputHandler for Block {
             .as_ref()
             .map(|range| self.range_from_utf16(range))
             .or(self.marked_range.clone())
-            .unwrap_or(self.selected_range.clone());
+            .unwrap_or(self.active_text_selection_range());
         let selected_range_relative = new_selected_range_utf16
             .as_ref()
             .map(|range_utf16| Self::utf16_range_to_utf8_in(new_text, range_utf16))

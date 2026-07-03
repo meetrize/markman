@@ -430,8 +430,32 @@ impl Block {
         start..end.max(start)
     }
 
+    /// Selection range used for clipboard and text mutation actions.
+    pub(crate) fn active_text_selection_range(&self) -> Range<usize> {
+        self.editor_selection_range
+            .clone()
+            .filter(|range| !range.is_empty())
+            .unwrap_or_else(|| self.selected_range.clone())
+    }
+
+    pub(crate) fn has_active_text_selection(&self) -> bool {
+        !self.active_text_selection_range().is_empty()
+    }
+
+    pub(crate) fn apply_active_text_selection_for_local_edit(&mut self) {
+        if let Some(range) = self
+            .editor_selection_range
+            .clone()
+            .filter(|range| !range.is_empty())
+        {
+            self.selected_range = self.clamped_display_range(range);
+            self.editor_selection_range = None;
+            self.selection_reversed = false;
+        }
+    }
+
     pub(crate) fn selected_display_text(&self) -> String {
-        let range = self.clamped_display_range(self.selected_range.clone());
+        let range = self.clamped_display_range(self.active_text_selection_range());
         self.display_text()[range].to_string()
     }
 
@@ -552,8 +576,8 @@ impl Block {
 
         let raw_markdown = self.record.title.visible_text().to_string();
         let len = raw_markdown.len();
-        let start = self.selected_range.start.min(len);
-        let end = self.selected_range.end.min(len);
+        let start = clamp_to_char_boundary(&raw_markdown, self.selected_range.start.min(len));
+        let end = clamp_to_char_boundary(&raw_markdown, self.selected_range.end.min(len));
         let leading_raw = &raw_markdown[..start];
         let trailing_raw = &raw_markdown[end..];
         let leading = InlineTextTree::from_markdown_with_link_references(
@@ -882,8 +906,12 @@ impl Block {
         mark_inserted_text: bool,
         cx: &mut Context<Self>,
     ) {
-        let markdown_range = self.current_range_to_markdown_range(visible_range.clone());
-        let mut markdown = self.record.title.serialize_markdown();
+        let markdown = self.record.title.serialize_markdown();
+        let markdown_range = self.clamped_markdown_range(
+            self.current_range_to_markdown_range(visible_range.clone()),
+            &markdown,
+        );
+        let mut markdown = markdown;
         let replaced_text = markdown[markdown_range.clone()].to_string();
         markdown.replace_range(markdown_range.clone(), new_text);
 
@@ -1296,7 +1324,15 @@ impl Block {
     }
 
     pub(crate) fn current_to_clean_offset(&self, offset: usize) -> usize {
-        self.unexpand_offset(offset)
+        let clean = self.unexpand_offset(offset);
+        let text = self.record.title.visible_text();
+        clamp_to_char_boundary(&text, clean.min(text.len()))
+    }
+
+    fn clamped_markdown_range(&self, range: Range<usize>, markdown: &str) -> Range<usize> {
+        let start = clamp_to_char_boundary(markdown, range.start.min(markdown.len()));
+        let end = clamp_to_char_boundary(markdown, range.end.min(markdown.len()));
+        start..end.max(start)
     }
 
     pub(crate) fn projected_move_left_target(
