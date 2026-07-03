@@ -774,6 +774,8 @@ pub enum BlockEvent {
     RequestBlockUp,
     /// Move focus to the start of the next visible block.
     RequestBlockDown,
+    /// Select the entire document in rendered preview mode.
+    RequestSelectAllDocument,
     /// This block should be deleted (empty and backspace/delete pressed).
     RequestDelete,
     /// The user clicked this block; notify siblings so they re-render

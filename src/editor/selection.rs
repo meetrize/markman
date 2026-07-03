@@ -56,6 +56,54 @@ impl Editor {
         }
     }
 
+    pub(super) fn select_all_document(&mut self, cx: &mut Context<Self>) {
+        if self.view_mode != ViewMode::Rendered {
+            return;
+        }
+
+        let visible_blocks = self.document.visible_blocks().to_vec();
+        let Some(first) = visible_blocks.first() else {
+            return;
+        };
+        let Some(last) = visible_blocks.last() else {
+            return;
+        };
+
+        let first_entity = first.entity.clone();
+        let last_entity = last.entity.clone();
+        let last_len = last_entity.read(cx).visible_len();
+
+        for visible in &visible_blocks {
+            visible.entity.update(cx, |block, cx| {
+                block.selected_range = 0..0;
+                block.selection_reversed = false;
+                block.marked_range = None;
+                block.vertical_motion_x = None;
+                cx.notify();
+            });
+        }
+
+        self.cross_block_selection = Some(CrossBlockSelection {
+            anchor: CrossBlockSelectionEndpoint {
+                entity_id: first_entity.entity_id(),
+                offset: 0,
+            },
+            focus: CrossBlockSelectionEndpoint {
+                entity_id: last_entity.entity_id(),
+                offset: last_len,
+            },
+        });
+        self.cross_block_drag = None;
+        self.sync_cross_block_selection_visuals(cx);
+        self.focus_block(last_entity.entity_id());
+        last_entity.update(cx, |block, cx| {
+            block.selected_range = last_len..last_len;
+            block.cursor_blink_epoch = Instant::now();
+            cx.notify();
+        });
+        cx.notify();
+    }
+
     fn begin_cross_block_drag_at_point(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let had_selection = self.cross_block_selection.take().is_some();
         let changed_visuals = self.clear_cross_block_selection_visuals(cx);

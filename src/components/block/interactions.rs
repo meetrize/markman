@@ -783,6 +783,11 @@ impl Block {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.edit_mode == super::runtime::EditMode::RenderedRich {
+            cx.emit(BlockEvent::RequestSelectAllDocument);
+            cx.stop_propagation();
+            return;
+        }
         self.move_to(0, cx);
         self.select_to(self.visible_len(), cx);
     }

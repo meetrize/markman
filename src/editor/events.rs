@@ -854,6 +854,11 @@ impl Editor {
             return;
         }
 
+        if matches!(event, BlockEvent::RequestSelectAllDocument) {
+            self.select_all_document(cx);
+            return;
+        }
+
         if let Some(binding) = self.table_cell_binding(block.entity_id()) {
             self.on_table_cell_event(binding, event, cx);
             return;
@@ -1158,6 +1163,7 @@ impl Editor {
                 cx.notify();
             }
             BlockEvent::RequestReplaceCrossBlockSelection { .. } => {}
+            BlockEvent::RequestSelectAllDocument => {}
             BlockEvent::RequestIndent => {
                 if current_visible_index == 0 {
                     return;
