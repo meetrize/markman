@@ -215,12 +215,41 @@ fn render_mermaid_raw(source: &str) -> anyhow::Result<String> {
     if !looks_like_supported_mermaid_source(source) {
         return Err(anyhow::anyhow!("unsupported Mermaid diagram"));
     }
-    let svg = mermaid_rs_renderer::render(source).map_err(|err| anyhow::anyhow!("{err}"))?;
+    let mut options = mermaid_rs_renderer::RenderOptions::modern();
+    options.theme.font_family = mermaid_theme_font_family().to_string();
+    let svg =
+        mermaid_rs_renderer::render_with_options(source, options).map_err(|err| anyhow::anyhow!("{err}"))?;
     if svg.contains("class=\"error-text\"") || svg.contains("Syntax error in text") {
         return Err(anyhow::anyhow!("Mermaid syntax error"));
     }
     Ok(patch_mermaid_svg_for_display(&svg))
 }
+
+/// Font stack passed to the Mermaid renderer for layout measurement.
+fn mermaid_theme_font_family() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "PingFang SC, Helvetica Neue, ui-sans-serif, system-ui, -apple-system, sans-serif",
+        "windows" => {
+            "Microsoft YaHei UI, Segoe UI, ui-sans-serif, system-ui, sans-serif"
+        }
+        _ => "Noto Sans CJK SC, Noto Sans, sans-serif",
+    }
+}
+
+/// Normalized `font-family` value written into cached Mermaid SVG.
+fn mermaid_svg_font_stack() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "PingFang SC,Helvetica Neue,ui-sans-serif,system-ui,-apple-system,sans-serif",
+        "windows" => "Microsoft YaHei UI,Segoe UI,ui-sans-serif,system-ui,sans-serif",
+        _ => "Noto Sans CJK SC,Noto Sans,sans-serif",
+    }
+}
+
+const MERMAID_LEGACY_SVG_FONT_STACK: &str =
+    "Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif";
+
+const MERMAID_SVG_EMOJI_FONT_FALLBACKS: &str =
+    ",'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji'";
 
 /// Rewrites Mermaid SVG so GPUI's resvg-based rasterizer can draw emoji and CJK labels.
 fn patch_mermaid_svg_for_display(svg: &str) -> String {
@@ -229,22 +258,31 @@ fn patch_mermaid_svg_for_display(svg: &str) -> String {
     patched
 }
 
-const MERMAID_SVG_FONT_STACK: &str =
-    "Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif";
-
-const MERMAID_SVG_FONT_FALLBACKS: &str =
-    ",'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC'";
+fn mermaid_display_font_stack() -> String {
+    format!(
+        "{}{MERMAID_SVG_EMOJI_FONT_FALLBACKS}",
+        mermaid_svg_font_stack()
+    )
+}
 
 fn inject_mermaid_svg_font_fallbacks(svg: &str) -> String {
-    let expanded = format!("{MERMAID_SVG_FONT_STACK}{MERMAID_SVG_FONT_FALLBACKS}");
-    svg.replace(
-        &format!("font-family=\"{MERMAID_SVG_FONT_STACK}\""),
-        &format!("font-family=\"{expanded}\""),
-    )
-    .replace(
-        &format!("font-family:{MERMAID_SVG_FONT_STACK}"),
-        &format!("font-family:{expanded}"),
-    )
+    let display_stack = mermaid_display_font_stack();
+    let replacements = [
+        MERMAID_LEGACY_SVG_FONT_STACK,
+        mermaid_svg_font_stack(),
+    ];
+    let mut out = svg.to_string();
+    for stack in replacements {
+        out = out.replace(
+            &format!("font-family=\"{stack}\""),
+            &format!("font-family=\"{display_stack}\""),
+        );
+        out = out.replace(
+            &format!("font-family:{stack}"),
+            &format!("font-family:{display_stack}"),
+        );
+    }
+    out
 }
 
 /// Replaces emoji that resvg cannot rasterize with plain-text symbols from the main font.
@@ -257,7 +295,7 @@ fn substitute_unrenderable_emoji_in_svg(svg: &str) -> String {
 /// Stable cache key for Mermaid content.
 pub(crate) fn mermaid_cache_key(source: &str) -> String {
     let mut hasher = DefaultHasher::new();
-    "mermaid-svg-v2".hash(&mut hasher);
+    "mermaid-svg-v3".hash(&mut hasher);
     source.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
@@ -766,10 +804,14 @@ mod tests {
 
     #[test]
     fn patches_mermaid_svg_font_stack_for_resvg() {
-        let input = r#"<svg><style>svg{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;}</style><text font-family="Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif">A</text></svg>"#;
-        let patched = inject_mermaid_svg_font_fallbacks(input);
+        let input = format!(
+            r#"<svg><style>svg{{font-family:{legacy};}}</style><text font-family="{legacy}">A</text></svg>"#,
+            legacy = MERMAID_LEGACY_SVG_FONT_STACK
+        );
+        let patched = inject_mermaid_svg_font_fallbacks(&input);
+        assert!(patched.contains(mermaid_svg_font_stack()));
         assert!(patched.contains("'Apple Color Emoji'"));
-        assert!(patched.contains("'PingFang SC'"));
+        assert!(!patched.contains(MERMAID_LEGACY_SVG_FONT_STACK));
         assert!(!patched.contains("font-family=\"\""));
     }
 
