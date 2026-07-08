@@ -75,6 +75,7 @@ mod update;
 mod window_state;
 mod workspace;
 mod workspace_file_menu;
+mod workspace_watcher;
 
 use self::controllers::{SearchController, WorkspaceController};
 

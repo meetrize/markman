@@ -27,6 +27,8 @@ pub(in crate::editor) struct WorkspaceController {
     pub(in crate::editor) name_dialog: Option<WorkspaceNameDialogState>,
     pub(in crate::editor) resize_drag: Option<WorkspaceResizeDragSession>,
     pub(in crate::editor) pending_search_jump: Option<PendingWorkspaceSearchJump>,
+    pub(in crate::editor) file_watch_task: Option<Task<()>>,
+    pub(in crate::editor) file_watch_root: Option<std::path::PathBuf>,
 }
 
 impl WorkspaceController {
@@ -40,6 +42,8 @@ impl WorkspaceController {
             name_dialog: None,
             resize_drag: None,
             pending_search_jump: None,
+            file_watch_task: None,
+            file_watch_root: None,
         }
     }
 }

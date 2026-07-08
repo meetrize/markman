@@ -200,6 +200,7 @@ impl Editor {
     pub(crate) fn toggle_workspace_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.workspace.state.is_open {
             self.workspace.state.is_open = false;
+            self.sync_workspace_file_watcher(cx);
         } else {
             self.close_menu_bar(cx);
             self.dismiss_contextual_overlays(cx);
@@ -267,6 +268,7 @@ impl Editor {
 
     fn sync_workspace_models(&mut self, cx: &mut Context<Self>) {
         self.sync_workspace_file_tree(cx);
+        self.sync_workspace_file_watcher(cx);
         self.sync_workspace_outline(cx);
         self.sync_workspace_tag_index(cx);
         self.sync_workspace_tag_index_for_active_file(cx);
@@ -475,6 +477,10 @@ impl Editor {
 
     pub(super) fn workspace_files_panel_active(&self) -> bool {
         matches!(self.workspace.state.active_tab, WorkspaceTab::Files) && !self.workspace.state.search_open
+    }
+
+    pub(super) fn workspace_panel_is_open(&self) -> bool {
+        self.workspace.state.is_open
     }
 
     pub(super) fn workspace_tree_root_path(&self) -> Option<PathBuf> {
