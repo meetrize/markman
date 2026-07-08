@@ -25,6 +25,7 @@ impl Block {
             raw,
             available_width,
             available_height,
+            window.scale_factor(),
             theme,
             ElementId::Name(format!("mermaid-scroll-{}", self.record.id).into()),
         )
@@ -35,6 +36,7 @@ impl Block {
         raw_fence: &str,
         available_width: f32,
         available_height: f32,
+        device_scale: f32,
         theme: &Theme,
         scroll_id: ElementId,
     ) -> AnyElement {
@@ -52,7 +54,12 @@ impl Block {
                 .into_any_element();
         };
 
-        match render_mermaid_svg_for_display(&source, available_width, available_height) {
+        match render_mermaid_svg_for_display(
+            &source,
+            available_width,
+            available_height,
+            device_scale,
+        ) {
             Ok(rendered) => {
                 let display_width = rendered.display_width.max(1.0);
                 let display_height = rendered.display_height.max(1.0);

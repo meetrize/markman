@@ -33,16 +33,16 @@ pub(crate) struct MermaidSource {
     pub(crate) info: String,
 }
 
-/// Result of rendering a Mermaid diagram into an SVG cache file.
+/// Result of rendering a Mermaid diagram into a cached display image.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct MermaidSvgRender {
-    /// Path to the SVG file consumed by GPUI's image element.
+    /// Path to the PNG file consumed by GPUI's image element.
     pub(crate) path: PathBuf,
-    /// SVG document content, used by export paths.
+    /// Scaled SVG document content, used by export paths.
     pub(crate) svg: String,
-    /// Concrete display width encoded into the cached SVG.
+    /// Logical display width in pixels.
     pub(crate) display_width: f32,
-    /// Concrete display height encoded into the cached SVG.
+    /// Logical display height in pixels.
     pub(crate) display_height: f32,
     /// Scale applied to the renderer's intrinsic SVG size for editor display.
     pub(crate) display_scale: f32,
@@ -119,19 +119,27 @@ pub(crate) fn parse_mermaid_fence_source(raw: &str) -> Option<MermaidSource> {
     Some(MermaidSource { raw, body, info })
 }
 
-/// Render Mermaid source into a cached SVG sized for editor display.
+/// Render Mermaid source into a cached PNG sized for editor display.
 pub(crate) fn render_mermaid_svg_for_display(
     source: &MermaidSource,
     available_width: f32,
     available_height: f32,
+    device_scale: f32,
 ) -> anyhow::Result<MermaidSvgRender> {
-    render_mermaid_svg_for_display_with(source, available_width, available_height, render_mermaid_raw)
+    render_mermaid_svg_for_display_with(
+        source,
+        available_width,
+        available_height,
+        device_scale,
+        render_mermaid_raw,
+    )
 }
 
 fn render_mermaid_svg_for_display_with(
     source: &MermaidSource,
     available_width: f32,
     available_height: f32,
+    device_scale: f32,
     renderer: MermaidRenderer,
 ) -> anyhow::Result<MermaidSvgRender> {
     let base_key = mermaid_cache_key(&source.body);
@@ -146,16 +154,10 @@ fn render_mermaid_svg_for_display_with(
         available_height,
     );
 
-    let display_key = mermaid_display_cache_key(&source.body, scale);
+    let display_key = mermaid_display_cache_key(&source.body, scale, device_scale);
     let display_path = mermaid_display_cache_path(&display_key)?;
     if display_path.exists() {
-        let svg = fs::read_to_string(&display_path).with_context(|| {
-            format!(
-                "failed to read Mermaid display SVG cache '{}'",
-                display_path.display()
-            )
-        })?;
-        let size = mermaid_svg_display_size(&svg)?;
+        let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
         return Ok(MermaidSvgRender {
             path: display_path,
             svg,
@@ -166,9 +168,10 @@ fn render_mermaid_svg_for_display_with(
     }
 
     let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
-    fs::write(&display_path, &svg).with_context(|| {
+    let png = rasterize_mermaid_svg_for_display(&svg, size, device_scale)?;
+    fs::write(&display_path, &png).with_context(|| {
         format!(
-            "failed to write Mermaid display SVG cache '{}'",
+            "failed to write Mermaid display PNG cache '{}'",
             display_path.display()
         )
     })?;
@@ -217,6 +220,7 @@ fn render_mermaid_raw(source: &str) -> anyhow::Result<String> {
     }
     let mut options = mermaid_rs_renderer::RenderOptions::modern();
     options.theme.font_family = mermaid_theme_font_family().to_string();
+    options.theme.font_size = 16.0;
     let svg =
         mermaid_rs_renderer::render_with_options(source, options).map_err(|err| anyhow::anyhow!("{err}"))?;
     if svg.contains("class=\"error-text\"") || svg.contains("Syntax error in text") {
@@ -225,33 +229,26 @@ fn render_mermaid_raw(source: &str) -> anyhow::Result<String> {
     Ok(patch_mermaid_svg_for_display(&svg))
 }
 
+/// Embedded Source Han Sans SC (思源黑体) for consistent Mermaid label rendering.
+const SOURCE_HAN_SANS_SC_REGULAR: &[u8] =
+    include_bytes!("../../../assets/fonts/SourceHanSansSC-Regular.otf");
+
 /// Font stack passed to the Mermaid renderer for layout measurement.
 fn mermaid_theme_font_family() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "PingFang SC, Helvetica Neue, ui-sans-serif, system-ui, -apple-system, sans-serif",
-        "windows" => {
-            "Microsoft YaHei UI, Segoe UI, ui-sans-serif, system-ui, sans-serif"
-        }
-        _ => "Noto Sans CJK SC, Noto Sans, sans-serif",
-    }
+    "Source Han Sans SC, sans-serif"
 }
 
-/// Normalized `font-family` value written into cached Mermaid SVG.
-fn mermaid_svg_font_stack() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "PingFang SC,Helvetica Neue,ui-sans-serif,system-ui,-apple-system,sans-serif",
-        "windows" => "Microsoft YaHei UI,Segoe UI,ui-sans-serif,system-ui,sans-serif",
-        _ => "Noto Sans CJK SC,Noto Sans,sans-serif",
-    }
+/// Primary font resolved by our resvg font database.
+fn mermaid_primary_font_name() -> &'static str {
+    "Source Han Sans SC"
 }
 
-const MERMAID_LEGACY_SVG_FONT_STACK: &str =
-    "Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif";
+/// Quoted `font-family` stack embedded into SVG before rasterization.
+fn mermaid_resvg_font_stack() -> &'static str {
+    "'Source Han Sans SC',sans-serif"
+}
 
-const MERMAID_SVG_EMOJI_FONT_FALLBACKS: &str =
-    ",'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji'";
-
-/// Rewrites Mermaid SVG so GPUI's resvg-based rasterizer can draw emoji and CJK labels.
+/// Rewrites Mermaid SVG so resvg can resolve CJK labels reliably.
 fn patch_mermaid_svg_for_display(svg: &str) -> String {
     let mut patched = inject_mermaid_svg_font_fallbacks(svg);
     patched = substitute_unrenderable_emoji_in_svg(&patched);
@@ -259,52 +256,165 @@ fn patch_mermaid_svg_for_display(svg: &str) -> String {
 }
 
 fn mermaid_display_font_stack() -> String {
-    format!(
-        "{}{MERMAID_SVG_EMOJI_FONT_FALLBACKS}",
-        mermaid_svg_font_stack()
-    )
+    mermaid_resvg_font_stack().to_string()
 }
 
 fn inject_mermaid_svg_font_fallbacks(svg: &str) -> String {
     let display_stack = mermaid_display_font_stack();
-    let replacements = [
-        MERMAID_LEGACY_SVG_FONT_STACK,
-        mermaid_svg_font_stack(),
-    ];
-    let mut out = svg.to_string();
-    for stack in replacements {
-        out = out.replace(
-            &format!("font-family=\"{stack}\""),
-            &format!("font-family=\"{display_stack}\""),
-        );
-        out = out.replace(
-            &format!("font-family:{stack}"),
-            &format!("font-family:{display_stack}"),
-        );
+    let mut out = rewrite_all_svg_font_families(svg, &display_stack);
+    if !out.contains("svg,text,tspan{font-family:") {
+        if let Some(end) = out.find('>') {
+            let style = format!("<style>svg,text,tspan{{font-family:{display_stack};}}</style>");
+            out.insert_str(end + 1, &style);
+        }
     }
     out
 }
 
+fn rewrite_all_svg_font_families(svg: &str, stack: &str) -> String {
+    const MARKER: &str = "font-family";
+    let mut out = String::with_capacity(svg.len() + stack.len() + 32);
+    let mut index = 0;
+    while let Some(rel) = svg[index..].find(MARKER) {
+        let marker_start = index + rel;
+        out.push_str(&svg[index..marker_start]);
+        out.push_str(MARKER);
+        let mut cursor = marker_start + MARKER.len();
+        while cursor < svg.len() && svg.as_bytes()[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor >= svg.len() {
+            index = cursor;
+            break;
+        }
+        let delim = svg.as_bytes()[cursor];
+        if delim != b'=' && delim != b':' {
+            index = cursor;
+            continue;
+        }
+        cursor += 1;
+        while cursor < svg.len() && svg.as_bytes()[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor >= svg.len() {
+            index = cursor;
+            break;
+        }
+
+        let quote = svg.as_bytes()[cursor];
+        if quote == b'"' || quote == b'\'' {
+            cursor += 1;
+            while cursor < svg.len() && svg.as_bytes()[cursor] != quote {
+                cursor += 1;
+            }
+            if cursor < svg.len() {
+                cursor += 1;
+            }
+            if delim == b'=' {
+                out.push_str("=\"");
+                out.push_str(stack);
+                out.push('"');
+            } else {
+                out.push(':');
+                out.push_str(stack);
+            }
+        } else {
+            while cursor < svg.len() {
+                let byte = svg.as_bytes()[cursor];
+                if byte == b';' || byte == b'}' {
+                    break;
+                }
+                cursor += 1;
+            }
+            if delim == b':' {
+                out.push(':');
+                out.push_str(stack);
+            } else {
+                out.push_str("=\"");
+                out.push_str(stack);
+                out.push('"');
+            }
+        }
+        index = cursor;
+    }
+    out.push_str(&svg[index..]);
+    out
+}
+
+fn configure_mermaid_fontdb() -> usvg::fontdb::Database {
+    let mut db = usvg::fontdb::Database::new();
+    db.load_system_fonts();
+    db.load_font_data(SOURCE_HAN_SANS_SC_REGULAR.to_vec());
+    db.set_sans_serif_family(mermaid_primary_font_name());
+    db
+}
+
+fn rasterize_mermaid_svg_for_display(
+    svg: &str,
+    size: MermaidSvgSize,
+    device_scale: f32,
+) -> anyhow::Result<Vec<u8>> {
+    let db = std::sync::Arc::new(configure_mermaid_fontdb());
+    let options = usvg::Options {
+        fontdb: db,
+        font_family: mermaid_primary_font_name().to_string(),
+        ..Default::default()
+    };
+    let tree = usvg::Tree::from_str(svg, &options)
+        .map_err(|err| anyhow!("failed to parse Mermaid SVG for rasterization: {err}"))?;
+    let intrinsic = tree.size();
+    let raster_scale = device_scale.clamp(1.0, 3.0);
+    let target_width = (size.width * raster_scale).ceil().max(1.0) as u32;
+    let target_height = (size.height * raster_scale).ceil().max(1.0) as u32;
+    let scale = (target_width as f32 / intrinsic.width())
+        .min(target_height as f32 / intrinsic.height())
+        .max(0.1);
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(target_width, target_height)
+        .ok_or_else(|| anyhow!("failed to allocate Mermaid raster buffer"))?;
+    pixmap.fill(resvg::tiny_skia::Color::WHITE);
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    pixmap
+        .encode_png()
+        .map_err(|err| anyhow!("failed to encode Mermaid PNG: {err}"))
+}
+
+#[cfg(test)]
+fn png_dimensions(png: &[u8]) -> Option<(f32, f32)> {
+    const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if png.len() < 24 || png.get(0..8)? != PNG_SIGNATURE {
+        return None;
+    }
+    let width = u32::from_be_bytes(png.get(16..20)?.try_into().ok()?);
+    let height = u32::from_be_bytes(png.get(20..24)?.try_into().ok()?);
+    Some((width as f32, height as f32))
+}
+
 /// Replaces emoji that resvg cannot rasterize with plain-text symbols from the main font.
 fn substitute_unrenderable_emoji_in_svg(svg: &str) -> String {
-    svg.replace('✅', "☑")
-        .replace('❌', "☒")
-        .replace('⏳', "…")
+    svg.replace('✅', " ✓")
+        .replace('☑', " ✓")
+        .replace('❌', " ✗")
+        .replace('⏳', " …")
 }
 
 /// Stable cache key for Mermaid content.
 pub(crate) fn mermaid_cache_key(source: &str) -> String {
     let mut hasher = DefaultHasher::new();
-    "mermaid-svg-v3".hash(&mut hasher);
+    "mermaid-svg-v8".hash(&mut hasher);
     source.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
-/// Stable cache key for editor display SVG content and scale.
-pub(crate) fn mermaid_display_cache_key(source: &str, scale: f32) -> String {
+/// Stable cache key for editor display PNG content, layout scale, and device scale.
+pub(crate) fn mermaid_display_cache_key(source: &str, scale: f32, device_scale: f32) -> String {
     let mut hasher = DefaultHasher::new();
     mermaid_cache_key(source).hash(&mut hasher);
     scale.max(0.1).to_bits().hash(&mut hasher);
+    device_scale.clamp(1.0, 3.0).to_bits().hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
@@ -376,18 +486,6 @@ pub(crate) fn scale_mermaid_svg_for_display(
 fn mermaid_svg_intrinsic_size(svg: &str) -> anyhow::Result<MermaidSvgSize> {
     let (start, end) = svg_root_tag_range(svg)?;
     svg_root_size(&svg[start..end])
-}
-
-fn mermaid_svg_display_size(svg: &str) -> anyhow::Result<MermaidSvgSize> {
-    let (start, end) = svg_root_tag_range(svg)?;
-    let root_tag = &svg[start..end];
-    let width = svg_root_attr(root_tag, "width")
-        .and_then(|value| parse_svg_length(&value))
-        .ok_or_else(|| anyhow!("Mermaid SVG root did not expose a usable display width"))?;
-    let height = svg_root_attr(root_tag, "height")
-        .and_then(|value| parse_svg_length(&value))
-        .ok_or_else(|| anyhow!("Mermaid SVG root did not expose a usable display height"))?;
-    Ok(MermaidSvgSize { width, height })
 }
 
 fn svg_root_tag_range(svg: &str) -> anyhow::Result<(usize, usize)> {
@@ -583,11 +681,12 @@ fn mermaid_cache_file_path(kind: &str, key: &str) -> anyhow::Result<PathBuf> {
     let dir = mermaid_cache_dir()?.join(kind);
     fs::create_dir_all(&dir).with_context(|| {
         format!(
-            "failed to create Mermaid {kind} SVG cache '{}'",
+            "failed to create Mermaid {kind} cache '{}'",
             dir.display()
         )
     })?;
-    Ok(dir.join(format!("{key}.svg")))
+    let extension = if kind == "display" { "png" } else { "svg" };
+    Ok(dir.join(format!("{key}.{extension}")))
 }
 
 fn looks_like_supported_mermaid_source(source: &str) -> bool {
@@ -753,8 +852,8 @@ mod tests {
     fn display_cache_key_changes_with_scale() {
         let source = "flowchart LR\nA --> B";
         assert_ne!(
-            mermaid_display_cache_key(source, 1.0),
-            mermaid_display_cache_key(source, 2.0)
+            mermaid_display_cache_key(source, 1.0, 2.0),
+            mermaid_display_cache_key(source, 2.0, 2.0)
         );
     }
 
@@ -804,21 +903,38 @@ mod tests {
 
     #[test]
     fn patches_mermaid_svg_font_stack_for_resvg() {
-        let input = format!(
-            r#"<svg><style>svg{{font-family:{legacy};}}</style><text font-family="{legacy}">A</text></svg>"#,
-            legacy = MERMAID_LEGACY_SVG_FONT_STACK
-        );
-        let patched = inject_mermaid_svg_font_fallbacks(&input);
-        assert!(patched.contains(mermaid_svg_font_stack()));
-        assert!(patched.contains("'Apple Color Emoji'"));
-        assert!(!patched.contains(MERMAID_LEGACY_SVG_FONT_STACK));
+        let input = r#"<svg><style>svg{font-family:Inter,ui-sans-serif,sans-serif;}</style><text font-family="Inter,ui-sans-serif,sans-serif">阶段1</text></svg>"#;
+        let patched = inject_mermaid_svg_font_fallbacks(input);
+        assert!(patched.contains(mermaid_primary_font_name()));
+        assert!(!patched.contains("Inter,ui-sans-serif"));
         assert!(!patched.contains("font-family=\"\""));
+    }
+
+    #[test]
+    fn mermaid_fontdb_loads_embedded_source_han_sans() {
+        let db = configure_mermaid_fontdb();
+        let query = usvg::fontdb::Query {
+            families: &[usvg::fontdb::Family::Name(mermaid_primary_font_name())],
+            weight: usvg::fontdb::Weight::NORMAL,
+            stretch: usvg::fontdb::Stretch::Normal,
+            style: usvg::fontdb::Style::Normal,
+        };
+        let id = db.query(&query).expect("Source Han Sans SC should resolve");
+        let face = db.face(id).expect("font face");
+        assert!(
+            face
+                .families
+                .iter()
+                .any(|(name, _)| name.contains("Source Han Sans") || name.contains("思源黑体")),
+            "expected embedded Source Han Sans SC, got {:?}",
+            face.families
+        );
     }
 
     #[test]
     fn substitutes_unrenderable_emoji_in_svg_text() {
         let patched = substitute_unrenderable_emoji_in_svg("阶段1 ✅");
-        assert_eq!(patched, "阶段1 ☑");
+        assert_eq!(patched, "阶段1  ✓");
     }
 
     #[test]
@@ -831,8 +947,8 @@ mod tests {
             &svg[..svg.len().min(500)]
         );
         assert!(
-            svg.contains('☑'),
-            "expected ballot-box checkmark substitute in patched SVG output"
+            svg.contains('✓'),
+            "expected checkmark substitute in patched SVG output"
         );
         assert!(
             !svg.contains('✅'),
@@ -848,44 +964,24 @@ mod tests {
     fn resvg_renders_mermaid_node_with_checkmark_emoji() {
         let svg = render_mermaid_to_svg("flowchart TD\nA[阶段1: 调研立项 ✅] --> B[市场调研]")
             .expect("svg");
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        let options = usvg::Options {
-            fontdb: std::sync::Arc::new(db),
-            ..Default::default()
-        };
-        let tree = usvg::Tree::from_str(&svg, &options).expect("parse svg");
-        let size = tree.size();
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(
-            size.width().ceil() as u32,
-            size.height().ceil() as u32,
-        )
-        .expect("pixmap");
-        resvg::render(
-            &tree,
-            resvg::tiny_skia::Transform::default(),
-            &mut pixmap.as_mut(),
-        );
-        // Sample a pixel inside the top node label region; tofu renders as near-black boxes.
-        let sample_x = (size.width() * 0.45) as u32;
-        let sample_y = 35u32;
-        let pixel = pixmap.pixel(sample_x, sample_y).expect("pixel");
-        assert!(
-            pixel.alpha() > 0,
-            "expected rendered label ink at ({sample_x}, {sample_y}), alpha={}",
-            pixel.alpha()
-        );
+        let intrinsic = mermaid_svg_intrinsic_size(&svg).expect("intrinsic size");
+        let png = rasterize_mermaid_svg_for_display(&svg, intrinsic, 2.0).expect("png");
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let (width, height) = png_dimensions(&png).expect("png dimensions");
+        assert!(width > intrinsic.width);
+        assert!(height > intrinsic.height);
     }
 
     #[test]
     fn display_render_uses_scaled_intrinsic_size() {
         let source =
             parse_mermaid_fence_source("```mermaid\nflowchart LR\nA --> B\n```").expect("source");
-        let rendered = render_mermaid_svg_for_display(&source, 720.0, 960.0).expect("display svg");
+        let rendered = render_mermaid_svg_for_display(&source, 720.0, 960.0, 2.0).expect("display png");
 
         assert!(rendered.display_width > 1.0);
         assert!(rendered.display_height > 1.0);
         assert!(rendered.display_scale >= 1.0);
+        assert_eq!(rendered.path.extension().and_then(|ext| ext.to_str()), Some("png"));
         assert!(
             rendered
                 .svg
@@ -896,7 +992,8 @@ mod tests {
                 .svg
                 .contains(&format!("height=\"{:.3}\"", rendered.display_height))
         );
-        assert!(rendered.path.exists());
+        let png = fs::read(&rendered.path).expect("read display png");
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
     }
 
     #[test]
@@ -912,12 +1009,12 @@ mod tests {
         remove_cache_file(&base_path);
 
         reset_renderer_calls(&source.body);
-        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
             .expect("first render");
         assert_eq!(renderer_calls(&source.body), 1);
         let display_path = first.path.clone();
 
-        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
             .expect("cached render");
         assert_eq!(renderer_calls(&source.body), 1);
         assert_eq!(second.path, display_path);
@@ -946,12 +1043,12 @@ mod tests {
         remove_cache_file(&base_path);
 
         reset_renderer_calls(&source.body);
-        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
             .expect("first render");
         assert_eq!(renderer_calls(&source.body), 1);
         remove_cache_file(&first.path);
 
-        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, test_renderer)
+        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
             .expect("display rebuild");
         assert_eq!(renderer_calls(&source.body), 1);
         assert!(second.path.exists());
@@ -970,11 +1067,11 @@ mod tests {
         remove_cache_file(&base_path);
 
         reset_renderer_calls(&source.body);
-        let narrow = render_mermaid_svg_for_display_with(&source, 240.0, 320.0, test_renderer)
+        let narrow = render_mermaid_svg_for_display_with(&source, 240.0, 320.0, 2.0, test_renderer)
             .expect("narrow render");
         assert_eq!(renderer_calls(&source.body), 1);
 
-        let wide = render_mermaid_svg_for_display_with(&source, 900.0, 1200.0, test_renderer)
+        let wide = render_mermaid_svg_for_display_with(&source, 900.0, 1200.0, 2.0, test_renderer)
             .expect("wide render");
         assert_eq!(renderer_calls(&source.body), 1);
         assert!(wide.path.exists());

@@ -216,6 +216,7 @@ impl Block {
                         &raw_fence,
                         available_width,
                         available_height,
+                        window.scale_factor(),
                         theme,
                         ElementId::Name(format!("mermaid-col-{column_key}-{index}").into()),
                     ),
