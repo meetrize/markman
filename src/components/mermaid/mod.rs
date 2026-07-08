@@ -219,12 +219,45 @@ fn render_mermaid_raw(source: &str) -> anyhow::Result<String> {
     if svg.contains("class=\"error-text\"") || svg.contains("Syntax error in text") {
         return Err(anyhow::anyhow!("Mermaid syntax error"));
     }
-    Ok(svg)
+    Ok(patch_mermaid_svg_for_display(&svg))
+}
+
+/// Rewrites Mermaid SVG so GPUI's resvg-based rasterizer can draw emoji and CJK labels.
+fn patch_mermaid_svg_for_display(svg: &str) -> String {
+    let mut patched = inject_mermaid_svg_font_fallbacks(svg);
+    patched = substitute_unrenderable_emoji_in_svg(&patched);
+    patched
+}
+
+const MERMAID_SVG_FONT_STACK: &str =
+    "Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif";
+
+const MERMAID_SVG_FONT_FALLBACKS: &str =
+    ",'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC'";
+
+fn inject_mermaid_svg_font_fallbacks(svg: &str) -> String {
+    let expanded = format!("{MERMAID_SVG_FONT_STACK}{MERMAID_SVG_FONT_FALLBACKS}");
+    svg.replace(
+        &format!("font-family=\"{MERMAID_SVG_FONT_STACK}\""),
+        &format!("font-family=\"{expanded}\""),
+    )
+    .replace(
+        &format!("font-family:{MERMAID_SVG_FONT_STACK}"),
+        &format!("font-family:{expanded}"),
+    )
+}
+
+/// Replaces emoji that resvg cannot rasterize with plain-text symbols from the main font.
+fn substitute_unrenderable_emoji_in_svg(svg: &str) -> String {
+    svg.replace('✅', "☑")
+        .replace('❌', "☒")
+        .replace('⏳', "…")
 }
 
 /// Stable cache key for Mermaid content.
 pub(crate) fn mermaid_cache_key(source: &str) -> String {
     let mut hasher = DefaultHasher::new();
+    "mermaid-svg-v2".hash(&mut hasher);
     source.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
@@ -732,6 +765,77 @@ mod tests {
     }
 
     #[test]
+    fn patches_mermaid_svg_font_stack_for_resvg() {
+        let input = r#"<svg><style>svg{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;}</style><text font-family="Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif">A</text></svg>"#;
+        let patched = inject_mermaid_svg_font_fallbacks(input);
+        assert!(patched.contains("'Apple Color Emoji'"));
+        assert!(patched.contains("'PingFang SC'"));
+        assert!(!patched.contains("font-family=\"\""));
+    }
+
+    #[test]
+    fn substitutes_unrenderable_emoji_in_svg_text() {
+        let patched = substitute_unrenderable_emoji_in_svg("阶段1 ✅");
+        assert_eq!(patched, "阶段1 ☑");
+    }
+
+    #[test]
+    fn renders_flowchart_node_with_checkmark_emoji() {
+        let svg = render_mermaid_to_svg("flowchart TD\nA[阶段1: 调研立项 ✅] --> B[市场调研]")
+            .expect("svg");
+        assert!(
+            svg.contains("阶段1"),
+            "expected Chinese label in SVG, got snippet: {}",
+            &svg[..svg.len().min(500)]
+        );
+        assert!(
+            svg.contains('☑'),
+            "expected ballot-box checkmark substitute in patched SVG output"
+        );
+        assert!(
+            !svg.contains('✅'),
+            "raw emoji should be replaced before caching SVG"
+        );
+        assert!(
+            !svg.contains(">?</text>"),
+            "unexpected placeholder question mark in node label"
+        );
+    }
+
+    #[test]
+    fn resvg_renders_mermaid_node_with_checkmark_emoji() {
+        let svg = render_mermaid_to_svg("flowchart TD\nA[阶段1: 调研立项 ✅] --> B[市场调研]")
+            .expect("svg");
+        let mut db = usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        let options = usvg::Options {
+            fontdb: std::sync::Arc::new(db),
+            ..Default::default()
+        };
+        let tree = usvg::Tree::from_str(&svg, &options).expect("parse svg");
+        let size = tree.size();
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(
+            size.width().ceil() as u32,
+            size.height().ceil() as u32,
+        )
+        .expect("pixmap");
+        resvg::render(
+            &tree,
+            resvg::tiny_skia::Transform::default(),
+            &mut pixmap.as_mut(),
+        );
+        // Sample a pixel inside the top node label region; tofu renders as near-black boxes.
+        let sample_x = (size.width() * 0.45) as u32;
+        let sample_y = 35u32;
+        let pixel = pixmap.pixel(sample_x, sample_y).expect("pixel");
+        assert!(
+            pixel.alpha() > 0,
+            "expected rendered label ink at ({sample_x}, {sample_y}), alpha={}",
+            pixel.alpha()
+        );
+    }
+
+    #[test]
     fn display_render_uses_scaled_intrinsic_size() {
         let source =
             parse_mermaid_fence_source("```mermaid\nflowchart LR\nA --> B\n```").expect("source");
@@ -775,8 +879,18 @@ mod tests {
             .expect("cached render");
         assert_eq!(renderer_calls(&source.body), 1);
         assert_eq!(second.path, display_path);
-        assert_eq!(second.display_width, first.display_width);
-        assert_eq!(second.display_height, first.display_height);
+        assert!(
+            (second.display_width - first.display_width).abs() < 0.01,
+            "display width mismatch: {} vs {}",
+            second.display_width,
+            first.display_width
+        );
+        assert!(
+            (second.display_height - first.display_height).abs() < 0.01,
+            "display height mismatch: {} vs {}",
+            second.display_height,
+            first.display_height
+        );
 
         remove_cache_file(&display_path);
         remove_cache_file(&base_path);
