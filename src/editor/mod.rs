@@ -141,6 +141,8 @@ pub struct Editor {
     pending_drop_replace_path: Option<PathBuf>,
     show_drop_replace_dialog: bool,
     pending_drop_replace_after_save: bool,
+    pending_non_markdown_open: Option<PathBuf>,
+    show_non_markdown_open_dialog: bool,
     drop_replace_restore_focus: Option<EntityId>,
     /// Optional informational dialog shown from the Help menu.
     info_dialog: Option<InfoDialogKind>,
@@ -376,6 +378,8 @@ impl Editor {
             pending_drop_replace_path: None,
             show_drop_replace_dialog: false,
             pending_drop_replace_after_save: false,
+            pending_non_markdown_open: None,
+            show_non_markdown_open_dialog: false,
             drop_replace_restore_focus: None,
             info_dialog: None,
             update_check_in_progress: false,

@@ -1261,6 +1261,126 @@ impl Editor {
             )
     }
 
+    pub(super) fn render_non_markdown_open_overlay(
+        &self,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let strings = cx.global::<I18nManager>().strings();
+        let filename = self
+            .pending_non_markdown_open
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let message = strings
+            .workspace_open_non_markdown_message_template
+            .replace("{filename}", &filename);
+
+        div()
+            .id("non-markdown-open-overlay")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .occlude()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(c.dialog_backdrop)
+            .child(
+                div()
+                    .w_full()
+                    .px(px(d.editor_padding))
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("non-markdown-open-dialog")
+                            .w(px(d.dialog_width))
+                            .max_w(relative(1.0))
+                            .flex()
+                            .flex_col()
+                            .gap(px(d.dialog_gap))
+                            .p(px(d.dialog_padding))
+                            .bg(c.dialog_surface)
+                            .border(px(d.dialog_border_width))
+                            .border_color(c.dialog_border)
+                            .rounded(px(d.dialog_radius))
+                            .shadow_lg()
+                            .child(
+                                div()
+                                    .text_size(px(t.dialog_title_size))
+                                    .font_weight(t.dialog_title_weight.to_font_weight())
+                                    .text_color(c.dialog_title)
+                                    .child(strings.workspace_open_non_markdown_title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(t.dialog_body_size))
+                                    .font_weight(t.dialog_body_weight.to_font_weight())
+                                    .line_height(rems(t.text_line_height))
+                                    .text_color(c.dialog_body)
+                                    .child(message),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .justify_end()
+                                    .gap(px(d.dialog_button_gap))
+                                    .child(
+                                        div()
+                                            .id("cancel-non-markdown-open-dialog")
+                                            .h(px(d.dialog_button_height))
+                                            .px(px(d.dialog_button_padding_x))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px((d.dialog_radius - 4.0).max(0.0)))
+                                            .border(px(d.dialog_border_width))
+                                            .border_color(c.dialog_border)
+                                            .bg(c.dialog_secondary_button_bg)
+                                            .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                            .active(|this| this.opacity(0.92))
+                                            .cursor_pointer()
+                                            .text_size(px(t.dialog_button_size))
+                                            .font_weight(t.dialog_button_weight.to_font_weight())
+                                            .text_color(c.dialog_secondary_button_text)
+                                            .child(strings.workspace_open_non_markdown_cancel.clone())
+                                            .on_click(
+                                                cx.listener(Self::on_cancel_non_markdown_open_dialog),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("confirm-non-markdown-open-dialog")
+                                            .h(px(d.dialog_button_height))
+                                            .px(px(d.dialog_button_padding_x))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px((d.dialog_radius - 4.0).max(0.0)))
+                                            .bg(c.dialog_primary_button_bg)
+                                            .hover(|this| this.bg(c.dialog_primary_button_hover))
+                                            .active(|this| this.opacity(0.92))
+                                            .cursor_pointer()
+                                            .text_size(px(t.dialog_button_size))
+                                            .font_weight(t.dialog_button_weight.to_font_weight())
+                                            .text_color(c.dialog_primary_button_text)
+                                            .child(strings.workspace_open_non_markdown_confirm.clone())
+                                            .on_click(
+                                                cx.listener(Self::on_confirm_non_markdown_open_dialog),
+                                            ),
+                                    ),
+                            ),
+                    ),
+            )
+    }
+
     fn info_dialog_title<'a>(&self, strings: &'a I18nStrings, kind: InfoDialogKind) -> &'a str {
         match kind {
             InfoDialogKind::CheckForUpdates => &strings.help_check_updates_title,

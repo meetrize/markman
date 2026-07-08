@@ -38,6 +38,7 @@ use crate::theme::Theme;
 
 const FOLDER_ICON: &str = "icon/workspace/folder.svg";
 const MARKDOWN_ICON: &str = "icon/workspace/markdown.svg";
+const FILE_ICON: &str = "icon/workspace/files.svg";
 const CHEVRON_RIGHT_ICON: &str = "icon/workspace/chevron-right.svg";
 const CHEVRON_DOWN_ICON: &str = "icon/workspace/chevron-down.svg";
 const FILES_TAB_ICON: &str = "icon/workspace/files.svg";
@@ -109,7 +110,7 @@ pub(super) enum WorkspaceFileSort {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum WorkspaceTreeKind {
     Directory(PathBuf),
-    MarkdownFile(PathBuf),
+    File(PathBuf),
     Heading { line: usize, level: u8 },
 }
 
@@ -1378,6 +1379,53 @@ impl Editor {
     }
 
     pub(super) fn open_workspace_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if Self::is_markdown_file_path(&path) {
+            self.open_workspace_search_result(path, None, String::new(), None, None, window, cx);
+            return;
+        }
+        self.request_non_markdown_workspace_file_open(path, window, cx);
+    }
+
+    fn request_non_markdown_workspace_file_open(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_menu_bar(cx);
+        self.hide_info_dialog(cx);
+        self.dismiss_contextual_overlays(cx);
+        self.pending_non_markdown_open = Some(path);
+        if !self.show_non_markdown_open_dialog {
+            self.show_non_markdown_open_dialog = true;
+            window.blur();
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn on_cancel_non_markdown_open_dialog(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_non_markdown_open = None;
+        self.show_non_markdown_open_dialog = false;
+        cx.notify();
+    }
+
+    pub(crate) fn on_confirm_non_markdown_open_dialog(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = self.pending_non_markdown_open.take() else {
+            self.show_non_markdown_open_dialog = false;
+            cx.notify();
+            return;
+        };
+        self.show_non_markdown_open_dialog = false;
         self.open_workspace_search_result(path, None, String::new(), None, None, window, cx);
     }
 
@@ -2656,7 +2704,7 @@ impl Editor {
             _ => false,
         };
         let selected = match (&self.workspace.state.selected, &node.kind) {
-            (Some(WorkspaceSelection::File(selected)), WorkspaceTreeKind::MarkdownFile(path)) => {
+            (Some(WorkspaceSelection::File(selected)), WorkspaceTreeKind::File(path)) => {
                 selected == path
             }
             (Some(WorkspaceSelection::Outline(selected)), _) => selected == &node.id,
@@ -2664,7 +2712,7 @@ impl Editor {
         };
         let supports_file_menu = matches!(
             &node.kind,
-            WorkspaceTreeKind::Directory(_) | WorkspaceTreeKind::MarkdownFile(_)
+            WorkspaceTreeKind::Directory(_) | WorkspaceTreeKind::File(_)
         );
         let node_id = node.id.clone();
         let click_editor = editor.clone();
@@ -2706,8 +2754,12 @@ impl Editor {
 
         let icon = match &node.kind {
             WorkspaceTreeKind::Directory(_) => Some((FOLDER_ICON, Hsla::from(rgba(0xe8c078ff)))),
-            WorkspaceTreeKind::MarkdownFile(_) => {
-                Some((MARKDOWN_ICON, Hsla::from(rgba(0x60a5faff))))
+            WorkspaceTreeKind::File(path) => {
+                if is_markdown_file(path) {
+                    Some((MARKDOWN_ICON, Hsla::from(rgba(0x60a5faff))))
+                } else {
+                    Some((FILE_ICON, Hsla::from(rgba(0x94a3b8ff))))
+                }
             }
             WorkspaceTreeKind::Heading { .. } => None,
         };
@@ -2774,7 +2826,7 @@ impl Editor {
                 let click_kind = click_kind.clone();
                 let _ = click_editor.update(cx, |editor, cx| match click_kind {
                     WorkspaceTreeKind::Directory(_) => editor.toggle_workspace_node(&node_id, cx),
-                    WorkspaceTreeKind::MarkdownFile(path) => {
+                    WorkspaceTreeKind::File(path) => {
                         editor.open_workspace_file(path, window, cx);
                     }
                     WorkspaceTreeKind::Heading { line, .. } => {
@@ -2791,10 +2843,8 @@ impl Editor {
                                     path,
                                 ))
                             }
-                            WorkspaceTreeKind::MarkdownFile(path) => Some(
-                                super::workspace_file_menu::WorkspaceFileMenuTarget::MarkdownFile(
-                                    path,
-                                ),
+                            WorkspaceTreeKind::File(path) => Some(
+                                super::workspace_file_menu::WorkspaceFileMenuTarget::File(path),
                             ),
                             WorkspaceTreeKind::Heading { .. } => None,
                         };
@@ -3105,7 +3155,7 @@ fn scan_workspace_dir(path: &Path, sort: WorkspaceFileSort) -> Result<WorkspaceT
 fn scan_workspace_dir_inner(
     path: &Path,
     sort: WorkspaceFileSort,
-    is_root: bool,
+    _is_root: bool,
 ) -> Option<WorkspaceTreeNode> {
     let entries = fs::read_dir(path).ok()?;
     let mut children = Vec::new();
@@ -3128,18 +3178,14 @@ fn scan_workspace_dir_inner(
             if let Some(child) = scan_workspace_dir_inner(&entry_path, sort, false) {
                 children.push(child);
             }
-        } else if file_type.is_file() && is_markdown_file(&entry_path) {
+        } else if file_type.is_file() {
             children.push(WorkspaceTreeNode {
                 id: file_node_id(&entry_path),
                 label: file_label(&entry_path),
-                kind: WorkspaceTreeKind::MarkdownFile(entry_path),
+                kind: WorkspaceTreeKind::File(entry_path),
                 children: Vec::new(),
             });
         }
-    }
-
-    if children.is_empty() && !is_root {
-        return None;
     }
 
     sort_workspace_children(&mut children, sort);
@@ -3186,7 +3232,7 @@ fn compare_workspace_nodes(
 
 fn workspace_node_path(node: &WorkspaceTreeNode) -> Option<&Path> {
     match &node.kind {
-        WorkspaceTreeKind::Directory(path) | WorkspaceTreeKind::MarkdownFile(path) => {
+        WorkspaceTreeKind::Directory(path) | WorkspaceTreeKind::File(path) => {
             Some(path.as_path())
         }
         WorkspaceTreeKind::Heading { .. } => None,
@@ -3200,7 +3246,7 @@ fn path_modified_time(path: &Path) -> Option<std::time::SystemTime> {
 fn workspace_directory_file_count(node: &WorkspaceTreeNode) -> usize {
     node.children
         .iter()
-        .filter(|child| matches!(child.kind, WorkspaceTreeKind::MarkdownFile(_)))
+        .filter(|child| matches!(child.kind, WorkspaceTreeKind::File(_)))
         .count()
 }
 
@@ -4075,12 +4121,13 @@ mod tests {
     }
 
     #[test]
-    fn workspace_scan_keeps_dirs_and_md_files_only() {
+    fn workspace_scan_keeps_dirs_and_all_files() {
         let root =
             std::env::temp_dir().join(format!("velotype-workspace-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("nested")).expect("create dirs");
+        fs::create_dir_all(root.join("empty")).expect("create empty dir");
         fs::write(root.join("a.md"), "a").expect("write md");
-        fs::write(root.join("a.txt"), "ignored").expect("write txt");
+        fs::write(root.join("a.txt"), "text").expect("write txt");
         fs::write(root.join("nested").join("b.md"), "b").expect("write nested md");
 
         let tree = scan_workspace_dir(&root, WorkspaceFileSort::default()).expect("scan tree");
@@ -4089,15 +4136,12 @@ mod tests {
             .iter()
             .map(|node| node.label.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(labels, vec!["nested", "a.md"]);
+        assert_eq!(labels, vec!["empty", "nested", "a.md", "a.txt"]);
         assert!(matches!(
             tree.children[0].kind,
             WorkspaceTreeKind::Directory(_)
         ));
-        assert!(matches!(
-            tree.children[1].kind,
-            WorkspaceTreeKind::MarkdownFile(_)
-        ));
+        assert!(matches!(tree.children[2].kind, WorkspaceTreeKind::File(_)));
 
         let _ = fs::remove_dir_all(root);
     }

@@ -23,7 +23,7 @@ use crate::theme::Theme;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum WorkspaceFileMenuTarget {
     Directory(PathBuf),
-    MarkdownFile(PathBuf),
+    File(PathBuf),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -553,13 +553,13 @@ impl Editor {
     fn workspace_file_menu_parent_dir(&self) -> Option<PathBuf> {
         match self.workspace_file_menu_target()? {
             WorkspaceFileMenuTarget::Directory(path) => Some(path),
-            WorkspaceFileMenuTarget::MarkdownFile(path) => path.parent().map(Path::to_path_buf),
+            WorkspaceFileMenuTarget::File(path) => path.parent().map(Path::to_path_buf),
         }
     }
 
     fn workspace_file_menu_target_path(&self) -> Option<PathBuf> {
         match self.workspace_file_menu_target()? {
-            WorkspaceFileMenuTarget::Directory(path) | WorkspaceFileMenuTarget::MarkdownFile(path) => {
+            WorkspaceFileMenuTarget::Directory(path) | WorkspaceFileMenuTarget::File(path) => {
                 Some(path)
             }
         }

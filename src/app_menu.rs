@@ -19,6 +19,7 @@ use crate::components::{
     ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
 use crate::app_visibility;
+use crate::platform::prompt_for_paths_with_clipboard_navigation;
 use crate::config::{
     apply_configured_language, apply_configured_theme, import_language_config_and_select,
     import_theme_config_and_select, open_preferences_window, open_preferences_window_to_ai,
@@ -1160,7 +1161,7 @@ fn prompt_and_open_folder_with_error_window(cx: &mut App, error_window: Option<A
         .strings()
         .open_folder_prompt
         .clone();
-    let prompt = cx.prompt_for_paths(PathPromptOptions {
+    let prompt = prompt_for_paths_with_clipboard_navigation(cx, PathPromptOptions {
         files: false,
         directories: true,
         multiple: false,
@@ -1198,7 +1199,7 @@ fn prompt_and_open_files_with_error_window(cx: &mut App, error_window: Option<An
         .strings()
         .open_markdown_files_prompt
         .clone();
-    let prompt = cx.prompt_for_paths(PathPromptOptions {
+    let prompt = prompt_for_paths_with_clipboard_navigation(cx, PathPromptOptions {
         files: true,
         directories: false,
         multiple: true,

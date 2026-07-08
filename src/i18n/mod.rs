@@ -369,6 +369,14 @@ pub struct I18nStrings {
     pub workspace_files_sort_by_name: String,
     /// Workspace file-tree sort menu: sort by modified time.
     pub workspace_files_sort_by_time: String,
+    /// Title of the dialog shown before opening a non-Markdown workspace file.
+    pub workspace_open_non_markdown_title: String,
+    /// Body template for opening a non-Markdown workspace file. Supports `{filename}`.
+    pub workspace_open_non_markdown_message_template: String,
+    /// Label for confirming open of a non-Markdown workspace file.
+    pub workspace_open_non_markdown_confirm: String,
+    /// Label for cancelling open of a non-Markdown workspace file.
+    pub workspace_open_non_markdown_cancel: String,
     /// Title of the link-opening confirmation prompt.
     pub open_link_title: String,
     /// Title when opening a file outside the current workspace root.
@@ -785,6 +793,10 @@ struct I18nStringsDe {
     workspace_files_sort: Option<String>,
     workspace_files_sort_by_name: Option<String>,
     workspace_files_sort_by_time: Option<String>,
+    workspace_open_non_markdown_title: Option<String>,
+    workspace_open_non_markdown_message_template: Option<String>,
+    workspace_open_non_markdown_confirm: Option<String>,
+    workspace_open_non_markdown_cancel: Option<String>,
     open_link_title: Option<String>,
     open_link_outside_workspace_title: Option<String>,
     open_link_open: Option<String>,
@@ -1096,6 +1108,10 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_files_sort",
     "workspace_files_sort_by_name",
     "workspace_files_sort_by_time",
+    "workspace_open_non_markdown_title",
+    "workspace_open_non_markdown_message_template",
+    "workspace_open_non_markdown_confirm",
+    "workspace_open_non_markdown_cancel",
     "open_link_title",
     "open_link_outside_workspace_title",
     "open_link_open",
@@ -1773,6 +1789,18 @@ impl I18nStringsDe {
             workspace_files_sort_by_time: self
                 .workspace_files_sort_by_time
                 .unwrap_or(defaults.workspace_files_sort_by_time),
+            workspace_open_non_markdown_title: self
+                .workspace_open_non_markdown_title
+                .unwrap_or(defaults.workspace_open_non_markdown_title),
+            workspace_open_non_markdown_message_template: self
+                .workspace_open_non_markdown_message_template
+                .unwrap_or(defaults.workspace_open_non_markdown_message_template),
+            workspace_open_non_markdown_confirm: self
+                .workspace_open_non_markdown_confirm
+                .unwrap_or(defaults.workspace_open_non_markdown_confirm),
+            workspace_open_non_markdown_cancel: self
+                .workspace_open_non_markdown_cancel
+                .unwrap_or(defaults.workspace_open_non_markdown_cancel),
             open_link_title: self.open_link_title.unwrap_or(defaults.open_link_title),
             open_link_outside_workspace_title: self
                 .open_link_outside_workspace_title
@@ -2299,6 +2327,12 @@ impl I18nStrings {
             workspace_files_sort: "排序".into(),
             workspace_files_sort_by_name: "按文件名排序".into(),
             workspace_files_sort_by_time: "按修改时间排序".into(),
+            workspace_open_non_markdown_title: "打开非 Markdown 文件？".into(),
+            workspace_open_non_markdown_message_template:
+                "「{filename}」不是 Markdown 文件。将以 Markdown 形式打开，格式可能无法正确显示。是否继续？"
+                    .into(),
+            workspace_open_non_markdown_confirm: "继续打开".into(),
+            workspace_open_non_markdown_cancel: "取消".into(),
             open_link_title: "打开链接？".into(),
             open_link_outside_workspace_title: "打开工作区外的文件？".into(),
             open_link_open: "打开".into(),
@@ -2631,6 +2665,12 @@ impl I18nStrings {
             workspace_files_sort: "Sort".into(),
             workspace_files_sort_by_name: "Sort by Name".into(),
             workspace_files_sort_by_time: "Sort by Modified Time".into(),
+            workspace_open_non_markdown_title: "Open Non-Markdown File?".into(),
+            workspace_open_non_markdown_message_template:
+                "\"{filename}\" is not a Markdown file. It will be opened as Markdown and may not render correctly. Continue?"
+                    .into(),
+            workspace_open_non_markdown_confirm: "Open Anyway".into(),
+            workspace_open_non_markdown_cancel: "Cancel".into(),
             open_link_title: "Open link?".into(),
             open_link_outside_workspace_title: "Open file outside workspace?".into(),
             open_link_open: "Open".into(),

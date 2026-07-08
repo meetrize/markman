@@ -174,6 +174,7 @@ impl Editor {
     fn modal_exclusive_group_active(&self) -> bool {
         self.info_dialog.is_some()
             || self.code_run_dialog.is_some()
+            || self.show_non_markdown_open_dialog
             || self.show_drop_replace_dialog
             || self.show_unsaved_changes_dialog
             || self.quick_file_open.open
@@ -190,6 +191,9 @@ impl Editor {
         }
         if let Some(dialog) = self.render_code_run_dialog_overlay(theme, cx) {
             return Some(dialog.into_any_element());
+        }
+        if self.show_non_markdown_open_dialog {
+            return Some(self.render_non_markdown_open_overlay(theme, cx).into_any_element());
         }
         if self.show_drop_replace_dialog {
             return Some(self.render_drop_replace_overlay(theme, cx).into_any_element());
