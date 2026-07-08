@@ -38,8 +38,17 @@ pub(crate) struct PathPickerRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PathPickerEntry {
     Parent,
-    Directory(PathBuf, String),
-    File(PathBuf, String),
+    Directory {
+        path: PathBuf,
+        label: String,
+        depth: usize,
+        expanded: bool,
+    },
+    File {
+        path: PathBuf,
+        label: String,
+        depth: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -54,6 +63,7 @@ pub(super) struct PathPickerState {
     selection: usize,
     scroll_top: usize,
     selected_paths: HashSet<PathBuf>,
+    expanded_dirs: HashSet<PathBuf>,
     pub(super) input: SingleLineFieldState,
     pub(super) focus_handle: FocusHandle,
     completion: Option<oneshot::Sender<Result<Option<Vec<PathBuf>>>>>,
@@ -72,6 +82,7 @@ impl PathPickerState {
             selection: 0,
             scroll_top: 0,
             selected_paths: HashSet::new(),
+            expanded_dirs: HashSet::new(),
             input: SingleLineFieldState::new(),
             focus_handle: cx.focus_handle(),
             completion: None,
@@ -113,6 +124,7 @@ impl Editor {
         state.title = title;
         state.current_dir = current_dir;
         state.selected_paths.clear();
+        state.expanded_dirs.clear();
         state.selection = 0;
         state.scroll_top = 0;
         state.completion = Some(completion);
@@ -152,6 +164,7 @@ impl Editor {
         self.path_picker.open = false;
         self.path_picker.entries.clear();
         self.path_picker.selected_paths.clear();
+        self.path_picker.expanded_dirs.clear();
         self.path_picker.input.clear();
         self.path_picker.completion = None;
         self.pending_focus = self.first_focusable_entity_id(cx);
@@ -194,13 +207,15 @@ impl Editor {
         let state = &mut self.path_picker;
         state.current_dir = dir;
         state.selected_paths.clear();
+        state.expanded_dirs.clear();
         refresh_path_picker_entries(state);
 
         if let Some(name) = select_name.or(file_name) {
             if let Some(index) = state.entries.iter().position(|entry| {
                 matches!(
                     entry,
-                    PathPickerEntry::File(path, label) if label == &name || path.file_name().is_some_and(|n| n.to_string_lossy() == name)
+                    PathPickerEntry::File { path, label, .. }
+                        if label == &name || path.file_name().is_some_and(|n| n.to_string_lossy() == name)
                 )
             }) {
                 state.selection = index;
@@ -247,19 +262,16 @@ impl Editor {
                 if let Some(parent) = self.path_picker.current_dir.parent() {
                     let parent = parent.to_path_buf();
                     self.path_picker.current_dir = parent;
+                    self.path_picker.expanded_dirs.clear();
                     refresh_path_picker_entries(&mut self.path_picker);
                     self.path_picker.selection = 0;
                     self.path_picker_sync_input_to_current_dir(cx);
                 }
             }
-            PathPickerEntry::Directory(path, _) => {
-                if self.path_picker.directories && !self.path_picker.files {
-                    self.confirm_path_picker(vec![path], cx);
-                } else {
-                    self.path_picker_navigate_to(&path, None, cx);
-                }
+            PathPickerEntry::Directory { path, .. } => {
+                self.path_picker_toggle_directory(&path, cx);
             }
-            PathPickerEntry::File(path, _) => {
+            PathPickerEntry::File { path, .. } => {
                 if self.path_picker.multiple {
                     if self.path_picker.selected_paths.contains(&path) {
                         self.path_picker.selected_paths.remove(&path);
@@ -287,7 +299,7 @@ impl Editor {
                 .entries
                 .get(self.path_picker.selection)
                 .and_then(|entry| match entry {
-                    PathPickerEntry::Directory(path, _) => Some(path.clone()),
+                    PathPickerEntry::Directory { path, .. } => Some(path.clone()),
                     _ => None,
                 })
                 .unwrap_or_else(|| self.path_picker.current_dir.clone());
@@ -297,8 +309,26 @@ impl Editor {
 
         let entry = self.path_picker.entries.get(self.path_picker.selection).cloned();
         match entry {
-            Some(PathPickerEntry::File(path, _)) => self.confirm_path_picker(vec![path], cx),
+            Some(PathPickerEntry::File { path, .. }) => self.confirm_path_picker(vec![path], cx),
             _ => {}
+        }
+    }
+
+    fn path_picker_toggle_directory(&mut self, path: &Path, cx: &mut Context<Self>) {
+        if self.path_picker.expanded_dirs.contains(path) {
+            self.path_picker.expanded_dirs.remove(path);
+        } else {
+            self.path_picker.expanded_dirs.insert(path.to_path_buf());
+        }
+        refresh_path_picker_entries(&mut self.path_picker);
+        cx.notify();
+    }
+
+    fn path_picker_select_row(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.path_picker.entries.len() {
+            self.path_picker.selection = index;
+            path_picker_scroll_to_selection(&mut self.path_picker);
+            cx.notify();
         }
     }
 
@@ -306,7 +336,7 @@ impl Editor {
         let Some(entry) = self.path_picker.entries.get(index).cloned() else {
             return;
         };
-        if let PathPickerEntry::File(path, _) = entry {
+        if let PathPickerEntry::File { path, .. } = entry {
             if self.path_picker.selected_paths.contains(&path) {
                 self.path_picker.selected_paths.remove(&path);
             } else {
@@ -462,6 +492,28 @@ impl Editor {
                     cx.stop_propagation();
                 }
             }
+            "right" => {
+                if let Some(PathPickerEntry::Directory {
+                    path,
+                    expanded: false,
+                    ..
+                }) = self.path_picker.entries.get(self.path_picker.selection).cloned()
+                {
+                    self.path_picker_toggle_directory(&path, cx);
+                }
+                cx.stop_propagation();
+            }
+            "left" => {
+                if let Some(PathPickerEntry::Directory {
+                    path,
+                    expanded: true,
+                    ..
+                }) = self.path_picker.entries.get(self.path_picker.selection).cloned()
+                {
+                    self.path_picker_toggle_directory(&path, cx);
+                }
+                cx.stop_propagation();
+            }
             "up" => {
                 self.path_picker_apply_arrow(-1, cx);
                 cx.stop_propagation();
@@ -507,16 +559,142 @@ impl Editor {
         for index in state.scroll_top..end {
             let entry = &state.entries[index];
             let is_selected = index == state.selection;
-            let (label, icon, path_for_action) = match entry {
-                PathPickerEntry::Parent => (
-                    strings.path_picker_parent.clone(),
-                    PARENT_ICON.to_string(),
-                    None,
-                ),
-                PathPickerEntry::Directory(path, name) => {
-                    (name.clone(), FOLDER_ICON.to_string(), Some(path.clone()))
+
+            let open_editor = editor.clone();
+            let entry_index = index;
+
+            match entry {
+                PathPickerEntry::Parent => {
+                    let row_bg = if is_selected {
+                        c.dialog_secondary_button_hover
+                    } else {
+                        Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.0,
+                            a: 0.0,
+                        }
+                    };
+                    rows.push(
+                        div()
+                            .w_full()
+                            .h(px(row_height))
+                            .pl(px(8.0))
+                            .pr(px(8.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .rounded(px(6.0))
+                            .bg(row_bg)
+                            .cursor_pointer()
+                            .on_mouse_down(MouseButton::Left, {
+                                let open_editor = open_editor.clone();
+                                move |_, _, cx| {
+                                    let _ = open_editor.update(cx, |editor, cx| {
+                                        editor.path_picker_select_row(entry_index, cx);
+                                        editor.path_picker_activate_selection(cx);
+                                    });
+                                    cx.stop_propagation();
+                                }
+                            })
+                            .child(
+                                svg()
+                                    .path(PARENT_ICON)
+                                    .size(px(14.0))
+                                    .flex_shrink_0()
+                                    .text_color(c.dialog_body),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .truncate()
+                                    .text_size(px(t.text_size))
+                                    .text_color(c.dialog_body)
+                                    .child(strings.path_picker_parent.clone()),
+                            )
+                            .into_any_element(),
+                    );
                 }
-                PathPickerEntry::File(path, name) => {
+                PathPickerEntry::Directory {
+                    path,
+                    label,
+                    depth,
+                    expanded,
+                } => {
+                    let chevron = if *expanded { "▾" } else { "▸" };
+                    let row_bg = if is_selected {
+                        c.dialog_secondary_button_hover
+                    } else {
+                        Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.0,
+                            a: 0.0,
+                        }
+                    };
+                    let path = path.clone();
+                    let navigate_path = path.clone();
+                    let files_mode = state.files;
+                    rows.push(
+                        div()
+                            .w_full()
+                            .h(px(row_height))
+                            .pl(px(8.0 + *depth as f32 * 12.0))
+                            .pr(px(8.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .rounded(px(6.0))
+                            .bg(row_bg)
+                            .cursor_pointer()
+                            .on_mouse_down(MouseButton::Left, {
+                                let open_editor = open_editor.clone();
+                                let path = path.clone();
+                                move |event, _, cx| {
+                                    let _ = open_editor.update(cx, |editor, cx| {
+                                        editor.path_picker_select_row(entry_index, cx);
+                                        if event.click_count >= 2 && files_mode {
+                                            editor.path_picker_navigate_to(&navigate_path, None, cx);
+                                        } else {
+                                            editor.path_picker_toggle_directory(&path, cx);
+                                        }
+                                    });
+                                    cx.stop_propagation();
+                                }
+                            })
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .flex_shrink_0()
+                                    .text_size(px(t.text_size * 0.82))
+                                    .text_color(c.dialog_muted)
+                                    .child(chevron),
+                            )
+                            .child(
+                                svg()
+                                    .path(FOLDER_ICON)
+                                    .size(px(14.0))
+                                    .flex_shrink_0()
+                                    .text_color(c.dialog_body),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .truncate()
+                                    .text_size(px(t.text_size))
+                                    .text_color(c.dialog_body)
+                                    .child(label.clone()),
+                            )
+                            .into_any_element(),
+                    );
+                }
+                PathPickerEntry::File {
+                    path,
+                    label,
+                    depth,
+                } => {
                     let icon = if path
                         .extension()
                         .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("md"))
@@ -525,96 +703,80 @@ impl Editor {
                     } else {
                         FILE_ICON
                     };
-                    (name.clone(), icon.to_string(), Some(path.clone()))
-                }
-            };
-
-            let is_checked = path_for_action
-                .as_ref()
-                .is_some_and(|path| state.selected_paths.contains(path));
-            let row_bg = if is_selected {
-                c.dialog_secondary_button_hover
-            } else {
-                Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.0,
-                }
-            };
-
-            let open_editor = editor.clone();
-            let entry_index = index;
-            let entry_kind = entry.clone();
-
-            rows.push(
-                div()
-                    .w_full()
-                    .h(px(row_height))
-                    .px(px(8.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .rounded(px(6.0))
-                    .bg(row_bg)
-                    .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
-                        let open_editor = open_editor.clone();
-                        let entry_kind = entry_kind.clone();
-                        let multi = event.modifiers.platform || event.modifiers.control;
-                        let _ = open_editor.update(cx, |editor, cx| {
-                            editor.path_picker.selection = entry_index;
-                            if multi {
-                                editor.path_picker_toggle_selection_at(entry_index, cx);
-                                return;
-                            }
-                            match entry_kind {
-                                PathPickerEntry::Parent => {
-                                    editor.path_picker_activate_selection(cx);
-                                }
-                                PathPickerEntry::Directory(path, _) => {
-                                    if editor.path_picker.directories && !editor.path_picker.files {
-                                        editor.confirm_path_picker(vec![path], cx);
-                                    } else {
-                                        editor.path_picker_navigate_to(&path, None, cx);
-                                    }
-                                }
-                                PathPickerEntry::File(path, _) => {
-                                    if editor.path_picker.multiple {
-                                        editor.path_picker_toggle_selection_at(entry_index, cx);
-                                    } else {
-                                        editor.confirm_path_picker(vec![path], cx);
-                                    }
-                                }
-                            }
-                        });
-                    })
-                    .child(
-                        svg()
-                            .path(icon)
-                            .size(px(14.0))
-                            .flex_shrink_0()
-                            .text_color(c.dialog_body),
-                    )
-                    .child(
+                    let is_checked = state.selected_paths.contains(path);
+                    let row_bg = if is_selected {
+                        c.dialog_secondary_button_hover
+                    } else {
+                        Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.0,
+                            a: 0.0,
+                        }
+                    };
+                    let path = path.clone();
+                    rows.push(
                         div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .truncate()
-                            .text_size(px(t.text_size))
-                            .text_color(c.dialog_body)
-                            .child(label),
-                    )
-                    .when(is_checked, |this| {
-                        this.child(
-                            div()
-                                .text_size(px(t.text_size * 0.85))
-                                .text_color(c.dialog_muted)
-                                .child("✓"),
-                        )
-                    })
-                    .into_any_element(),
-            );
+                            .w_full()
+                            .h(px(row_height))
+                            .pl(px(8.0 + *depth as f32 * 12.0))
+                            .pr(px(8.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .rounded(px(6.0))
+                            .bg(row_bg)
+                            .cursor_pointer()
+                            .on_mouse_down(MouseButton::Left, {
+                                let open_editor = open_editor.clone();
+                                let path = path.clone();
+                                move |event, _, cx| {
+                                    let multi =
+                                        event.modifiers.platform || event.modifiers.control;
+                                    let confirm_path = path.clone();
+                                    let _ = open_editor.update(cx, |editor, cx| {
+                                        editor.path_picker_select_row(entry_index, cx);
+                                        if multi {
+                                            editor.path_picker_toggle_selection_at(entry_index, cx);
+                                            return;
+                                        }
+                                        if event.click_count >= 2
+                                            || !editor.path_picker.multiple
+                                        {
+                                            editor.confirm_path_picker(vec![confirm_path], cx);
+                                        }
+                                    });
+                                    cx.stop_propagation();
+                                }
+                            })
+                            .child(
+                                svg()
+                                    .path(icon)
+                                    .size(px(14.0))
+                                    .flex_shrink_0()
+                                    .text_color(c.dialog_body),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .truncate()
+                                    .text_size(px(t.text_size))
+                                    .text_color(c.dialog_body)
+                                    .child(label.clone()),
+                            )
+                            .when(is_checked, |this| {
+                                this.child(
+                                    div()
+                                        .text_size(px(t.text_size * 0.85))
+                                        .text_color(c.dialog_muted)
+                                        .child("✓"),
+                                )
+                            })
+                            .into_any_element(),
+                    );
+                }
+            }
         }
 
         let visible_height = ((Self::PATH_PICKER_MAX_VISIBLE_ROWS as f32)
@@ -771,10 +933,23 @@ fn refresh_path_picker_entries(state: &mut PathPickerState) {
     if dir.parent().is_some() {
         entries.push(PathPickerEntry::Parent);
     }
+    append_path_picker_dir_entries(state, &dir, 0, &mut entries);
+    state.entries = entries;
+    if state.selection >= state.entries.len() {
+        state.selection = state.entries.len().saturating_sub(1);
+    }
+    path_picker_scroll_to_selection(state);
+}
 
+fn append_path_picker_dir_entries(
+    state: &PathPickerState,
+    dir: &Path,
+    depth: usize,
+    entries: &mut Vec<PathPickerEntry>,
+) {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
-    if let Ok(read_dir) = fs::read_dir(&dir) {
+    if let Ok(read_dir) = fs::read_dir(dir) {
         for entry in read_dir.flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -795,17 +970,24 @@ fn refresh_path_picker_entries(state: &mut PathPickerState) {
     files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
 
     for (path, name) in dirs {
-        entries.push(PathPickerEntry::Directory(path, name));
+        let expanded = state.expanded_dirs.contains(&path);
+        entries.push(PathPickerEntry::Directory {
+            path: path.clone(),
+            label: name,
+            depth,
+            expanded,
+        });
+        if expanded {
+            append_path_picker_dir_entries(state, &path, depth + 1, entries);
+        }
     }
     for (path, name) in files {
-        entries.push(PathPickerEntry::File(path, name));
+        entries.push(PathPickerEntry::File {
+            path,
+            label: name,
+            depth,
+        });
     }
-
-    state.entries = entries;
-    if state.selection >= state.entries.len() {
-        state.selection = state.entries.len().saturating_sub(1);
-    }
-    path_picker_scroll_to_selection(state);
 }
 
 fn path_picker_scroll_to_selection(state: &mut PathPickerState) {

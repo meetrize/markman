@@ -229,6 +229,7 @@ pub struct I18nStrings {
     pub preferences_shortcut_save_document_as: String,
     pub preferences_shortcut_new_window: String,
     pub preferences_shortcut_open_file: String,
+    pub preferences_shortcut_open_folder: String,
     pub preferences_shortcut_quit_application: String,
     pub preferences_shortcut_close_window: String,
     pub preferences_shortcut_dismiss_transient_ui: String,
@@ -722,6 +723,7 @@ struct I18nStringsDe {
     preferences_shortcut_save_document_as: Option<String>,
     preferences_shortcut_new_window: Option<String>,
     preferences_shortcut_open_file: Option<String>,
+    preferences_shortcut_open_folder: Option<String>,
     preferences_shortcut_quit_application: Option<String>,
     preferences_shortcut_close_window: Option<String>,
     preferences_shortcut_dismiss_transient_ui: Option<String>,
@@ -1039,6 +1041,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_save_document_as",
     "preferences_shortcut_new_window",
     "preferences_shortcut_open_file",
+    "preferences_shortcut_open_folder",
     "preferences_shortcut_quit_application",
     "preferences_shortcut_close_window",
     "preferences_shortcut_dismiss_transient_ui",
@@ -1572,6 +1575,9 @@ impl I18nStringsDe {
             preferences_shortcut_open_file: self
                 .preferences_shortcut_open_file
                 .unwrap_or(defaults.preferences_shortcut_open_file),
+            preferences_shortcut_open_folder: self
+                .preferences_shortcut_open_folder
+                .unwrap_or(defaults.preferences_shortcut_open_folder),
             preferences_shortcut_quit_application: self
                 .preferences_shortcut_quit_application
                 .unwrap_or(defaults.preferences_shortcut_quit_application),
@@ -2265,6 +2271,7 @@ impl I18nStrings {
             preferences_shortcut_save_document_as: "另存为".into(),
             preferences_shortcut_new_window: "新建窗口".into(),
             preferences_shortcut_open_file: "打开文件".into(),
+            preferences_shortcut_open_folder: "打开文件夹".into(),
             preferences_shortcut_quit_application: "退出应用".into(),
             preferences_shortcut_close_window: "关闭窗口".into(),
             preferences_shortcut_dismiss_transient_ui: "关闭临时界面".into(),
@@ -2604,6 +2611,7 @@ impl I18nStrings {
             preferences_shortcut_save_document_as: "Save Document As".into(),
             preferences_shortcut_new_window: "New Window".into(),
             preferences_shortcut_open_file: "Open File".into(),
+            preferences_shortcut_open_folder: "Open Folder".into(),
             preferences_shortcut_quit_application: "Quit Application".into(),
             preferences_shortcut_close_window: "Close Window".into(),
             preferences_shortcut_dismiss_transient_ui: "Dismiss Temporary UI".into(),

@@ -184,6 +184,7 @@ pub(crate) enum ShortcutCommand {
     QuickFileOpen,
     OpenWorkspaceSearch,
     AskAi,
+    OpenFolder,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -553,6 +554,13 @@ const SHORTCUT_DEFINITIONS: &[ShortcutDefinition] = &[
         default_keys: &["cmd-shift-a", "ctrl-shift-a"],
         context: None,
     },
+    ShortcutDefinition {
+        command: ShortcutCommand::OpenFolder,
+        id: "open_folder",
+        category: ShortcutCategory::File,
+        default_keys: &["cmd-shift-o", "ctrl-shift-o"],
+        context: None,
+    },
 ];
 
 pub(crate) fn shortcut_definitions() -> &'static [ShortcutDefinition] {
@@ -741,6 +749,7 @@ fn key_binding_for(
         ShortcutCommand::QuickFileOpen => KeyBinding::new(key, QuickFileOpen, context),
         ShortcutCommand::OpenWorkspaceSearch => KeyBinding::new(key, OpenWorkspaceSearch, context),
         ShortcutCommand::AskAi => KeyBinding::new(key, AskAi, context),
+        ShortcutCommand::OpenFolder => KeyBinding::new(key, OpenFolder, context),
     }
 }
 
