@@ -145,6 +145,12 @@ fn find_matching_closing_fence(
             if opener.language().is_none() {
                 return Some(index);
             }
+            // Once the block has body content, close at the first valid closing
+            // fence so a following bare ``` starts a sibling code block instead
+            // of being absorbed as trailing greedy content.
+            if index > start_index + 1 {
+                return Some(index);
+            }
             last_match = Some(index);
             continue;
         }

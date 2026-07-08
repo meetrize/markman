@@ -43,6 +43,21 @@ use crate::components::{parse_opening_fence, BlockKind, CalloutVariant, Editor, 
     }
 
     #[test]
+    fn language_fence_closes_before_following_bare_fence_block() {
+        let lines = vec![
+            "```mermaid".to_string(),
+            "flowchart TD".to_string(),
+            "A --> B".to_string(),
+            "```".to_string(),
+            "aaa".to_string(),
+            "bbb".to_string(),
+            "```".to_string(),
+        ];
+        let opener = parse_opening_fence(&lines[0]).expect("opening fence");
+        assert_eq!(find_matching_closing_fence(&lines, 0, &opener), Some(3));
+    }
+
+    #[test]
     fn empty_language_fence_closes_at_first_match() {
         // Adjacent empty-language blocks must stay separate rather than the
         // first absorbing the second's fences as body content (issue #58).
@@ -1357,6 +1372,48 @@ use crate::components::{parse_opening_fence, BlockKind, CalloutVariant, Editor, 
             assert_eq!(visible.len(), 1);
             assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::MermaidBlock);
             assert_eq!(editor.document.markdown_text(cx), markdown);
+        });
+    }
+
+    #[gpui::test]
+    async fn imports_mermaid_followed_by_bare_fence_as_separate_blocks(cx: &mut TestAppContext) {
+        let markdown = concat!(
+            "```mermaid\n",
+            "flowchart TD\n",
+            "A --> B\n",
+            "```\n",
+            "\n",
+            "```\n",
+            "aaa\n",
+            "bbb\n",
+            "ccc\n",
+            "```\n",
+        )
+        .to_string();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, markdown, None));
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 2);
+            assert_eq!(visible[0].entity.read(cx).kind(), BlockKind::MermaidBlock);
+            assert_eq!(
+                visible[0]
+                    .entity
+                    .read(cx)
+                    .record
+                    .raw_fallback
+                    .as_deref()
+                    .unwrap_or(""),
+                "```mermaid\nflowchart TD\nA --> B\n```"
+            );
+            assert!(matches!(
+                visible[1].entity.read(cx).kind(),
+                BlockKind::CodeBlock { language: None }
+            ));
+            assert_eq!(
+                visible[1].entity.read(cx).display_text(),
+                "aaa\nbbb\nccc"
+            );
         });
     }
 
