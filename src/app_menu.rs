@@ -6,7 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, Result};
+use futures::channel::oneshot;
 use gpui::*;
 
 use crate::components::{
@@ -19,13 +20,13 @@ use crate::components::{
     ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
 use crate::app_visibility;
-use crate::platform::prompt_for_paths_with_clipboard_navigation;
 use crate::config::{
     apply_configured_language, apply_configured_theme, import_language_config_and_select,
     import_theme_config_and_select, open_preferences_window, open_preferences_window_to_ai,
     read_recent_files, read_recent_folders, record_recent_file,
     remove_recent_file, remove_recent_folder,
 };
+use crate::editor::path_picker::PathPickerRequest;
 use crate::editor::{Editor, InfoDialogKind};
 use crate::export::ExportFormat;
 use crate::i18n::I18nManager;
@@ -1128,6 +1129,41 @@ pub(crate) fn install_menus(cx: &mut App) {
     cx.set_menus(menus);
 }
 
+fn launch_path_picker(
+    cx: &mut App,
+    options: PathPromptOptions,
+) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
+    let (tx, rx) = oneshot::channel();
+    let request = PathPickerRequest {
+        files: options.files,
+        directories: options.directories,
+        multiple: options.multiple,
+        title: options
+            .prompt
+            .map(|prompt| prompt.to_string())
+            .unwrap_or_default(),
+        completion: tx,
+    };
+
+    let has_editor_window = cx
+        .active_window()
+        .and_then(|window| window.downcast::<Editor>())
+        .is_some();
+
+    if has_editor_window {
+        let _ = with_active_editor(cx, |editor, window, cx| {
+            editor.open_path_picker(request, window, cx);
+        });
+    } else {
+        let handle = open_editor_window(cx, String::new(), None);
+        let _ = handle.update(cx, |editor, window, cx| {
+            editor.open_path_picker(request, window, cx);
+        });
+    }
+
+    rx
+}
+
 fn prompt_and_open_files(cx: &mut App) {
     let error_window = cx.active_window();
     prompt_and_open_files_with_error_window(cx, error_window);
@@ -1161,36 +1197,41 @@ fn prompt_and_open_folder_with_error_window(cx: &mut App, error_window: Option<A
         .strings()
         .open_folder_prompt
         .clone();
-    let prompt = prompt_for_paths_with_clipboard_navigation(cx, PathPromptOptions {
-        files: false,
-        directories: true,
-        multiple: false,
-        prompt: Some(prompt_title.into()),
-    });
+    cx.defer(move |cx| {
+        let prompt = launch_path_picker(
+            cx,
+            PathPromptOptions {
+                files: false,
+                directories: true,
+                multiple: false,
+                prompt: Some(prompt_title.into()),
+            },
+        );
 
-    cx.spawn(async move |cx| match prompt.await {
-        Ok(Ok(Some(paths))) => {
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            let _ = cx.update(move |cx| {
-                apply_workspace_folder(cx, path);
-            });
-        }
-        Ok(Err(err)) => {
-            let detail = err.to_string();
-            let _ = cx.update(move |cx| {
-                let title = cx
-                    .global::<I18nManager>()
-                    .strings()
-                    .open_failed_title
-                    .clone();
-                show_window_prompt(error_window, &title, &detail, cx);
-            });
-        }
-        Ok(Ok(None)) | Err(_) => {}
-    })
-    .detach();
+        cx.spawn(async move |cx| match prompt.await {
+            Ok(Ok(Some(paths))) => {
+                let Some(path) = paths.into_iter().next() else {
+                    return;
+                };
+                let _ = cx.update(move |cx| {
+                    apply_workspace_folder(cx, path);
+                });
+            }
+            Ok(Err(err)) => {
+                let detail = err.to_string();
+                let _ = cx.update(move |cx| {
+                    let title = cx
+                        .global::<I18nManager>()
+                        .strings()
+                        .open_failed_title
+                        .clone();
+                    show_window_prompt(error_window, &title, &detail, cx);
+                });
+            }
+            Ok(Ok(None)) | Err(_) => {}
+        })
+        .detach();
+    });
 }
 
 fn prompt_and_open_files_with_error_window(cx: &mut App, error_window: Option<AnyWindowHandle>) {
@@ -1199,42 +1240,47 @@ fn prompt_and_open_files_with_error_window(cx: &mut App, error_window: Option<An
         .strings()
         .open_markdown_files_prompt
         .clone();
-    let prompt = prompt_for_paths_with_clipboard_navigation(cx, PathPromptOptions {
-        files: true,
-        directories: false,
-        multiple: true,
-        prompt: Some(prompt_title.into()),
-    });
+    cx.defer(move |cx| {
+        let prompt = launch_path_picker(
+            cx,
+            PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: true,
+                prompt: Some(prompt_title.into()),
+            },
+        );
 
-    cx.spawn(async move |cx| match prompt.await {
-        Ok(Ok(Some(paths))) => {
-            let _ = cx.update(move |cx| {
-                for path in paths {
-                    if let Err(err) = open_file_in_new_window(cx, &path) {
-                        let title = cx
-                            .global::<I18nManager>()
-                            .strings()
-                            .open_failed_title
-                            .clone();
-                        show_window_prompt(error_window, &title, &err.to_string(), cx);
+        cx.spawn(async move |cx| match prompt.await {
+            Ok(Ok(Some(paths))) => {
+                let _ = cx.update(move |cx| {
+                    for path in paths {
+                        if let Err(err) = open_file_in_new_window(cx, &path) {
+                            let title = cx
+                                .global::<I18nManager>()
+                                .strings()
+                                .open_failed_title
+                                .clone();
+                            show_window_prompt(error_window, &title, &err.to_string(), cx);
+                        }
                     }
-                }
-            });
-        }
-        Ok(Err(err)) => {
-            let detail = err.to_string();
-            let _ = cx.update(move |cx| {
-                let title = cx
-                    .global::<I18nManager>()
-                    .strings()
-                    .open_failed_title
-                    .clone();
-                show_window_prompt(error_window, &title, &detail, cx);
-            });
-        }
-        Ok(Ok(None)) | Err(_) => {}
-    })
-    .detach();
+                });
+            }
+            Ok(Err(err)) => {
+                let detail = err.to_string();
+                let _ = cx.update(move |cx| {
+                    let title = cx
+                        .global::<I18nManager>()
+                        .strings()
+                        .open_failed_title
+                        .clone();
+                    show_window_prompt(error_window, &title, &detail, cx);
+                });
+            }
+            Ok(Ok(None)) | Err(_) => {}
+        })
+        .detach();
+    });
 }
 
 fn prompt_and_import_language_config(cx: &mut App) {

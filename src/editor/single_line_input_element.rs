@@ -137,6 +137,23 @@ impl Element for SingleLineInputElement {
                         editor.quick_file_open_cursor_offset(),
                     )
                 }
+                SingleLineInputTarget::PathPicker => {
+                    let is_placeholder = editor.path_picker_query_is_empty();
+                    let text_color = if is_placeholder {
+                        theme.colors.dialog_muted
+                    } else {
+                        theme.colors.text_default
+                    };
+                    (
+                        editor.path_picker_display_text(&self.placeholder),
+                        is_placeholder,
+                        text_color,
+                        editor.path_picker_input_active(window),
+                        None,
+                        0..0,
+                        editor.path_picker_cursor_offset(),
+                    )
+                }
                 SingleLineInputTarget::WikiLinkPicker => {
                     let is_placeholder = editor.wiki_link_picker_query_is_empty();
                     let text_color = if is_placeholder {
@@ -188,6 +205,7 @@ impl Element for SingleLineInputElement {
                 editor.set_workspace_name_layout(prepaint.line.clone(), bounds);
             }
             SingleLineInputTarget::QuickFileOpen => {}
+            SingleLineInputTarget::PathPicker => {}
             SingleLineInputTarget::WikiLinkPicker => {
                 editor.set_wiki_link_picker_layout(prepaint.line.clone(), bounds);
             }
@@ -251,6 +269,7 @@ impl Element for SingleLineInputElement {
                         editor.on_workspace_name_mouse_down(event, window, cx);
                     }
                     SingleLineInputTarget::QuickFileOpen => {}
+                    SingleLineInputTarget::PathPicker => {}
                     SingleLineInputTarget::WikiLinkPicker => {
                         editor.on_wiki_link_picker_mouse_down(event, window, cx);
                     }
@@ -273,6 +292,7 @@ impl Element for SingleLineInputElement {
                         editor.on_workspace_name_mouse_up(event, _window, cx);
                     }
                     SingleLineInputTarget::QuickFileOpen => {}
+                    SingleLineInputTarget::PathPicker => {}
                     SingleLineInputTarget::WikiLinkPicker => {
                         editor.on_wiki_link_picker_mouse_up(event, _window, cx);
                     }
@@ -295,6 +315,7 @@ impl Element for SingleLineInputElement {
                         editor.on_workspace_name_mouse_move(event, window, cx);
                     }
                     SingleLineInputTarget::QuickFileOpen => {}
+                    SingleLineInputTarget::PathPicker => {}
                     SingleLineInputTarget::WikiLinkPicker => {
                         editor.on_wiki_link_picker_mouse_move(event, window, cx);
                     }

@@ -305,6 +305,7 @@ impl Editor {
         let had_inline_code_popover = self.dismiss_inline_code_run_popover(cx);
         let had_document_search = self.search.state.open;
         let had_quick_file_open = self.quick_file_open.open;
+        let had_path_picker = self.path_picker_is_open();
         let had_wiki_link_picker = self.wiki_link_picker.open;
         let had_menu = self.context_menu.take().is_some();
         let had_dialog = self.table_insert_dialog.take().is_some();
@@ -322,6 +323,9 @@ impl Editor {
         }
         if had_quick_file_open {
             self.close_quick_file_open(cx);
+        }
+        if had_path_picker {
+            self.cancel_path_picker(cx);
         }
         if had_wiki_link_picker {
             self.close_wiki_link_picker(cx);

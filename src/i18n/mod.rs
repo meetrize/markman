@@ -584,6 +584,10 @@ pub struct I18nStrings {
     /// Preferences label for source-mode line height.
     pub preferences_source_line_height_label: String,
     pub quick_file_open_placeholder: String,
+    /// Path bar placeholder in the open file/folder picker.
+    pub path_picker_path_placeholder: String,
+    /// Label for the parent-directory row in the path picker.
+    pub path_picker_parent: String,
 }
 
 /// Partial string set used by JSON language packs.
@@ -901,6 +905,8 @@ struct I18nStringsDe {
     preferences_preview_line_height_label: Option<String>,
     preferences_source_line_height_label: Option<String>,
     quick_file_open_placeholder: Option<String>,
+    path_picker_path_placeholder: Option<String>,
+    path_picker_parent: Option<String>,
 }
 
 const I18N_STRING_KEYS: &[&str] = &[
@@ -1216,6 +1222,8 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_preview_line_height_label",
     "preferences_source_line_height_label",
     "quick_file_open_placeholder",
+    "path_picker_path_placeholder",
+    "path_picker_parent",
 ];
 
 impl I18nStringsDe {
@@ -2099,6 +2107,12 @@ impl I18nStringsDe {
             quick_file_open_placeholder: self
                 .quick_file_open_placeholder
                 .unwrap_or(defaults.quick_file_open_placeholder),
+            path_picker_path_placeholder: self
+                .path_picker_path_placeholder
+                .unwrap_or(defaults.path_picker_path_placeholder),
+            path_picker_parent: self
+                .path_picker_parent
+                .unwrap_or(defaults.path_picker_parent),
         }
     }
 }
@@ -2440,6 +2454,8 @@ impl I18nStrings {
             preferences_preview_line_height_label: "预览行距".into(),
             preferences_source_line_height_label: "源码行距".into(),
             quick_file_open_placeholder: "搜索文件名…".into(),
+            path_picker_path_placeholder: "输入或粘贴路径，⌘V 跳转".into(),
+            path_picker_parent: "..".into(),
         }
     }
 
@@ -2782,6 +2798,8 @@ impl I18nStrings {
             preferences_preview_line_height_label: "Preview line height".into(),
             preferences_source_line_height_label: "Source line height".into(),
             quick_file_open_placeholder: "Search files by name…".into(),
+            path_picker_path_placeholder: "Type or paste a path — ⌘V to jump".into(),
+            path_picker_parent: "..".into(),
         }
     }
 

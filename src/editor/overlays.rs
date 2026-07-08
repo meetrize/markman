@@ -177,6 +177,7 @@ impl Editor {
             || self.show_non_markdown_open_dialog
             || self.show_drop_replace_dialog
             || self.show_unsaved_changes_dialog
+            || self.path_picker_is_open()
             || self.quick_file_open.open
     }
 
@@ -200,6 +201,9 @@ impl Editor {
         }
         if self.show_unsaved_changes_dialog {
             return Some(self.render_unsaved_changes_overlay(theme, cx).into_any_element());
+        }
+        if self.path_picker_is_open() {
+            return self.render_path_picker_overlay(theme, strings, cx);
         }
         self.render_quick_file_open_overlay(theme, strings, cx)
     }

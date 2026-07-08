@@ -3578,6 +3578,13 @@ impl EntityInputHandler for Editor {
             return Some(text[range].to_string());
         }
 
+        if self.path_picker_input_active(window) {
+            let text = self.path_picker.input.query.clone();
+            let range = range_utf16.start.min(text.len())..range_utf16.end.min(text.len());
+            actual_range.replace(range.clone());
+            return Some(text[range].to_string());
+        }
+
         if self.wiki_link_picker_input_active(window) {
             let text = self.wiki_link_picker.input.query.clone();
             let range = document_search_range_from_utf16(&text, &range_utf16);
@@ -3639,6 +3646,14 @@ impl EntityInputHandler for Editor {
             });
         }
 
+        if self.path_picker_input_active(window) {
+            let len = self.path_picker.input.text_len();
+            return Some(UTF16Selection {
+                range: len..len,
+                reversed: false,
+            });
+        }
+
         if self.wiki_link_picker_input_active(window) {
             let text = &self.wiki_link_picker.input.query;
             return Some(UTF16Selection {
@@ -3690,6 +3705,10 @@ impl EntityInputHandler for Editor {
         }
 
         if self.quick_file_open_input_active(window) {
+            return None;
+        }
+
+        if self.path_picker_input_active(window) {
             return None;
         }
 
@@ -3748,6 +3767,10 @@ impl EntityInputHandler for Editor {
             return;
         }
 
+        if self.path_picker_input_active(window) {
+            return;
+        }
+
         if self.wiki_link_picker_input_active(window) {
             self.wiki_link_picker.input.marked_range = None;
             return;
@@ -3798,6 +3821,10 @@ impl EntityInputHandler for Editor {
         }
 
         if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
+            return;
+        }
+
+        if self.replace_path_picker_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
 
@@ -3881,6 +3908,10 @@ impl EntityInputHandler for Editor {
         }
 
         if self.replace_quick_file_open_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
+            return;
+        }
+
+        if self.replace_path_picker_from_utf16(range_utf16.as_ref(), new_text, window, cx) {
             return;
         }
 
@@ -3973,6 +4004,10 @@ impl EntityInputHandler for Editor {
             return Some(bounds);
         }
 
+        if self.path_picker_input_active(window) {
+            return Some(bounds);
+        }
+
         if self.wiki_link_picker_input_active(window) {
             let line = self.wiki_link_picker.input.last_layout.as_ref()?;
             let text = &self.wiki_link_picker.input.query;
@@ -4031,6 +4066,10 @@ impl EntityInputHandler for Editor {
 
         if self.quick_file_open_input_active(window) {
             return Some(self.quick_file_open.input.text_len());
+        }
+
+        if self.path_picker_input_active(window) {
+            return Some(self.path_picker.input.text_len());
         }
 
         if self.wiki_link_picker_input_active(window) {
