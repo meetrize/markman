@@ -534,6 +534,7 @@ impl Editor {
         if let Err(err) = crate::config::record_last_workspace_folder(&path) {
             eprintln!("failed to record last workspace folder: {err}");
         }
+        crate::app_menu::record_recent_folder_from_editor(&path, cx);
 
         self.close_menu_bar(cx);
         self.dismiss_contextual_overlays(cx);

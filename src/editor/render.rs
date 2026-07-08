@@ -10,7 +10,7 @@ use gpui::*;
 use super::{Editor, InfoDialogKind, ViewMode};
 use crate::app_menu::dispatch_menu_action_for_editor;
 use crate::components::CalloutVariant;
-use crate::components::{Block, BlockKind, NoRecentFiles};
+use crate::components::{Block, BlockKind, NoRecentFiles, NoRecentFolders};
 use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::{Theme, ThemeDimensions, ThemeManager, editor_font};
 use crate::app_identity::app_version_line;
@@ -750,8 +750,8 @@ impl Editor {
                                     .bg(c.dialog_border)
                                     .into_any_element(),
                                 OwnedMenuItem::Action { name, action, .. } => {
-                                    let is_disabled =
-                                        action.as_ref().as_any().is::<NoRecentFiles>();
+                                    let is_disabled = action.as_ref().as_any().is::<NoRecentFiles>()
+                                        || action.as_ref().as_any().is::<NoRecentFolders>();
                                     let editor = editor.clone();
                                     let base = div()
                                         .id(("app-submenu-item", submenu_index * 1000 + item_index))
@@ -859,7 +859,8 @@ impl Editor {
                     .bg(c.dialog_border)
                     .into_any_element(),
                 OwnedMenuItem::Action { name, action, .. } => {
-                    let is_disabled = action.as_ref().as_any().is::<NoRecentFiles>();
+                    let is_disabled = action.as_ref().as_any().is::<NoRecentFiles>()
+                        || action.as_ref().as_any().is::<NoRecentFolders>();
                     let editor = editor.clone();
                     let hover_editor = editor.clone();
                     let base = div()

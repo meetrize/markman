@@ -100,10 +100,14 @@ pub struct I18nStrings {
     pub menu_open_folder: String,
     /// File menu item for opening a recent file submenu.
     pub menu_open_recent_file: String,
+    /// File menu item for opening a recent folder submenu.
+    pub menu_open_recent_folder: String,
     /// File menu item for opening app preferences.
     pub menu_preferences: String,
     /// Placeholder item shown when no recent files are recorded.
     pub menu_no_recent_files: String,
+    /// Placeholder item shown when no recent folders are recorded.
+    pub menu_no_recent_folders: String,
     /// File menu item for saving the current document.
     pub menu_save: String,
     /// File menu item for saving the current document to a new path.
@@ -138,6 +142,10 @@ pub struct I18nStrings {
     pub recent_file_missing_title: String,
     /// Message template for missing recent files. Supports `{path}`.
     pub recent_file_missing_message_template: String,
+    /// Title shown when a recent folder path no longer exists.
+    pub recent_folder_missing_title: String,
+    /// Message template for missing recent folders. Supports `{path}`.
+    pub recent_folder_missing_message_template: String,
     /// Title of the save failure prompt.
     pub save_failed_title: String,
     /// Title of the export failure prompt.
@@ -613,8 +621,10 @@ struct I18nStringsDe {
     menu_open_file: Option<String>,
     menu_open_folder: Option<String>,
     menu_open_recent_file: Option<String>,
+    menu_open_recent_folder: Option<String>,
     menu_preferences: Option<String>,
     menu_no_recent_files: Option<String>,
+    menu_no_recent_folders: Option<String>,
     menu_save: Option<String>,
     menu_save_as: Option<String>,
     menu_quit: Option<String>,
@@ -632,6 +642,8 @@ struct I18nStringsDe {
     open_failed_title: Option<String>,
     recent_file_missing_title: Option<String>,
     recent_file_missing_message_template: Option<String>,
+    recent_folder_missing_title: Option<String>,
+    recent_folder_missing_message_template: Option<String>,
     save_failed_title: Option<String>,
     export_failed_title: Option<String>,
     export_overwrite_title: Option<String>,
@@ -920,8 +932,10 @@ const I18N_STRING_KEYS: &[&str] = &[
     "menu_open_file",
     "menu_open_folder",
     "menu_open_recent_file",
+    "menu_open_recent_folder",
     "menu_preferences",
     "menu_no_recent_files",
+    "menu_no_recent_folders",
     "menu_save",
     "menu_save_as",
     "menu_quit",
@@ -939,6 +953,8 @@ const I18N_STRING_KEYS: &[&str] = &[
     "open_failed_title",
     "recent_file_missing_title",
     "recent_file_missing_message_template",
+    "recent_folder_missing_title",
+    "recent_folder_missing_message_template",
     "save_failed_title",
     "export_failed_title",
     "export_overwrite_title",
@@ -1285,10 +1301,16 @@ impl I18nStringsDe {
             menu_open_recent_file: self
                 .menu_open_recent_file
                 .unwrap_or(defaults.menu_open_recent_file),
+            menu_open_recent_folder: self
+                .menu_open_recent_folder
+                .unwrap_or(defaults.menu_open_recent_folder),
             menu_preferences: self.menu_preferences.unwrap_or(defaults.menu_preferences),
             menu_no_recent_files: self
                 .menu_no_recent_files
                 .unwrap_or(defaults.menu_no_recent_files),
+            menu_no_recent_folders: self
+                .menu_no_recent_folders
+                .unwrap_or(defaults.menu_no_recent_folders),
             menu_save: self.menu_save.unwrap_or(defaults.menu_save),
             menu_save_as: self.menu_save_as.unwrap_or(defaults.menu_save_as),
             menu_quit: self.menu_quit.unwrap_or(defaults.menu_quit),
@@ -1326,6 +1348,12 @@ impl I18nStringsDe {
             recent_file_missing_message_template: self
                 .recent_file_missing_message_template
                 .unwrap_or(defaults.recent_file_missing_message_template),
+            recent_folder_missing_title: self
+                .recent_folder_missing_title
+                .unwrap_or(defaults.recent_folder_missing_title),
+            recent_folder_missing_message_template: self
+                .recent_folder_missing_message_template
+                .unwrap_or(defaults.recent_folder_missing_message_template),
             save_failed_title: self.save_failed_title.unwrap_or(defaults.save_failed_title),
             export_failed_title: self
                 .export_failed_title
@@ -2104,8 +2132,10 @@ impl I18nStrings {
             menu_open_file: "打开文件".into(),
             menu_open_folder: "打开文件夹".into(),
             menu_open_recent_file: "打开最近文件".into(),
+            menu_open_recent_folder: "打开最近文件夹".into(),
             menu_preferences: "偏好设置".into(),
             menu_no_recent_files: "无最近文件".into(),
+            menu_no_recent_folders: "无最近文件夹".into(),
             menu_save: "保存".into(),
             menu_save_as: "另存为".into(),
             menu_quit: "退出".into(),
@@ -2123,6 +2153,9 @@ impl I18nStrings {
             open_failed_title: "打开失败".into(),
             recent_file_missing_title: "最近文件不存在".into(),
             recent_file_missing_message_template: "此最近文件已经不存在，已从记录中移除：\n{path}"
+                .into(),
+            recent_folder_missing_title: "最近文件夹不存在".into(),
+            recent_folder_missing_message_template: "此最近文件夹已经不存在，已从记录中移除：\n{path}"
                 .into(),
             save_failed_title: "保存失败".into(),
             export_failed_title: "导出失败".into(),
@@ -2429,8 +2462,10 @@ impl I18nStrings {
             menu_open_file: "Open File".into(),
             menu_open_folder: "Open Folder".into(),
             menu_open_recent_file: "Open Recent File".into(),
+            menu_open_recent_folder: "Open Recent Folder".into(),
             menu_preferences: "Preferences".into(),
             menu_no_recent_files: "No Recent Files".into(),
+            menu_no_recent_folders: "No Recent Folders".into(),
             menu_save: "Save".into(),
             menu_save_as: "Save As".into(),
             menu_quit: "Quit".into(),
@@ -2449,6 +2484,9 @@ impl I18nStrings {
             recent_file_missing_title: "Recent File Missing".into(),
             recent_file_missing_message_template:
                 "This recent file no longer exists and has been removed:\n{path}".into(),
+            recent_folder_missing_title: "Recent Folder Missing".into(),
+            recent_folder_missing_message_template:
+                "This recent folder no longer exists and has been removed:\n{path}".into(),
             save_failed_title: "Save Failed".into(),
             export_failed_title: "Export Failed".into(),
             export_overwrite_title: "File Already Exists".into(),

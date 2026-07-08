@@ -12,8 +12,9 @@ use gpui::*;
 use crate::components::{
     AddLanguageConfig, AddThemeConfig, AiExpandSelection, AiExplainSelection, AiImproveSelection,
     AiSummarizeSelection, AiTasksSelection, AiTranslateSelection, AskAi, CheckForUpdates,
-    CloseWindow, ExportHtml, ExportPdf, InstallCliTool, NewWindow, NoRecentFiles,
-    OpenAiPreferences, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile, QuitApplication,
+    CloseWindow, ExportHtml, ExportPdf, InstallCliTool, NewWindow, NoRecentFiles, NoRecentFolders,
+    OpenAiPreferences, OpenFile, OpenFolder, OpenPreferences, OpenRecentFile, OpenRecentFolder,
+    QuitApplication,
     SaveDocument, SaveDocumentAs, SelectLanguage, SelectTheme, ShowAbout,
     ToggleApplicationVisibility, ToggleWorkspace, UninstallCliTool,
 };
@@ -21,8 +22,8 @@ use crate::app_visibility;
 use crate::config::{
     apply_configured_language, apply_configured_theme, import_language_config_and_select,
     import_theme_config_and_select, open_preferences_window, open_preferences_window_to_ai,
-    read_recent_files, record_recent_file,
-    remove_recent_file,
+    read_recent_files, read_recent_folders, record_recent_file,
+    remove_recent_file, remove_recent_folder,
 };
 use crate::editor::{Editor, InfoDialogKind};
 use crate::export::ExportFormat;
@@ -139,6 +140,11 @@ fn record_recent_file_and_refresh(path: &Path, cx: &mut App) {
         eprintln!("failed to update recent file history: {err}");
         return;
     }
+    install_menus(cx);
+    cx.refresh_windows();
+}
+
+fn record_recent_folder_and_refresh(_path: &Path, cx: &mut App) {
     install_menus(cx);
     cx.refresh_windows();
 }
@@ -384,6 +390,10 @@ pub(crate) fn record_recent_file_from_editor(path: &Path, cx: &mut App) {
     record_recent_file_and_refresh(path, cx);
 }
 
+pub(crate) fn record_recent_folder_from_editor(path: &Path, cx: &mut App) {
+    record_recent_folder_and_refresh(path, cx);
+}
+
 fn show_window_prompt(window: Option<AnyWindowHandle>, title: &str, detail: &str, cx: &mut App) {
     if let Some(window) = window {
         let ok = cx.global::<I18nManager>().strings().info_dialog_ok.clone();
@@ -421,6 +431,16 @@ fn recent_files_for_menu() -> Vec<PathBuf> {
         Ok(paths) => paths,
         Err(err) => {
             eprintln!("failed to read recent file history: {err}");
+            Vec::new()
+        }
+    }
+}
+
+fn recent_folders_for_menu() -> Vec<PathBuf> {
+    match read_recent_folders() {
+        Ok(paths) => paths,
+        Err(err) => {
+            eprintln!("failed to read recent folder history: {err}");
             Vec::new()
         }
     }
@@ -465,6 +485,38 @@ fn open_recent_file_with_error_window(
     }
 }
 
+fn open_recent_folder(cx: &mut App, path: PathBuf) {
+    let error_window = cx.active_window();
+    open_recent_folder_with_error_window(cx, path, error_window);
+}
+
+fn open_recent_folder_with_error_window(
+    cx: &mut App,
+    path: PathBuf,
+    error_window: Option<AnyWindowHandle>,
+) {
+    if !path.is_dir() {
+        if let Err(err) = remove_recent_folder(&path) {
+            eprintln!("failed to remove missing recent folder: {err}");
+        }
+        install_menus(cx);
+        cx.refresh_windows();
+        let strings = cx.global::<I18nManager>().strings().clone();
+        let detail = strings
+            .recent_folder_missing_message_template
+            .replace("{path}", &path.to_string_lossy());
+        show_window_prompt(
+            error_window,
+            &strings.recent_folder_missing_title,
+            &detail,
+            cx,
+        );
+        return;
+    }
+
+    apply_workspace_folder(cx, path);
+}
+
 fn is_editor_scoped_menu_action(action: &dyn Action) -> bool {
     action.as_any().is::<SaveDocument>()
         || action.as_any().is::<SaveDocumentAs>()
@@ -493,6 +545,8 @@ fn is_window_context_menu_action(action: &dyn Action) -> bool {
         || action.as_any().is::<OpenPreferences>()
         || action.as_any().is::<OpenRecentFile>()
         || action.as_any().is::<NoRecentFiles>()
+        || action.as_any().is::<OpenRecentFolder>()
+        || action.as_any().is::<NoRecentFolders>()
         || action.as_any().is::<AddLanguageConfig>()
         || action.as_any().is::<AddThemeConfig>()
         || action.as_any().is::<InstallCliTool>()
@@ -627,6 +681,9 @@ pub(crate) fn dispatch_menu_action(action: &dyn Action, cx: &mut App) {
     } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFile>() {
         open_recent_file(cx, PathBuf::from(&action.path));
     } else if action.as_any().is::<NoRecentFiles>() {
+    } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFolder>() {
+        open_recent_folder(cx, PathBuf::from(&action.path));
+    } else if action.as_any().is::<NoRecentFolders>() {
     } else if action.as_any().is::<AddLanguageConfig>() {
         prompt_and_import_language_config(cx);
     } else if action.as_any().is::<AddThemeConfig>() {
@@ -754,6 +811,9 @@ pub(crate) fn dispatch_menu_action_for_editor(
     } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFile>() {
         open_recent_file_with_error_window(cx, PathBuf::from(&action.path), current_window);
     } else if action.as_any().is::<NoRecentFiles>() {
+    } else if let Some(action) = action.as_any().downcast_ref::<OpenRecentFolder>() {
+        open_recent_folder_with_error_window(cx, PathBuf::from(&action.path), current_window);
+    } else if action.as_any().is::<NoRecentFolders>() {
     } else if action.as_any().is::<AddLanguageConfig>() {
         prompt_and_import_language_config_with_error_window(cx, current_window);
     } else if action.as_any().is::<AddThemeConfig>() {
@@ -827,6 +887,7 @@ fn build_menus(
     theme_manager: &ThemeManager,
     i18n_manager: &I18nManager,
     recent_files: &[PathBuf],
+    recent_folders: &[PathBuf],
 ) -> Vec<Menu> {
     let current_theme_id = theme_manager.current_theme_id().to_string();
     let current_language_id = i18n_manager.current_language_id().to_string();
@@ -897,6 +958,21 @@ fn build_menus(
             .collect()
     };
 
+    let recent_folder_items = if recent_folders.is_empty() {
+        vec![MenuItem::action(
+            strings.menu_no_recent_folders.clone(),
+            NoRecentFolders,
+        )]
+    } else {
+        recent_folders
+            .iter()
+            .map(|path| {
+                let label = path.to_string_lossy().into_owned();
+                MenuItem::action(label.clone(), OpenRecentFolder { path: label })
+            })
+            .collect()
+    };
+
     #[cfg(target_os = "macos")]
     let initial_menus = {
         // On macOS, the first menu is the app menu (macOS overrides its title
@@ -922,6 +998,10 @@ fn build_menus(
                         name: strings.menu_open_recent_file.clone().into(),
                         items: recent_items,
                     }),
+                    MenuItem::submenu(Menu {
+                        name: strings.menu_open_recent_folder.clone().into(),
+                        items: recent_folder_items,
+                    }),
                     MenuItem::separator(),
                     MenuItem::action(strings.menu_save.clone(), SaveDocument),
                     MenuItem::action(strings.menu_save_as.clone(), SaveDocumentAs),
@@ -942,6 +1022,10 @@ fn build_menus(
                 MenuItem::submenu(Menu {
                     name: strings.menu_open_recent_file.clone().into(),
                     items: recent_items,
+                }),
+                MenuItem::submenu(Menu {
+                    name: strings.menu_open_recent_folder.clone().into(),
+                    items: recent_folder_items,
                 }),
                 MenuItem::action(strings.menu_preferences.clone(), OpenPreferences),
                 MenuItem::separator(),
@@ -1033,10 +1117,12 @@ fn build_menus(
 
 pub(crate) fn install_menus(cx: &mut App) {
     let recent_files = recent_files_for_menu();
+    let recent_folders = recent_folders_for_menu();
     let menus = build_menus(
         cx.global::<ThemeManager>(),
         cx.global::<I18nManager>(),
         &recent_files,
+        &recent_folders,
     );
     cx.set_menus(menus);
 }
@@ -1303,6 +1389,12 @@ pub(crate) fn init(cx: &mut App) {
     cx.on_action(|_: &NoRecentFiles, cx| {
         dispatch_menu_action(&NoRecentFiles, cx);
     });
+    cx.on_action(|action: &OpenRecentFolder, cx| {
+        dispatch_menu_action(action, cx);
+    });
+    cx.on_action(|_: &NoRecentFolders, cx| {
+        dispatch_menu_action(&NoRecentFolders, cx);
+    });
     cx.on_action(|_: &AddLanguageConfig, cx| {
         dispatch_menu_action(&AddLanguageConfig, cx);
     });
@@ -1377,8 +1469,8 @@ mod tests {
     use super::{applescript_string_literal, build_menus};
     use crate::components::{
         AddLanguageConfig, AddThemeConfig, AiSummarizeSelection, AskAi, CheckForUpdates,
-        CloseWindow, ExportHtml, ExportPdf, NewWindow, NoRecentFiles, OpenFile, OpenFolder,
-        OpenPreferences, OpenRecentFile, QuitApplication, SaveDocument, SelectLanguage,
+        CloseWindow, ExportHtml, ExportPdf, NewWindow, NoRecentFiles, NoRecentFolders, OpenFile,
+        OpenFolder, OpenPreferences, OpenRecentFile, OpenRecentFolder, QuitApplication, SaveDocument, SelectLanguage,
         SelectTheme, ShowAbout,
     };
     use crate::i18n::I18nManager;
@@ -1450,7 +1542,7 @@ mod tests {
     fn build_menus_uses_english_fallback_by_default() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
 
         let menu_names = menus
             .iter()
@@ -1496,6 +1588,18 @@ mod tests {
             "Open Recent File"
         );
 
+        // Open Recent Folder submenu follows Open Recent File.
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            submenu(&menus[1].items[5]).name.to_string(),
+            "Open Recent Folder"
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            submenu(&menus[0].items[5]).name.to_string(),
+            "Open Recent Folder"
+        );
+
         // Close Window is colocated with New Window in the File menu.
         #[cfg(target_os = "macos")]
         assert_eq!(action_name(&menus[1].items[1]), "Close Window");
@@ -1506,7 +1610,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(action_name(&menus[0].items[0]), "Preferences");
         #[cfg(not(target_os = "macos"))]
-        assert_eq!(action_name(&menus[0].items[5]), "Preferences");
+        assert_eq!(action_name(&menus[0].items[6]), "Preferences");
 
         assert_eq!(action_name(&menus[EXPORT_IDX].items[0]), "HTML");
         assert_eq!(action_name(&menus[EXPORT_IDX].items[1]), "PDF");
@@ -1525,7 +1629,7 @@ mod tests {
     fn build_menus_uses_chinese_language_when_selected() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::new_with_language_id("zh-CN");
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
 
         #[cfg(target_os = "macos")]
         assert_eq!(
@@ -1572,7 +1676,7 @@ mod tests {
     fn export_menu_items_dispatch_export_actions() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
 
         match &menus[EXPORT_IDX].items[0] {
             MenuItem::Action { action, .. } => {
@@ -1593,7 +1697,7 @@ mod tests {
     fn language_menu_items_dispatch_select_language_actions() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
 
         match &menus[LANGUAGE_IDX].items[0] {
             MenuItem::Action { action, .. } => {
@@ -1611,7 +1715,7 @@ mod tests {
     fn ai_menu_items_dispatch_ai_actions() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
         let ai_items = &menus[AI_IDX].items;
 
         match &ai_items[0] {
@@ -1632,7 +1736,7 @@ mod tests {
     fn recent_files_submenu_uses_empty_state_when_history_is_empty() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
 
         // On macOS: File menu is index 1, Open Recent is item 4 within it.
         // On other platforms: File menu is index 0, Open Recent is item 4.
@@ -1660,7 +1764,7 @@ mod tests {
             PathBuf::from(r"C:\docs\one.md"),
             PathBuf::from(r"D:\notes\two.markdown"),
         ];
-        let menus = build_menus(&theme_manager, &i18n_manager, &recent_files);
+        let menus = build_menus(&theme_manager, &i18n_manager, &recent_files, &[]);
 
         #[cfg(target_os = "macos")]
         let recent_menu = submenu(&menus[1].items[4]);
@@ -1682,6 +1786,57 @@ mod tests {
     }
 
     #[test]
+    fn recent_folders_submenu_uses_empty_state_when_history_is_empty() {
+        let theme_manager = ThemeManager::default();
+        let i18n_manager = I18nManager::default();
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
+
+        #[cfg(target_os = "macos")]
+        let recent_menu = submenu(&menus[1].items[5]);
+        #[cfg(not(target_os = "macos"))]
+        let recent_menu = submenu(&menus[0].items[5]);
+
+        assert_eq!(recent_menu.name.to_string(), "Open Recent Folder");
+        assert_eq!(recent_menu.items.len(), 1);
+        assert_eq!(action_name(&recent_menu.items[0]), "No Recent Folders");
+        match &recent_menu.items[0] {
+            MenuItem::Action { action, .. } => {
+                assert!(action.as_any().is::<NoRecentFolders>());
+            }
+            _ => panic!("expected empty recent-folder action item"),
+        }
+    }
+
+    #[test]
+    fn recent_folders_submenu_dispatches_path_actions() {
+        let theme_manager = ThemeManager::default();
+        let i18n_manager = I18nManager::default();
+        let recent_folders = vec![
+            PathBuf::from(r"C:\projects\notes"),
+            PathBuf::from(r"D:\workspace\docs"),
+        ];
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &recent_folders);
+
+        #[cfg(target_os = "macos")]
+        let recent_menu = submenu(&menus[1].items[5]);
+        #[cfg(not(target_os = "macos"))]
+        let recent_menu = submenu(&menus[0].items[5]);
+
+        assert_eq!(recent_menu.items.len(), 2);
+        assert_eq!(action_name(&recent_menu.items[0]), r"C:\projects\notes");
+        match &recent_menu.items[0] {
+            MenuItem::Action { action, .. } => {
+                let action = action
+                    .as_any()
+                    .downcast_ref::<OpenRecentFolder>()
+                    .expect("recent folder should dispatch OpenRecentFolder");
+                assert_eq!(action.path, r"C:\projects\notes");
+            }
+            _ => panic!("expected recent-folder action item"),
+        }
+    }
+
+    #[test]
     fn fallback_menu_routes_window_context_actions_without_app_defer() {
         assert!(super::is_window_context_menu_action(&NewWindow));
         assert!(super::is_window_context_menu_action(&OpenFile));
@@ -1691,6 +1846,10 @@ mod tests {
             path: "notes.md".into(),
         }));
         assert!(super::is_window_context_menu_action(&NoRecentFiles));
+        assert!(super::is_window_context_menu_action(&OpenRecentFolder {
+            path: "/tmp/workspace".into(),
+        }));
+        assert!(super::is_window_context_menu_action(&NoRecentFolders));
         assert!(super::is_window_context_menu_action(&AddLanguageConfig));
         assert!(super::is_window_context_menu_action(&AddThemeConfig));
         assert!(super::is_window_context_menu_action(&SaveDocument));
@@ -1708,7 +1867,7 @@ mod tests {
     fn config_import_items_are_bottom_menu_actions() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
 
         let language_items = &menus[LANGUAGE_IDX].items;
         assert!(matches!(
@@ -1756,7 +1915,7 @@ mod tests {
         let mut theme_manager = ThemeManager::default();
         assert!(theme_manager.set_theme_by_id("markman-light"));
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
         let theme_items = &menus[THEME_IDX].items;
 
         assert_eq!(action_name(&theme_items[0]), "Markman");
@@ -1777,7 +1936,7 @@ mod tests {
     fn help_menu_first_item_is_check_for_updates() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
         let help_items = &menus[HELP_IDX].items;
 
         match &help_items[0] {
@@ -1794,7 +1953,7 @@ mod tests {
     fn help_menu_contains_update_and_about_only() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
         let help_items = &menus[HELP_IDX].items;
 
         assert_eq!(help_items.len(), 3);
@@ -1811,7 +1970,7 @@ mod tests {
     fn help_menu_contains_cli_and_about_on_macos() {
         let theme_manager = ThemeManager::default();
         let i18n_manager = I18nManager::default();
-        let menus = build_menus(&theme_manager, &i18n_manager, &[]);
+        let menus = build_menus(&theme_manager, &i18n_manager, &[], &[]);
         let help_items = &menus[HELP_IDX].items;
 
         // CheckForUpdates, separator, Install/Uninstall CLI, separator, About

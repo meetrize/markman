@@ -25,6 +25,7 @@ pub(crate) use preferences::{
 pub(crate) use store::update_app_preferences;
 
 pub(crate) const RECENT_FILES_LIMIT: usize = 20;
+pub(crate) const RECENT_FOLDERS_LIMIT: usize = 20;
 
 /// Cross-platform configuration directories owned by Markman.
 #[derive(Debug, Clone)]
@@ -69,6 +70,10 @@ impl MarkmanConfigDirs {
 
     pub(crate) fn last_workspace_file(&self) -> PathBuf {
         self.root.join(".last_workspace")
+    }
+
+    pub(crate) fn folder_history_file(&self) -> PathBuf {
+        self.root.join(".folder_history")
     }
 
     pub(crate) fn app_config_file(&self) -> PathBuf {
@@ -164,6 +169,14 @@ pub(crate) fn read_last_workspace_folder() -> anyhow::Result<Option<PathBuf>> {
 
 pub(crate) fn record_last_workspace_folder(path: &Path) -> anyhow::Result<()> {
     record_last_workspace_folder_with_dirs(path, &MarkmanConfigDirs::from_system()?)
+}
+
+pub(crate) fn read_recent_folders() -> anyhow::Result<Vec<PathBuf>> {
+    read_recent_folders_with_dirs(&MarkmanConfigDirs::from_system()?)
+}
+
+pub(crate) fn remove_recent_folder(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    remove_recent_folder_with_dirs(path, &MarkmanConfigDirs::from_system()?)
 }
 
 pub(crate) fn last_existing_workspace_folder() -> Option<PathBuf> {
@@ -282,7 +295,108 @@ pub(crate) fn record_last_workspace_folder_with_dirs(
             .with_context(|| format!("failed to create '{}'", parent.display()))?;
     }
     std::fs::write(&file, path.to_string_lossy().as_bytes())
-        .with_context(|| format!("failed to write '{}'", file.display()))
+        .with_context(|| format!("failed to write '{}'", file.display()))?;
+    let _ = record_recent_folder_with_dirs(path, dirs);
+    Ok(())
+}
+
+pub(crate) fn read_recent_folders_with_dirs(
+    dirs: &MarkmanConfigDirs,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let path = dirs.folder_history_file();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to read '{}'", path.display()));
+        }
+    };
+
+    Ok(normalize_recent_folders(text.lines().map(PathBuf::from)))
+}
+
+pub(crate) fn record_recent_folder_with_dirs(
+    path: &Path,
+    dirs: &MarkmanConfigDirs,
+) -> anyhow::Result<Vec<PathBuf>> {
+    if path.to_string_lossy().trim().is_empty() {
+        bail!("recent folder path cannot be empty");
+    }
+    if !path.is_dir() {
+        return read_recent_folders_with_dirs(dirs);
+    }
+
+    let mut paths = read_recent_folders_with_dirs(dirs)?;
+    let path = path.to_path_buf();
+    paths.retain(|existing| !same_recent_path(existing, &path));
+    paths.insert(0, path);
+    paths.truncate(RECENT_FOLDERS_LIMIT);
+    write_recent_folders_with_dirs(&paths, dirs)?;
+    Ok(paths)
+}
+
+pub(crate) fn remove_recent_folder_with_dirs(
+    path: &Path,
+    dirs: &MarkmanConfigDirs,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let mut paths = read_recent_folders_with_dirs(dirs)?;
+    paths.retain(|existing| !same_recent_path(existing, path));
+    write_recent_folders_with_dirs(&paths, dirs)?;
+    Ok(paths)
+}
+
+fn write_recent_folders_with_dirs(
+    paths: &[PathBuf],
+    dirs: &MarkmanConfigDirs,
+) -> anyhow::Result<()> {
+    let history_file = dirs.folder_history_file();
+    let normalized = normalize_recent_folders(paths.iter().cloned());
+    if normalized.is_empty() {
+        match std::fs::remove_file(&history_file) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("failed to remove '{}'", history_file.display()));
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(parent) = history_file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create '{}'", parent.display()))?;
+    }
+    let mut content = String::new();
+    for path in normalized {
+        content.push_str(&path.to_string_lossy());
+        content.push('\n');
+    }
+    std::fs::write(&history_file, content)
+        .with_context(|| format!("failed to write '{}'", history_file.display()))
+}
+
+fn normalize_recent_folders(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut normalized: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        let text = path.to_string_lossy();
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(trimmed);
+        if normalized
+            .iter()
+            .any(|existing| same_recent_path(existing, &path))
+        {
+            continue;
+        }
+        normalized.push(path);
+        if normalized.len() == RECENT_FOLDERS_LIMIT {
+            break;
+        }
+    }
+    normalized
 }
 
 fn normalize_recent_files(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -544,8 +658,9 @@ mod tests {
     use super::{
         RECENT_FILES_LIMIT, MarkmanConfigDirs, parse_jsonc_value, prune_empty_json_values,
         read_last_workspace_folder_with_dirs, read_recent_files_with_dirs,
-        record_last_workspace_folder_with_dirs, record_recent_file_with_dirs,
-        remove_recent_file_with_dirs, sanitize_config_file_stem, strip_jsonc_comments,
+        read_recent_folders_with_dirs, record_last_workspace_folder_with_dirs,
+        record_recent_file_with_dirs, record_recent_folder_with_dirs,
+        remove_recent_file_with_dirs, remove_recent_folder_with_dirs, sanitize_config_file_stem, strip_jsonc_comments,
     };
     use serde_json::json;
     use std::path::{Path, PathBuf};
@@ -775,6 +890,58 @@ mod tests {
                 .expect("read workspace")
                 .as_deref(),
             Some(workspace.as_path())
+        );
+        assert_eq!(
+            read_recent_folders_with_dirs(&dirs).expect("read recent folders"),
+            vec![workspace.clone()]
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recording_recent_folder_moves_it_to_front_and_truncates() {
+        let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
+        let dirs = MarkmanConfigDirs::from_root(&root);
+
+        for index in 0..(super::RECENT_FOLDERS_LIMIT + 2) {
+            let folder = root.join(format!("folder-{index}"));
+            std::fs::create_dir_all(&folder).expect("create folder");
+            record_recent_folder_with_dirs(&folder, &dirs).expect("record folder");
+        }
+        let middle = root.join("folder-3");
+        record_recent_folder_with_dirs(&middle, &dirs).expect("re-record folder");
+
+        let paths = read_recent_folders_with_dirs(&dirs).unwrap();
+        assert_eq!(paths.len(), super::RECENT_FOLDERS_LIMIT);
+        assert_eq!(paths[0], middle);
+        assert_eq!(
+            paths
+                .iter()
+                .filter(|path| path.as_path() == middle.as_path())
+                .count(),
+            1
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn removing_recent_folder_persists_history_without_it() {
+        let root = std::env::temp_dir().join(format!("velotype-config-{}", uuid::Uuid::new_v4()));
+        let dirs = MarkmanConfigDirs::from_root(&root);
+        let one = root.join("one");
+        let two = root.join("two");
+        std::fs::create_dir_all(&one).expect("create one");
+        std::fs::create_dir_all(&two).expect("create two");
+        record_recent_folder_with_dirs(&one, &dirs).unwrap();
+        record_recent_folder_with_dirs(&two, &dirs).unwrap();
+
+        let paths = remove_recent_folder_with_dirs(&one, &dirs).unwrap();
+        assert_eq!(paths, vec![two.clone()]);
+        assert_eq!(
+            read_recent_folders_with_dirs(&dirs).unwrap(),
+            vec![two]
         );
 
         let _ = std::fs::remove_dir_all(root);

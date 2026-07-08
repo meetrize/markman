@@ -55,6 +55,7 @@ actions!(
         OpenPreferences,
         OpenAiPreferences,
         NoRecentFiles,
+        NoRecentFolders,
         SaveDocumentAs,
         ExportHtml,
         ExportPdf,
@@ -109,6 +110,15 @@ pub struct SelectLanguage {
 #[serde(deny_unknown_fields)]
 pub struct OpenRecentFile {
     /// Path stored in Velotype's recent-file history.
+    pub path: String,
+}
+
+/// Opens a previously recorded workspace folder path.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema, gpui::Action)]
+#[action(namespace = markman)]
+#[serde(deny_unknown_fields)]
+pub struct OpenRecentFolder {
+    /// Path stored in Markman's recent-folder history.
     pub path: String,
 }
 
