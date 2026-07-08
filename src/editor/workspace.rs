@@ -5,7 +5,7 @@ use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
@@ -14,7 +14,7 @@ use super::document_search::{
     document_search_offset_to_utf16, document_search_range_from_utf16,
     document_search_range_to_utf16,
 };
-use super::markdown_files::{collect_markdown_files, is_markdown_file};
+use super::markdown_files::{collect_markdown_files, is_markdown_file, should_skip_workspace_entry_name};
 use super::single_line_input::{
     SingleLineInputTarget, arrow_key_from_event, handle_mouse_down, handle_mouse_move,
     handle_mouse_up, index_for_mouse_position, move_caret_to, prepare_context_menu_selection,
@@ -134,6 +134,7 @@ pub(super) struct WorkspaceState {
     active_tab: WorkspaceTab,
     root: Option<PathBuf>,
     file_tree: Option<WorkspaceTreeNode>,
+    file_tree_busy: bool,
     file_error: Option<String>,
     outline_tree: Vec<WorkspaceTreeNode>,
     outline_source: Option<String>,
@@ -166,6 +167,7 @@ impl Default for WorkspaceState {
             active_tab: WorkspaceTab::default(),
             root: None,
             file_tree: None,
+            file_tree_busy: false,
             file_error: None,
             outline_tree: Vec::new(),
             outline_source: None,
@@ -249,6 +251,7 @@ impl Editor {
         if self.workspace.state.folder_root.is_none() {
             self.workspace.state.root = None;
             self.workspace.state.file_tree = None;
+            self.workspace.state.file_tree_busy = false;
             self.workspace.state.file_error = None;
         }
         self.workspace.state.outline_source = None;
@@ -263,7 +266,7 @@ impl Editor {
     }
 
     fn sync_workspace_models(&mut self, cx: &mut Context<Self>) {
-        self.sync_workspace_file_tree();
+        self.sync_workspace_file_tree(cx);
         self.sync_workspace_outline(cx);
         self.sync_workspace_tag_index(cx);
         self.sync_workspace_tag_index_for_active_file(cx);
@@ -283,9 +286,11 @@ impl Editor {
             .or_else(|| self.workspace_root_for_current_file())
     }
 
-    fn sync_workspace_file_tree(&mut self) {
+    fn sync_workspace_file_tree(&mut self, cx: &mut Context<Self>) {
         let next_root = self.effective_workspace_root();
-        if self.workspace.state.root == next_root && self.workspace.state.file_tree.is_some() {
+        if self.workspace.state.root == next_root
+            && (self.workspace.state.file_tree.is_some() || self.workspace.state.file_tree_busy)
+        {
             self.workspace.state.selected = self
                 .file_path
                 .as_ref()
@@ -296,6 +301,7 @@ impl Editor {
         self.workspace.state.root = next_root.clone();
         self.workspace.state.file_tree = None;
         self.workspace.state.file_error = None;
+        self.workspace.state.file_tree_busy = false;
 
         let Some(root) = next_root else {
             self.workspace.state.selected = None;
@@ -315,19 +321,35 @@ impl Editor {
             return;
         }
 
-        match scan_workspace_dir(&root, self.workspace.state.file_sort) {
-            Ok(tree) => {
-                self.workspace.state.expanded.insert(tree.id.clone());
-                self.workspace.state.file_tree = Some(tree);
-                self.workspace.state.selected = self
-                    .file_path
-                    .as_ref()
-                    .map(|path| WorkspaceSelection::File(path.clone()));
-            }
-            Err(err) => {
-                self.workspace.state.file_error = Some(err.to_string());
-            }
-        }
+        self.workspace.state.file_tree_busy = true;
+        let sort = self.workspace.state.file_sort;
+        let editor = cx.entity().downgrade();
+        cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = scan_workspace_dir(&root, sort);
+            let _ = editor.update(cx, |editor, cx| {
+                if editor.effective_workspace_root().as_deref() != Some(root.as_path()) {
+                    return;
+                }
+                editor.workspace.state.file_tree_busy = false;
+                match result {
+                    Ok(tree) => {
+                        editor.workspace.state.expanded.insert(tree.id.clone());
+                        editor.workspace.state.file_tree = Some(tree);
+                        editor.workspace.state.file_error = None;
+                        editor.workspace.state.selected = editor
+                            .file_path
+                            .as_ref()
+                            .map(|path| WorkspaceSelection::File(path.clone()));
+                    }
+                    Err(err) => {
+                        editor.workspace.state.file_tree = None;
+                        editor.workspace.state.file_error = Some(err.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn sync_workspace_outline(&mut self, cx: &mut Context<Self>) {
@@ -485,7 +507,7 @@ impl Editor {
 
     pub(super) fn workspace_refresh_file_tree(&mut self, cx: &mut Context<Self>) {
         self.workspace.state.root = None;
-        self.sync_workspace_file_tree();
+        self.sync_workspace_file_tree(cx);
         cx.notify();
     }
 
@@ -518,6 +540,7 @@ impl Editor {
         self.workspace.state.folder_root = Some(path);
         self.workspace.state.root = None;
         self.workspace.state.file_tree = None;
+        self.workspace.state.file_tree_busy = false;
         self.workspace.state.file_error = None;
         self.workspace.state.is_open = true;
         self.sync_workspace_models(cx);
@@ -1912,6 +1935,10 @@ impl Editor {
             );
         }
 
+        if self.workspace.state.file_tree_busy {
+            return self.render_workspace_empty_state("", &strings.workspace_files_scanning, theme);
+        }
+
         let Some(root) = self.workspace.state.file_tree.as_ref() else {
             return self.render_workspace_empty_state("", &strings.workspace_empty_files, theme);
         };
@@ -3063,15 +3090,37 @@ fn workspace_search_result_detail(result: &WorkspaceSearchResult) -> String {
 }
 
 fn scan_workspace_dir(path: &Path, sort: WorkspaceFileSort) -> Result<WorkspaceTreeNode> {
+    scan_workspace_dir_inner(path, sort, true).ok_or_else(|| {
+        anyhow::anyhow!("failed to read '{}'", path.display())
+    })
+}
+
+fn scan_workspace_dir_inner(
+    path: &Path,
+    sort: WorkspaceFileSort,
+    is_root: bool,
+) -> Option<WorkspaceTreeNode> {
+    let entries = fs::read_dir(path).ok()?;
     let mut children = Vec::new();
-    for entry in
-        fs::read_dir(path).with_context(|| format!("failed to read '{}'", path.display()))?
-    {
-        let entry = entry?;
+
+    for entry in entries.flatten() {
         let entry_path = entry.path();
-        let file_type = entry.file_type()?;
+        let file_name = entry_path
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_default();
+        if should_skip_workspace_entry_name(&file_name) {
+            continue;
+        }
+
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+
         if file_type.is_dir() {
-            children.push(scan_workspace_dir(&entry_path, sort)?);
+            if let Some(child) = scan_workspace_dir_inner(&entry_path, sort, false) {
+                children.push(child);
+            }
         } else if file_type.is_file() && is_markdown_file(&entry_path) {
             children.push(WorkspaceTreeNode {
                 id: file_node_id(&entry_path),
@@ -3082,9 +3131,13 @@ fn scan_workspace_dir(path: &Path, sort: WorkspaceFileSort) -> Result<WorkspaceT
         }
     }
 
+    if children.is_empty() && !is_root {
+        return None;
+    }
+
     sort_workspace_children(&mut children, sort);
 
-    Ok(WorkspaceTreeNode {
+    Some(WorkspaceTreeNode {
         id: file_node_id(path),
         label: file_label(path),
         kind: WorkspaceTreeKind::Directory(path.to_path_buf()),
@@ -3987,6 +4040,32 @@ mod tests {
         scan_workspace_dir, search_markdown_files, workspace_panel_width_for_viewport,
     };
     use std::fs;
+
+    #[test]
+    fn workspace_scan_skips_heavy_directories() {
+        let root =
+            std::env::temp_dir().join(format!("velotype-workspace-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("notes")).expect("create notes dir");
+        fs::create_dir_all(root.join("node_modules").join("pkg")).expect("create node_modules");
+        fs::write(root.join("notes").join("a.md"), "a").expect("write md");
+        fs::write(
+            root.join("node_modules").join("pkg").join("ignored.md"),
+            "ignored",
+        )
+        .expect("write ignored md");
+
+        let tree = scan_workspace_dir(&root, WorkspaceFileSort::default()).expect("scan tree");
+        let labels = tree
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["notes"]);
+        assert_eq!(tree.children[0].children.len(), 1);
+        assert_eq!(tree.children[0].children[0].label, "a.md");
+
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn workspace_scan_keeps_dirs_and_md_files_only() {

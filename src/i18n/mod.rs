@@ -315,6 +315,8 @@ pub struct I18nStrings {
     pub workspace_no_file_message: String,
     /// Message shown when a workspace directory has no visible Markdown files.
     pub workspace_empty_files: String,
+    /// Message shown while the workspace file tree is scanning.
+    pub workspace_files_scanning: String,
     /// Message shown when the current document has no headings.
     pub workspace_empty_outline: String,
     /// Title shown when the workspace file tree cannot be scanned.
@@ -748,6 +750,7 @@ struct I18nStringsDe {
     workspace_no_file_title: Option<String>,
     workspace_no_file_message: Option<String>,
     workspace_empty_files: Option<String>,
+    workspace_files_scanning: Option<String>,
     workspace_empty_outline: Option<String>,
     workspace_scan_failed_title: Option<String>,
     workspace_menu_new_file: Option<String>,
@@ -1054,6 +1057,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_no_file_title",
     "workspace_no_file_message",
     "workspace_empty_files",
+    "workspace_files_scanning",
     "workspace_empty_outline",
     "workspace_scan_failed_title",
     "workspace_menu_new_file",
@@ -1672,6 +1676,9 @@ impl I18nStringsDe {
             workspace_empty_files: self
                 .workspace_empty_files
                 .unwrap_or(defaults.workspace_empty_files),
+            workspace_files_scanning: self
+                .workspace_files_scanning
+                .unwrap_or(defaults.workspace_files_scanning),
             workspace_empty_outline: self
                 .workspace_empty_outline
                 .unwrap_or(defaults.workspace_empty_outline),
@@ -2236,6 +2243,7 @@ impl I18nStrings {
             workspace_no_file_message: "打开或保存一个 .md 文件后，工作区会使用该文件所在目录。"
                 .into(),
             workspace_empty_files: "没有可显示的 Markdown 文件".into(),
+            workspace_files_scanning: "正在扫描工作区文件…".into(),
             workspace_empty_outline: "当前文档没有标题".into(),
             workspace_scan_failed_title: "无法读取工作区".into(),
             workspace_menu_new_file: "新建 Markdown 文件".into(),
@@ -2561,6 +2569,7 @@ impl I18nStrings {
             workspace_no_file_message:
                 "Open or save a .md file to use its folder as the workspace.".into(),
             workspace_empty_files: "No Markdown files to show".into(),
+            workspace_files_scanning: "Scanning workspace files…".into(),
             workspace_empty_outline: "This document has no headings".into(),
             workspace_scan_failed_title: "Unable to Read Workspace".into(),
             workspace_menu_new_file: "New Markdown File".into(),

@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::markdown_files::should_skip_workspace_entry_name;
+
 /// A workspace file row for flat fuzzy-search results.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct FileSearchResult {
@@ -39,7 +41,7 @@ pub(super) enum FileTreeRow {
 }
 
 pub(super) fn should_skip_entry_name(name: &str) -> bool {
-    name.starts_with('.') || name == "node_modules" || name == "target"
+    should_skip_workspace_entry_name(name)
 }
 
 /// Recursively collects all regular files under `root`, sorted by relative path.
