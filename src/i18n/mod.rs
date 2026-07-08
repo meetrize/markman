@@ -572,6 +572,12 @@ pub struct I18nStrings {
     pub preferences_code_block_default_expanded_label: String,
     /// Preferences label for showing line numbers in code blocks.
     pub preferences_code_block_show_line_numbers_label: String,
+    /// Preferences label for Mermaid flowchart display style.
+    pub preferences_mermaid_style_label: String,
+    /// Mermaid style option: default purple curved connectors.
+    pub preferences_mermaid_style_default: String,
+    /// Mermaid style option: beautified blue orthogonal connectors.
+    pub preferences_mermaid_style_beautified: String,
     /// Preferences label for preview (rendered) font family.
     pub preferences_preview_font_label: String,
     /// Preferences label for source-mode font family.
@@ -900,6 +906,9 @@ struct I18nStringsDe {
     preferences_inline_code_system_terminal_label: Option<String>,
     preferences_code_block_default_expanded_label: Option<String>,
     preferences_code_block_show_line_numbers_label: Option<String>,
+    preferences_mermaid_style_label: Option<String>,
+    preferences_mermaid_style_default: Option<String>,
+    preferences_mermaid_style_beautified: Option<String>,
     preferences_preview_font_label: Option<String>,
     preferences_source_font_label: Option<String>,
     preferences_font_system_mono: Option<String>,
@@ -1218,6 +1227,9 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_inline_code_system_terminal_label",
     "preferences_code_block_default_expanded_label",
     "preferences_code_block_show_line_numbers_label",
+    "preferences_mermaid_style_label",
+    "preferences_mermaid_style_default",
+    "preferences_mermaid_style_beautified",
     "preferences_preview_font_label",
     "preferences_source_font_label",
     "preferences_font_system_mono",
@@ -2092,6 +2104,15 @@ impl I18nStringsDe {
             preferences_code_block_show_line_numbers_label: self
                 .preferences_code_block_show_line_numbers_label
                 .unwrap_or(defaults.preferences_code_block_show_line_numbers_label),
+            preferences_mermaid_style_label: self
+                .preferences_mermaid_style_label
+                .unwrap_or(defaults.preferences_mermaid_style_label),
+            preferences_mermaid_style_default: self
+                .preferences_mermaid_style_default
+                .unwrap_or(defaults.preferences_mermaid_style_default),
+            preferences_mermaid_style_beautified: self
+                .preferences_mermaid_style_beautified
+                .unwrap_or(defaults.preferences_mermaid_style_beautified),
             preferences_preview_font_label: self
                 .preferences_preview_font_label
                 .unwrap_or(defaults.preferences_preview_font_label),
@@ -2454,6 +2475,9 @@ impl I18nStrings {
             preferences_inline_code_system_terminal_label: "行内代码在系统终端中执行".into(),
             preferences_code_block_default_expanded_label: "代码块默认展开".into(),
             preferences_code_block_show_line_numbers_label: "显示代码块行号".into(),
+            preferences_mermaid_style_label: "流程图样式".into(),
+            preferences_mermaid_style_default: "默认（紫色直角）".into(),
+            preferences_mermaid_style_beautified: "美化（蓝色圆角）".into(),
             preferences_preview_font_label: "预览字体".into(),
             preferences_source_font_label: "源码字体".into(),
             preferences_font_system_mono: "系统等宽字体".into(),
@@ -2799,6 +2823,9 @@ impl I18nStrings {
             preferences_inline_code_system_terminal_label: "Run inline code in the system terminal".into(),
             preferences_code_block_default_expanded_label: "Expand code blocks by default".into(),
             preferences_code_block_show_line_numbers_label: "Show code block line numbers".into(),
+            preferences_mermaid_style_label: "Flowchart style".into(),
+            preferences_mermaid_style_default: "Default (purple orthogonal)".into(),
+            preferences_mermaid_style_beautified: "Beautified (blue rounded)".into(),
             preferences_preview_font_label: "Preview font".into(),
             preferences_source_font_label: "Source font".into(),
             preferences_font_system_mono: "System monospace".into(),

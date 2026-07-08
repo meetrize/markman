@@ -19,7 +19,7 @@ use crate::components::{
     shortcut_conflict_for, shortcut_definitions,
 };
 use crate::config::store::{
-    AiPreferences, AppPreferences, DEFAULT_THEME_ID, StartupOpenPreference, read_app_preferences, save_preferences_from_window,
+    AiPreferences, AppPreferences, DEFAULT_THEME_ID, MermaidDisplayStyle, StartupOpenPreference, read_app_preferences, save_preferences_from_window,
 };
 use crate::editor::Editor;
 use crate::i18n::I18nManager;
@@ -90,6 +90,7 @@ pub(crate) struct PreferencesWindow {
     source_font_family: String,
     preview_line_height_x100: u8,
     source_line_height_x100: u8,
+    mermaid_display_style: MermaidDisplayStyle,
     pub(in crate::config::ui::preferences) ai: AiPreferences,
     selected_theme_id: String,
     keybindings: BTreeMap<String, Vec<String>>,
@@ -102,6 +103,7 @@ pub(crate) struct PreferencesWindow {
     saved_source_font_family: String,
     saved_preview_line_height_x100: u8,
     saved_source_line_height_x100: u8,
+    saved_mermaid_display_style: MermaidDisplayStyle,
     saved_ai: AiPreferences,
     saved_theme_id: String,
     saved_keybindings: BTreeMap<String, Vec<String>>,
@@ -111,6 +113,7 @@ pub(crate) struct PreferencesWindow {
     theme_dropdown_open: bool,
     font_dropdown_open: Option<FontDropdownTarget>,
     line_height_dropdown_open: Option<LineHeightDropdownTarget>,
+    mermaid_style_dropdown_open: bool,
     recording_shortcut: Option<ShortcutCommand>,
     shortcut_error: Option<String>,
     ai_input: AiPreferenceInputState,
@@ -143,6 +146,7 @@ impl PreferencesWindow {
         let source_font_family = preferences.source_font_family;
         let preview_line_height_x100 = preferences.preview_line_height_x100;
         let source_line_height_x100 = preferences.source_line_height_x100;
+        let mermaid_display_style = preferences.mermaid_display_style;
         let ai = preferences.ai;
         let keybindings = preferences.keybindings;
         Self {
@@ -156,6 +160,7 @@ impl PreferencesWindow {
             source_font_family: source_font_family.clone(),
             preview_line_height_x100,
             source_line_height_x100,
+            mermaid_display_style,
             ai: ai.clone(),
             selected_theme_id: selected_theme_id.clone(),
             keybindings: keybindings.clone(),
@@ -168,6 +173,7 @@ impl PreferencesWindow {
             saved_source_font_family: source_font_family,
             saved_preview_line_height_x100: preview_line_height_x100,
             saved_source_line_height_x100: source_line_height_x100,
+            saved_mermaid_display_style: mermaid_display_style,
             saved_ai: ai,
             saved_theme_id: selected_theme_id,
             saved_keybindings: keybindings,
@@ -177,6 +183,7 @@ impl PreferencesWindow {
             theme_dropdown_open: false,
             font_dropdown_open: None,
             line_height_dropdown_open: None,
+            mermaid_style_dropdown_open: false,
             recording_shortcut: None,
             shortcut_error: None,
             ai_input: AiPreferenceInputState::new(cx),
@@ -205,6 +212,7 @@ impl PreferencesWindow {
             || self.source_font_family != self.saved_source_font_family
             || self.preview_line_height_x100 != self.saved_preview_line_height_x100
             || self.source_line_height_x100 != self.saved_source_line_height_x100
+            || self.mermaid_display_style != self.saved_mermaid_display_style
             || self.ai != self.saved_ai
             || self.selected_theme_id != self.saved_theme_id
             || normalize_shortcut_config(&self.keybindings)
@@ -216,6 +224,7 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.font_dropdown_open = None;
+        self.mermaid_style_dropdown_open = false;
         self.recording_shortcut = None;
         self.clear_all_ai_text_input_state();
         cx.notify();
@@ -226,6 +235,7 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.font_dropdown_open = None;
+        self.mermaid_style_dropdown_open = false;
         self.recording_shortcut = None;
         self.clear_all_ai_text_input_state();
         cx.notify();
@@ -236,6 +246,7 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.font_dropdown_open = None;
+        self.mermaid_style_dropdown_open = false;
         self.recording_shortcut = None;
         cx.notify();
     }
@@ -523,6 +534,7 @@ impl PreferencesWindow {
         self.theme_dropdown_open = false;
         self.font_dropdown_open = None;
         self.line_height_dropdown_open = None;
+        self.mermaid_style_dropdown_open = false;
         cx.notify();
     }
 
@@ -531,6 +543,7 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.font_dropdown_open = None;
         self.line_height_dropdown_open = None;
+        self.mermaid_style_dropdown_open = false;
         cx.notify();
     }
 
@@ -549,7 +562,24 @@ impl PreferencesWindow {
         self.startup_dropdown_open = false;
         self.theme_dropdown_open = false;
         self.line_height_dropdown_open = None;
+        self.mermaid_style_dropdown_open = false;
         cx.notify();
+    }
+
+    fn toggle_mermaid_style_dropdown(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.mermaid_style_dropdown_open = !self.mermaid_style_dropdown_open;
+        self.startup_dropdown_open = false;
+        self.theme_dropdown_open = false;
+        self.font_dropdown_open = None;
+        self.line_height_dropdown_open = None;
+        cx.notify();
+    }
+
+    fn mermaid_style_label(style: MermaidDisplayStyle, strings: &crate::i18n::I18nStrings) -> String {
+        match style {
+            MermaidDisplayStyle::Default => strings.preferences_mermaid_style_default.clone(),
+            MermaidDisplayStyle::Beautified => strings.preferences_mermaid_style_beautified.clone(),
+        }
     }
 
     fn font_family_label(&self, family: &str, strings: &crate::i18n::I18nStrings) -> String {
@@ -766,6 +796,7 @@ impl PreferencesWindow {
             self.preview_line_height_x100,
             self.source_line_height_x100,
             self.ai.clone(),
+            self.mermaid_display_style,
         ) {
             Ok(preferences) => preferences,
             Err(err) => {
@@ -816,6 +847,7 @@ impl PreferencesWindow {
         self.saved_source_font_family = self.source_font_family.clone();
         self.saved_preview_line_height_x100 = self.preview_line_height_x100;
         self.saved_source_line_height_x100 = self.source_line_height_x100;
+        self.saved_mermaid_display_style = self.mermaid_display_style;
         self.saved_ai = self.ai.clone();
         self.saved_theme_id = self.selected_theme_id.clone();
         self.saved_keybindings = normalize_shortcut_config(&self.keybindings);
@@ -1021,6 +1053,48 @@ impl PreferencesWindow {
         } else {
             strings.preferences_allow_code_execution_off.clone()
         };
+        let selected_mermaid_style =
+            Self::mermaid_style_label(self.mermaid_display_style, strings);
+        let mut mermaid_style_dropdown = div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(Self::dropdown_button(
+                "preferences-mermaid-style-dropdown",
+                selected_mermaid_style,
+                theme,
+                Self::toggle_mermaid_style_dropdown,
+                cx,
+            ));
+        if self.mermaid_style_dropdown_open {
+            let default_style_label = strings.preferences_mermaid_style_default.clone();
+            let beautified_style_label = strings.preferences_mermaid_style_beautified.clone();
+            mermaid_style_dropdown = mermaid_style_dropdown
+                .child(Self::dropdown_item(
+                    "preferences-mermaid-style-default",
+                    default_style_label,
+                    self.mermaid_display_style == MermaidDisplayStyle::Default,
+                    theme,
+                    |this, _, _, cx| {
+                        this.mermaid_display_style = MermaidDisplayStyle::Default;
+                        this.mermaid_style_dropdown_open = false;
+                        cx.notify();
+                    },
+                    cx,
+                ))
+                .child(Self::dropdown_item(
+                    "preferences-mermaid-style-beautified",
+                    beautified_style_label,
+                    self.mermaid_display_style == MermaidDisplayStyle::Beautified,
+                    theme,
+                    |this, _, _, cx| {
+                        this.mermaid_display_style = MermaidDisplayStyle::Beautified;
+                        this.mermaid_style_dropdown_open = false;
+                        cx.notify();
+                    },
+                    cx,
+                ));
+        }
 
         div()
             .flex()
@@ -1093,6 +1167,11 @@ impl PreferencesWindow {
                     theme,
                 )
             })
+            .child(self.labeled_row(
+                &strings.preferences_mermaid_style_label,
+                mermaid_style_dropdown,
+                theme,
+            ))
             .child(self.labeled_row(
                 &strings.preferences_preview_font_label,
                 self.render_font_dropdown(

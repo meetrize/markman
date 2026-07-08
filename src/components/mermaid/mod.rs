@@ -1,5 +1,7 @@
 //! Mermaid fenced-block parsing and SVG rendering helpers.
 
+mod style;
+
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -9,6 +11,7 @@ use anyhow::{Context as _, anyhow};
 use directories::ProjectDirs;
 
 use crate::app_identity::MARKMAN_PROJECT_QUALIFIER;
+use crate::config::{MermaidDisplayStyle, read_app_preferences};
 
 const MERMAID_MIN_DISPLAY_SCALE: f32 = 0.1;
 const MERMAID_MAX_DISPLAY_SCALE: f32 = 4.0;
@@ -125,13 +128,37 @@ pub(crate) fn render_mermaid_svg_for_display(
     available_width: f32,
     available_height: f32,
     device_scale: f32,
+    style: MermaidDisplayStyle,
 ) -> anyhow::Result<MermaidSvgRender> {
     render_mermaid_svg_for_display_with(
         source,
         available_width,
         available_height,
         device_scale,
+        style,
         render_mermaid_raw,
+    )
+}
+
+fn mermaid_display_style_from_preferences() -> MermaidDisplayStyle {
+    read_app_preferences()
+        .map(|preferences| preferences.mermaid_display_style)
+        .unwrap_or_default()
+}
+
+/// Render Mermaid source using the persisted display style preference.
+pub(crate) fn render_mermaid_svg_for_display_from_preferences(
+    source: &MermaidSource,
+    available_width: f32,
+    available_height: f32,
+    device_scale: f32,
+) -> anyhow::Result<MermaidSvgRender> {
+    render_mermaid_svg_for_display(
+        source,
+        available_width,
+        available_height,
+        device_scale,
+        mermaid_display_style_from_preferences(),
     )
 }
 
@@ -140,11 +167,12 @@ fn render_mermaid_svg_for_display_with(
     available_width: f32,
     available_height: f32,
     device_scale: f32,
+    style: MermaidDisplayStyle,
     renderer: MermaidRenderer,
 ) -> anyhow::Result<MermaidSvgRender> {
-    let base_key = mermaid_cache_key(&source.body);
+    let base_key = mermaid_cache_key(&source.body, style);
     let base_path = mermaid_base_cache_path(&base_key)?;
-    let base_svg = render_mermaid_to_svg_cached_with(&source.body, &base_path, renderer)?;
+    let base_svg = render_mermaid_to_svg_cached_with(&source.body, style, &base_path, renderer)?;
     let intrinsic = mermaid_svg_intrinsic_size(&base_svg)?;
     let scale = mermaid_display_scale(
         &source.body,
@@ -154,7 +182,7 @@ fn render_mermaid_svg_for_display_with(
         available_height,
     );
 
-    let display_key = mermaid_display_cache_key(&source.body, scale, device_scale);
+    let display_key = mermaid_display_cache_key(&source.body, style, scale, device_scale);
     let display_path = mermaid_display_cache_path(&display_key)?;
     if display_path.exists() {
         let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
@@ -186,15 +214,23 @@ fn render_mermaid_svg_for_display_with(
 
 /// Render a Mermaid diagram body into cached SVG text.
 pub(crate) fn render_mermaid_to_svg(source: &str) -> anyhow::Result<String> {
-    let key = mermaid_cache_key(source);
-    let path = mermaid_base_cache_path(&key)?;
-    render_mermaid_to_svg_cached_with(source, &path, render_mermaid_raw)
+    render_mermaid_to_svg_with_style(source, mermaid_display_style_from_preferences())
 }
 
-type MermaidRenderer = fn(&str) -> anyhow::Result<String>;
+pub(crate) fn render_mermaid_to_svg_with_style(
+    source: &str,
+    style: MermaidDisplayStyle,
+) -> anyhow::Result<String> {
+    let key = mermaid_cache_key(source, style);
+    let path = mermaid_base_cache_path(&key)?;
+    render_mermaid_to_svg_cached_with(source, style, &path, render_mermaid_raw)
+}
+
+type MermaidRenderer = fn(&str, MermaidDisplayStyle) -> anyhow::Result<String>;
 
 fn render_mermaid_to_svg_cached_with(
     source: &str,
+    style: MermaidDisplayStyle,
     path: &Path,
     renderer: MermaidRenderer,
 ) -> anyhow::Result<String> {
@@ -204,7 +240,7 @@ fn render_mermaid_to_svg_cached_with(
         });
     }
 
-    let svg = renderer(source)?;
+    let svg = renderer(source, style)?;
     fs::write(path, &svg).with_context(|| {
         format!(
             "failed to write Mermaid base SVG cache '{}'",
@@ -214,19 +250,17 @@ fn render_mermaid_to_svg_cached_with(
     Ok(svg)
 }
 
-fn render_mermaid_raw(source: &str) -> anyhow::Result<String> {
+fn render_mermaid_raw(source: &str, style: MermaidDisplayStyle) -> anyhow::Result<String> {
     if !looks_like_supported_mermaid_source(source) {
         return Err(anyhow::anyhow!("unsupported Mermaid diagram"));
     }
-    let mut options = mermaid_rs_renderer::RenderOptions::modern();
-    options.theme.font_family = mermaid_theme_font_family().to_string();
-    options.theme.font_size = 16.0;
+    let options = style::mermaid_render_options(style, mermaid_theme_font_family());
     let svg =
         mermaid_rs_renderer::render_with_options(source, options).map_err(|err| anyhow::anyhow!("{err}"))?;
     if svg.contains("class=\"error-text\"") || svg.contains("Syntax error in text") {
         return Err(anyhow::anyhow!("Mermaid syntax error"));
     }
-    Ok(patch_mermaid_svg_for_display(&svg))
+    Ok(patch_mermaid_svg_for_display(&svg, style))
 }
 
 /// Embedded Source Han Sans SC (思源黑体) for consistent Mermaid label rendering.
@@ -249,10 +283,10 @@ fn mermaid_resvg_font_stack() -> &'static str {
 }
 
 /// Rewrites Mermaid SVG so resvg can resolve CJK labels reliably.
-fn patch_mermaid_svg_for_display(svg: &str) -> String {
+fn patch_mermaid_svg_for_display(svg: &str, style: MermaidDisplayStyle) -> String {
     let mut patched = inject_mermaid_svg_font_fallbacks(svg);
     patched = substitute_unrenderable_emoji_in_svg(&patched);
-    patched
+    style::apply_mermaid_display_style(&patched, style)
 }
 
 fn mermaid_display_font_stack() -> String {
@@ -402,17 +436,23 @@ fn substitute_unrenderable_emoji_in_svg(svg: &str) -> String {
 }
 
 /// Stable cache key for Mermaid content.
-pub(crate) fn mermaid_cache_key(source: &str) -> String {
+pub(crate) fn mermaid_cache_key(source: &str, style: MermaidDisplayStyle) -> String {
     let mut hasher = DefaultHasher::new();
-    "mermaid-svg-v8".hash(&mut hasher);
+    "mermaid-svg-v11".hash(&mut hasher);
+    style.as_str().hash(&mut hasher);
     source.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
 /// Stable cache key for editor display PNG content, layout scale, and device scale.
-pub(crate) fn mermaid_display_cache_key(source: &str, scale: f32, device_scale: f32) -> String {
+pub(crate) fn mermaid_display_cache_key(
+    source: &str,
+    style: MermaidDisplayStyle,
+    scale: f32,
+    device_scale: f32,
+) -> String {
     let mut hasher = DefaultHasher::new();
-    mermaid_cache_key(source).hash(&mut hasher);
+    mermaid_cache_key(source, style).hash(&mut hasher);
     scale.max(0.1).to_bits().hash(&mut hasher);
     device_scale.clamp(1.0, 3.0).to_bits().hash(&mut hasher);
     format!("{:016x}", hasher.finish())
@@ -744,13 +784,14 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     static TEST_RENDERER_CALLS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+    const TEST_STYLE: MermaidDisplayStyle = MermaidDisplayStyle::Default;
 
-    fn test_renderer(source: &str) -> anyhow::Result<String> {
+    fn test_renderer(source: &str, style: MermaidDisplayStyle) -> anyhow::Result<String> {
         let calls = TEST_RENDERER_CALLS.get_or_init(|| Mutex::new(HashMap::new()));
         let mut calls = calls.lock().expect("renderer calls mutex poisoned");
         *calls.entry(source.to_string()).or_default() += 1;
         drop(calls);
-        render_mermaid_raw(source)
+        render_mermaid_raw(source, style)
     }
 
     fn reset_renderer_calls(source: &str) {
@@ -817,8 +858,17 @@ mod tests {
     #[test]
     fn cache_key_changes_with_source() {
         assert_ne!(
-            mermaid_cache_key("flowchart LR\nA --> B"),
-            mermaid_cache_key("flowchart LR\nA --> C")
+            mermaid_cache_key("flowchart LR\nA --> B", TEST_STYLE),
+            mermaid_cache_key("flowchart LR\nA --> C", TEST_STYLE)
+        );
+    }
+
+    #[test]
+    fn cache_key_changes_with_style() {
+        let source = "flowchart LR\nA --> B";
+        assert_ne!(
+            mermaid_cache_key(source, MermaidDisplayStyle::Default),
+            mermaid_cache_key(source, MermaidDisplayStyle::Beautified)
         );
     }
 
@@ -852,8 +902,8 @@ mod tests {
     fn display_cache_key_changes_with_scale() {
         let source = "flowchart LR\nA --> B";
         assert_ne!(
-            mermaid_display_cache_key(source, 1.0, 2.0),
-            mermaid_display_cache_key(source, 2.0, 2.0)
+            mermaid_display_cache_key(source, TEST_STYLE, 1.0, 2.0),
+            mermaid_display_cache_key(source, TEST_STYLE, 2.0, 2.0)
         );
     }
 
@@ -976,7 +1026,8 @@ mod tests {
     fn display_render_uses_scaled_intrinsic_size() {
         let source =
             parse_mermaid_fence_source("```mermaid\nflowchart LR\nA --> B\n```").expect("source");
-        let rendered = render_mermaid_svg_for_display(&source, 720.0, 960.0, 2.0).expect("display png");
+        let rendered = render_mermaid_svg_for_display(&source, 720.0, 960.0, 2.0, TEST_STYLE)
+            .expect("display png");
 
         assert!(rendered.display_width > 1.0);
         assert!(rendered.display_height > 1.0);
@@ -997,6 +1048,36 @@ mod tests {
     }
 
     #[test]
+    fn default_style_renders_purple_theme_colors() {
+        let svg = render_mermaid_to_svg_with_style(
+            "flowchart TD\nA[Start] --> B{Decision?}",
+            MermaidDisplayStyle::Default,
+        )
+        .expect("svg");
+        assert!(svg.contains("#EFEFFF") || svg.contains("#efefff"));
+        assert!(svg.contains("#A090E0") || svg.contains("#a090e0"));
+    }
+
+    #[test]
+    fn beautified_style_renders_blue_theme_and_rounded_edges() {
+        let svg = render_mermaid_to_svg_with_style(
+            "flowchart TD\nA[Start] --> B[Step]\nB --> C[End]",
+            MermaidDisplayStyle::Beautified,
+        )
+        .expect("svg");
+        assert!(svg.contains("#E8F0FA") || svg.contains("#e8f0fa"));
+        assert!(svg.contains("#7BA3C9") || svg.contains("#7ba3c9"));
+        assert!(svg.contains("rx=\"8\""));
+        if let Some(edge) = svg.split("class=\"edgePath\"").nth(1) {
+            let path = edge.split("/>").next().unwrap_or("");
+            assert!(
+                path.contains('Q') || path.contains('L'),
+                "expected routed edge path, got {path}"
+            );
+        }
+    }
+
+    #[test]
     fn invalid_mermaid_returns_error() {
         assert!(render_mermaid_to_svg("not a real mermaid diagram ::::").is_err());
     }
@@ -1004,17 +1085,31 @@ mod tests {
     #[test]
     fn display_cache_hit_does_not_call_renderer_again() {
         let source = unique_mermaid_source("display-cache-hit-does-not-call-renderer-again");
-        let base_key = mermaid_cache_key(&source.body);
+        let base_key = mermaid_cache_key(&source.body, TEST_STYLE);
         let base_path = mermaid_base_cache_path(&base_key).expect("base path");
         remove_cache_file(&base_path);
 
         reset_renderer_calls(&source.body);
-        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
+        let first = render_mermaid_svg_for_display_with(
+            &source,
+            720.0,
+            960.0,
+            2.0,
+            TEST_STYLE,
+            test_renderer,
+        )
             .expect("first render");
         assert_eq!(renderer_calls(&source.body), 1);
         let display_path = first.path.clone();
 
-        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
+        let second = render_mermaid_svg_for_display_with(
+            &source,
+            720.0,
+            960.0,
+            2.0,
+            TEST_STYLE,
+            test_renderer,
+        )
             .expect("cached render");
         assert_eq!(renderer_calls(&source.body), 1);
         assert_eq!(second.path, display_path);
@@ -1038,17 +1133,31 @@ mod tests {
     #[test]
     fn display_cache_miss_reuses_base_cache() {
         let source = unique_mermaid_source("display-cache-miss-reuses-base-cache");
-        let base_key = mermaid_cache_key(&source.body);
+        let base_key = mermaid_cache_key(&source.body, TEST_STYLE);
         let base_path = mermaid_base_cache_path(&base_key).expect("base path");
         remove_cache_file(&base_path);
 
         reset_renderer_calls(&source.body);
-        let first = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
+        let first = render_mermaid_svg_for_display_with(
+            &source,
+            720.0,
+            960.0,
+            2.0,
+            TEST_STYLE,
+            test_renderer,
+        )
             .expect("first render");
         assert_eq!(renderer_calls(&source.body), 1);
         remove_cache_file(&first.path);
 
-        let second = render_mermaid_svg_for_display_with(&source, 720.0, 960.0, 2.0, test_renderer)
+        let second = render_mermaid_svg_for_display_with(
+            &source,
+            720.0,
+            960.0,
+            2.0,
+            TEST_STYLE,
+            test_renderer,
+        )
             .expect("display rebuild");
         assert_eq!(renderer_calls(&source.body), 1);
         assert!(second.path.exists());
@@ -1062,16 +1171,30 @@ mod tests {
     #[test]
     fn display_scale_change_reuses_base_cache_with_new_display_file() {
         let source = unique_mermaid_source("display-scale-change-reuses-base-cache");
-        let base_key = mermaid_cache_key(&source.body);
+        let base_key = mermaid_cache_key(&source.body, TEST_STYLE);
         let base_path = mermaid_base_cache_path(&base_key).expect("base path");
         remove_cache_file(&base_path);
 
         reset_renderer_calls(&source.body);
-        let narrow = render_mermaid_svg_for_display_with(&source, 240.0, 320.0, 2.0, test_renderer)
+        let narrow = render_mermaid_svg_for_display_with(
+            &source,
+            240.0,
+            320.0,
+            2.0,
+            TEST_STYLE,
+            test_renderer,
+        )
             .expect("narrow render");
         assert_eq!(renderer_calls(&source.body), 1);
 
-        let wide = render_mermaid_svg_for_display_with(&source, 900.0, 1200.0, 2.0, test_renderer)
+        let wide = render_mermaid_svg_for_display_with(
+            &source,
+            900.0,
+            1200.0,
+            2.0,
+            TEST_STYLE,
+            test_renderer,
+        )
             .expect("wide render");
         assert_eq!(renderer_calls(&source.body), 1);
         assert!(wide.path.exists());

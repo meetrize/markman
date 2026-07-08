@@ -52,6 +52,32 @@ impl StartupOpenPreference {
     }
 }
 
+/// Visual style for rendered Mermaid flowcharts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Hash)]
+pub(crate) enum MermaidDisplayStyle {
+    /// Purple nodes with sharp orthogonal connectors.
+    #[default]
+    Default,
+    /// Light-blue nodes with orthogonal connectors and rounded corners.
+    Beautified,
+}
+
+impl MermaidDisplayStyle {
+    pub(crate) fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "beautified" | "blue" => Self::Beautified,
+            _ => Self::Default,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Beautified => "beautified",
+        }
+    }
+}
+
 /// User preferences persisted under the app config directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AppPreferences {
@@ -81,6 +107,8 @@ pub(crate) struct AppPreferences {
     pub(crate) format_toolbar: Vec<FormatToolbarButtonConfig>,
     /// Document zoom stored as hundredths (`120` = 1.20×).
     pub(crate) document_zoom_x100: u16,
+    /// Mermaid flowchart rendering style.
+    pub(crate) mermaid_display_style: MermaidDisplayStyle,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,6 +157,7 @@ impl Default for AppPreferences {
             ai: AiPreferences::default(),
             format_toolbar: default_format_toolbar_button_configs(),
             document_zoom_x100: crate::theme::DEFAULT_DOCUMENT_ZOOM_X100,
+            mermaid_display_style: MermaidDisplayStyle::Default,
         }
     }
 }
@@ -145,6 +174,12 @@ struct PreferencesFile {
     ai: AiPreferencesFile,
     format_toolbar: Vec<FormatToolbarButtonConfigFile>,
     editor: EditorPreferencesFile,
+    mermaid: MermaidPreferencesFile,
+}
+
+#[derive(Serialize)]
+struct MermaidPreferencesFile {
+    display_style: String,
 }
 
 #[derive(Serialize)]
@@ -250,6 +285,9 @@ impl From<&AppPreferences> for PreferencesFile {
                 .collect(),
             editor: EditorPreferencesFile {
                 document_zoom_x100: value.document_zoom_x100,
+            },
+            mermaid: MermaidPreferencesFile {
+                display_style: value.mermaid_display_style.as_str().into(),
             },
         }
     }
@@ -387,6 +425,12 @@ fn app_preferences_from_toml_value(
             value.clamp(50, 300) as u16
         })
         .unwrap_or(crate::theme::DEFAULT_DOCUMENT_ZOOM_X100);
+    let mermaid_display_style = value
+        .get("mermaid")
+        .and_then(|section| section.get("display_style"))
+        .and_then(|value| value.as_str())
+        .map(MermaidDisplayStyle::parse)
+        .unwrap_or_default();
 
     AppPreferences {
         startup_open,
@@ -405,6 +449,7 @@ fn app_preferences_from_toml_value(
         ai,
         format_toolbar,
         document_zoom_x100,
+        mermaid_display_style,
     }
 }
 
@@ -523,6 +568,7 @@ pub(crate) fn save_preferences_from_window(
     preview_line_height_x100: u8,
     source_line_height_x100: u8,
     ai: AiPreferences,
+    mermaid_display_style: MermaidDisplayStyle,
 ) -> anyhow::Result<AppPreferences> {
     let dirs = MarkmanConfigDirs::from_system()?;
     save_preferences_from_window_with_dirs(
@@ -538,6 +584,7 @@ pub(crate) fn save_preferences_from_window(
         preview_line_height_x100,
         source_line_height_x100,
         ai,
+        mermaid_display_style,
         &dirs,
     )
 }
@@ -555,6 +602,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preview_line_height_x100: u8,
     source_line_height_x100: u8,
     ai: AiPreferences,
+    mermaid_display_style: MermaidDisplayStyle,
     dirs: &MarkmanConfigDirs,
 ) -> anyhow::Result<AppPreferences> {
     let mut preferences =
@@ -571,6 +619,7 @@ pub(crate) fn save_preferences_from_window_with_dirs(
     preferences.preview_line_height_x100 = preview_line_height_x100;
     preferences.source_line_height_x100 = source_line_height_x100;
     preferences.ai = ai;
+    preferences.mermaid_display_style = mermaid_display_style;
     preferences.ai.selection_toolbar =
         normalize_ai_selection_toolbar_buttons(preferences.ai.selection_toolbar);
     preferences.format_toolbar =
@@ -593,7 +642,7 @@ pub(crate) fn update_app_preferences(
 #[cfg(test)]
 mod tests {
     use super::{
-        AiPreferences, AppPreferences, StartupOpenPreference,
+        AiPreferences, AppPreferences, MermaidDisplayStyle, StartupOpenPreference,
         load_or_create_app_preferences_with_dirs_and_locales, read_app_preferences_with_dirs,
         save_app_preferences_with_dirs, save_preferences_from_window_with_dirs,
     };
@@ -770,6 +819,7 @@ mod tests {
             default_preview_line_height_x100(),
             default_source_line_height_x100(),
             AiPreferences::default(),
+            MermaidDisplayStyle::Default,
             &dirs,
         )
         .expect("window preferences should save");

@@ -5,7 +5,7 @@ use gpui::*;
 use super::super::element::BlockTextElement;
 use super::shared::{effective_image_width, mermaid_available_height};
 use super::super::Block;
-use crate::components::{parse_mermaid_fence_source, render_mermaid_svg_for_display};
+use crate::components::{parse_mermaid_fence_source, render_mermaid_svg_for_display_from_preferences};
 use crate::theme::Theme;
 
 impl Block {
@@ -54,7 +54,7 @@ impl Block {
                 .into_any_element();
         };
 
-        match render_mermaid_svg_for_display(
+        match render_mermaid_svg_for_display_from_preferences(
             &source,
             available_width,
             available_height,

@@ -1,7 +1,7 @@
 //! Persistent app preferences and the preferences window.
 
 pub(crate) use super::store::{
-    AiPreferences, StartupOpenPreference, first_existing_recent_markdown_file,
+    AiPreferences, MermaidDisplayStyle, StartupOpenPreference, first_existing_recent_markdown_file,
     load_or_create_app_preferences, read_app_preferences,
     set_code_execution_confirm_shown,
 };
