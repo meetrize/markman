@@ -24,9 +24,9 @@ fn clamp_source_byte_range(source: &str, range: Range<usize>) -> Range<usize> {
 
 /// Cross-block selection with endpoints ordered by visible block position.
 #[derive(Clone, Copy)]
-struct NormalizedCrossBlockSelection {
-    start: CrossBlockSelectionEndpoint,
-    end: CrossBlockSelectionEndpoint,
+pub(super) struct NormalizedCrossBlockSelection {
+    pub(super) start: CrossBlockSelectionEndpoint,
+    pub(super) end: CrossBlockSelectionEndpoint,
     start_index: usize,
     end_index: usize,
     reversed: bool,
@@ -105,6 +105,9 @@ impl Editor {
     }
 
     fn begin_cross_block_drag_at_point(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        // 保存当前选择，供工具栏按钮使用（工具栏按钮的处理器在此函数清除选择后才执行）
+        self.pre_drag_cross_block_selection = self.cross_block_selection.clone();
+
         let had_selection = self.cross_block_selection.take().is_some();
         let changed_visuals = self.clear_cross_block_selection_visuals(cx);
         let changed = had_selection || changed_visuals;
@@ -190,6 +193,8 @@ impl Editor {
             self.apply_rendered_word_or_line_selection(event, window, cx);
         }
         self.cross_block_drag = None;
+        // 清除保存的拖拽前选择，防止变成过期数据
+        self.pre_drag_cross_block_selection = None;
         self.end_block_pointer_selection_sessions(cx);
     }
 
@@ -439,7 +444,7 @@ impl Editor {
         self.normalize_cross_block_selection(selection, cx)
     }
 
-    fn normalize_cross_block_selection(
+    pub(super) fn normalize_cross_block_selection(
         &self,
         selection: CrossBlockSelection,
         cx: &App,
@@ -457,6 +462,8 @@ impl Editor {
         } else {
             (anchor, focus, anchor_index, focus_index)
         };
+        // 只有在同一块内且相同偏移时才返回 None（表示无选择）
+        // 跨块选择即使端点相同也应继续处理
         if start_index == end_index && start.offset == end.offset {
             return None;
         }
@@ -525,35 +532,43 @@ impl Editor {
         }
     }
 
-    fn source_mapping_by_entity_id(&self, cx: &App) -> HashMap<EntityId, SourceTargetMapping> {
+    pub(super) fn source_mapping_by_entity_id(&self, cx: &App) -> HashMap<EntityId, SourceTargetMapping> {
         self.build_source_target_mappings(cx)
             .into_iter()
             .map(|mapping| (mapping.entity.entity_id(), mapping))
             .collect()
     }
 
-    fn endpoint_source_offset(
+    /// Converts a cross-block selection endpoint to a byte offset in the source document.
+    /// Uses a HashMap-based mapping for O(1) entity lookups.
+    pub(super) fn endpoint_source_offset(
         &self,
         endpoint: CrossBlockSelectionEndpoint,
         mappings: &HashMap<EntityId, SourceTargetMapping>,
         cx: &App,
     ) -> Option<usize> {
-        let mapping = mappings.get(&endpoint.entity_id)?;
+        let mapping = mappings.get(&endpoint.entity_id).or_else(|| {
+            eprintln!("[endpoint_source] entity {:?} NOT in mappings ({} entries)", endpoint.entity_id, mappings.len());
+            None
+        })?;
         let block = mapping.entity.read(cx);
         let visible_len = block.visible_len();
         if endpoint.offset == 0 {
             return Some(mapping.full_source_range.start);
         }
         if endpoint.offset >= visible_len {
+            eprintln!("[endpoint_source] offset={} >= visible_len={} → range.end={}", endpoint.offset, visible_len, mapping.full_source_range.end);
             return Some(mapping.full_source_range.end);
         }
         let markdown_offset = block
             .current_range_to_markdown_range(endpoint.offset..endpoint.offset)
             .start;
         let max_content = mapping.content_to_source.len().saturating_sub(1);
+        let idx = markdown_offset.min(max_content);
+        eprintln!("[endpoint_source] offset={} markdown_off={} idx={} content_to_source_len={}", endpoint.offset, markdown_offset, idx, mapping.content_to_source.len());
         Some(
             mapping.full_source_range.start
-                + mapping.content_to_source[markdown_offset.min(max_content)],
+                + mapping.content_to_source[idx],
         )
     }
 
@@ -718,9 +733,46 @@ impl Editor {
         cx: &App,
     ) -> Option<Range<usize>> {
         let mappings = self.source_mapping_by_entity_id(cx);
-        let start = self.endpoint_source_offset(selection.start, &mappings, cx)?;
-        let end = self.endpoint_source_offset(selection.end, &mappings, cx)?;
-        Some(start.min(end)..start.max(end))
+        let start = self.endpoint_source_offset(selection.start, &mappings, cx);
+        let end = self.endpoint_source_offset(selection.end, &mappings, cx);
+
+        // If both endpoints resolved, we're done.
+        if let (Some(s), Some(e)) = (start, end) {
+            return Some(s.min(e)..s.max(e));
+        }
+
+        // Fallback: some entities are not in the root-block-based source mapping
+        // (e.g. virtual lines within a code block, or empty separator blocks).
+        // Walk the visible blocks within the selection to find the first and last
+        // blocks that ARE in the mapping, and use their source range boundaries.
+        let visible = self.document.visible_blocks();
+        let first_mapped = (selection.start_index..=selection.end_index)
+            .find_map(|idx| {
+                let entity = visible.get(idx)?.entity.entity_id();
+                mappings.get(&entity).map(|m| (m, idx))
+            });
+        let last_mapped = (selection.start_index..=selection.end_index)
+            .rev()
+            .find_map(|idx| {
+                let entity = visible.get(idx)?.entity.entity_id();
+                mappings.get(&entity).map(|m| (m, idx))
+            });
+
+        match (first_mapped, last_mapped) {
+            (Some((first_m, first_idx)), Some((_last_m, _last_idx))) if first_idx == _last_idx => {
+                // Only one mapped block in the selection — use its full source range
+                Some(first_m.full_source_range.clone())
+            }
+            (Some((first_m, _)), Some((last_m, _))) => {
+                // Use the start of the first mapped block and the end of the last
+                Some(first_m.full_source_range.start..last_m.full_source_range.end)
+            }
+            _ => {
+                // No mapped blocks found in the selection
+                eprintln!("[source_range_fallback] no mapped blocks found in selection range {}..{}", selection.start_index, selection.end_index);
+                None
+            }
+        }
     }
 
     pub(in crate::editor) fn selection_source_byte_range(
@@ -837,9 +889,13 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> bool {
         let Some(selection) = self.normalized_cross_block_selection(cx) else {
+            eprintln!("[replace_cross] normalized_cross_block_selection returned None");
             return false;
         };
         let Some(source_range) = self.cross_block_source_range_for_normalized(selection, cx) else {
+            eprintln!("[replace_cross] cross_block_source_range_for_normalized returned None");
+            eprintln!("[replace_cross]   selection.start=(entity={:?}, offset={})", selection.start.entity_id, selection.start.offset);
+            eprintln!("[replace_cross]   selection.end=(entity={:?}, offset={})", selection.end.entity_id, selection.end.offset);
             return false;
         };
 
@@ -878,6 +934,92 @@ impl Editor {
         self.sync_table_axis_visuals(cx);
         self.dismiss_contextual_overlays(cx);
         self.sync_cross_block_selection_visuals(cx);
+        self.request_active_block_scroll_into_view(cx);
+        cx.notify();
+        true
+    }
+
+    pub(super) fn cross_block_selected_plain_text(&self, cx: &App) -> Option<String> {
+        let selection = self.normalized_cross_block_selection(cx)?;
+        let visible = self.document.visible_blocks();
+        let mut chunks = Vec::new();
+
+        for index in selection.start_index..=selection.end_index {
+            let entity = visible.get(index)?.entity.clone();
+            let block = entity.read(cx);
+            let len = block.visible_len();
+            let range = if selection.start_index == selection.end_index {
+                selection.start.offset.min(len)..selection.end.offset.min(len)
+            } else if index == selection.start_index {
+                selection.start.offset.min(len)..len
+            } else if index == selection.end_index {
+                0..selection.end.offset.min(len)
+            } else {
+                0..len
+            };
+            let include_empty_middle =
+                len == 0 && selection.start_index < index && index < selection.end_index;
+            if range.is_empty() && !include_empty_middle {
+                continue;
+            }
+            if include_empty_middle {
+                chunks.push(String::new());
+            } else {
+                chunks.push(block.display_text()[range].to_string());
+            }
+        }
+
+        Some(chunks.join("\n"))
+    }
+
+    pub(super) fn selected_plain_text_for_code_block(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<String> {
+        if let Some(text) = self.cross_block_selected_plain_text(cx) {
+            return Some(text);
+        }
+        let block = self.focused_edit_target(window, cx)?;
+        let block_ref = block.read(cx);
+        let range = ai_context::block_text_selection_range(block_ref)?;
+        if range.is_empty() {
+            return None;
+        }
+        Some(block_ref.display_text()[range].to_string())
+    }
+
+    pub(super) fn convert_selected_text_to_code_block_from_toolbar(
+        &mut self,
+        language: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(plain) = self.selected_plain_text_for_code_block(window, cx) else {
+            return false;
+        };
+        if plain.is_empty() {
+            return false;
+        }
+        let Some(source_range) = self.selection_source_byte_range(window, cx) else {
+            return false;
+        };
+        if source_range.is_empty() {
+            return false;
+        }
+
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        let fenced = format!("```{language}\n{plain}\n```");
+        let mut source = self.current_document_source(cx);
+        let start = source_range.start.min(source.len());
+        let end = source_range.end.min(source.len());
+        source.replace_range(start..end, &fenced);
+        self.cross_block_selection = None;
+        self.cross_block_drag = None;
+        self.rebuild_after_cross_block_source_edit(source, cx);
+        self.sync_cross_block_selection_visuals(cx);
+        self.mark_dirty(cx);
+        self.finalize_pending_undo_capture(cx);
         self.request_active_block_scroll_into_view(cx);
         cx.notify();
         true
@@ -1421,6 +1563,48 @@ mod tests {
             assert_eq!(
                 editor.cross_block_selected_markdown(cx).as_deref(),
                 Some("pha\nbeta\nga")
+            );
+        });
+        cx.quit();
+    }
+
+    #[test]
+    fn toolbar_code_block_includes_all_cross_block_selected_lines() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor = cx.new(|cx| {
+            Editor::from_markdown(
+                cx,
+                "line one\n\nline two\n\nline three".to_string(),
+                None,
+            )
+        });
+
+        editor.update(&mut cx, |editor, cx| {
+            // Verify the document is parsed into 3 blocks (no empty separator blocks).
+            // The \n\n between lines creates block boundaries but does not produce
+            // separate empty blocks — each surrounding block absorbs trailing newlines.
+            let visible = editor.document.visible_blocks();
+            assert_eq!(visible.len(), 3, "expected 3 blocks");
+
+            set_selection(editor, 0, 0, 2, 10, cx);
+            // Selection 0..2 with offsets 0..10 includes all 3 blocks.
+            assert_eq!(
+                editor.cross_block_selected_plain_text(cx).as_deref(),
+                Some("line one\nline two\nline three")
+            );
+            let fenced = "```javascript\nline one\nline two\nline three\n```";
+            assert!(editor.replace_cross_block_selection_with_text(
+                fenced,
+                None,
+                false,
+                UndoCaptureKind::NonCoalescible,
+                cx
+            ));
+            let markdown = editor.document.markdown_text(cx);
+            assert!(
+                markdown.contains("line one") && markdown.contains("line two") && markdown.contains("line three"),
+                "{markdown}"
             );
         });
         cx.quit();

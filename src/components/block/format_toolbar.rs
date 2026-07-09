@@ -6,7 +6,7 @@ use crate::components::markdown::source_format::{
     apply_image_format, apply_link_format, toolbar_replacement_from_formatted_text,
     MarkdownToolbarAction,
 };
-use crate::components::{BlockKind, InlineFormat, UndoCaptureKind};
+use crate::components::{BlockKind, InlineFormat, InlineTextTree, UndoCaptureKind};
 
 use super::Block;
 
@@ -210,9 +210,15 @@ impl Block {
             return;
         }
         self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        self.clear_inline_projection();
+        let content = self.display_text().to_string();
+        self.record
+            .set_title(InlineTextTree::plain(content));
         self.record.kind = BlockKind::CodeBlock {
             language: Some(language),
         };
+        self.assign_collapsed_selection_offset(0, super::runtime::CollapsedCaretAffinity::Default, None);
+        self.marked_range = None;
         self.mark_changed(cx);
     }
 }

@@ -560,6 +560,8 @@ pub struct I18nStrings {
     pub inline_code_run_output_title: String,
     /// Message shown when inline code was opened in the system terminal.
     pub inline_code_run_opened_in_terminal: String,
+    /// Brief toast after copying inline code to the clipboard.
+    pub inline_code_copy_toast: String,
     /// Preferences label for allowing code execution.
     pub preferences_allow_code_execution_label: String,
     /// Preferences value when code execution is enabled.
@@ -900,6 +902,7 @@ struct I18nStringsDe {
     inline_code_run_tooltip: Option<String>,
     inline_code_run_output_title: Option<String>,
     inline_code_run_opened_in_terminal: Option<String>,
+    inline_code_copy_toast: Option<String>,
     preferences_allow_code_execution_label: Option<String>,
     preferences_allow_code_execution_on: Option<String>,
     preferences_allow_code_execution_off: Option<String>,
@@ -1221,6 +1224,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "inline_code_run_tooltip",
     "inline_code_run_output_title",
     "inline_code_run_opened_in_terminal",
+    "inline_code_copy_toast",
     "preferences_allow_code_execution_label",
     "preferences_allow_code_execution_on",
     "preferences_allow_code_execution_off",
@@ -2086,6 +2090,9 @@ impl I18nStringsDe {
             inline_code_run_opened_in_terminal: self
                 .inline_code_run_opened_in_terminal
                 .unwrap_or(defaults.inline_code_run_opened_in_terminal),
+            inline_code_copy_toast: self
+                .inline_code_copy_toast
+                .unwrap_or(defaults.inline_code_copy_toast),
             preferences_allow_code_execution_label: self
                 .preferences_allow_code_execution_label
                 .unwrap_or(defaults.preferences_allow_code_execution_label),
@@ -2469,6 +2476,7 @@ impl I18nStrings {
             inline_code_run_tooltip: "运行行内代码".into(),
             inline_code_run_output_title: "行内代码输出".into(),
             inline_code_run_opened_in_terminal: "已在系统终端中打开".into(),
+            inline_code_copy_toast: "已复制".into(),
             preferences_allow_code_execution_label: "允许运行代码".into(),
             preferences_allow_code_execution_on: "已开启".into(),
             preferences_allow_code_execution_off: "已关闭".into(),
@@ -2817,6 +2825,7 @@ impl I18nStrings {
             inline_code_run_tooltip: "Run inline code".into(),
             inline_code_run_output_title: "Inline code output".into(),
             inline_code_run_opened_in_terminal: "Opened in the system terminal".into(),
+            inline_code_copy_toast: "Copied".into(),
             preferences_allow_code_execution_label: "Allow code execution".into(),
             preferences_allow_code_execution_on: "Enabled".into(),
             preferences_allow_code_execution_off: "Disabled".into(),

@@ -168,6 +168,8 @@ pub struct Editor {
     table_axis_selection: Option<TableAxisSelection>,
     cross_block_selection: Option<CrossBlockSelection>,
     cross_block_drag: Option<CrossBlockDrag>,
+    /// Saved cross-block selection before mouse-down clears it, for toolbar button use.
+    pre_drag_cross_block_selection: Option<CrossBlockSelection>,
     /// Open top-level menu in the in-window fallback menu bar.
     menu_bar_open: Option<usize>,
     /// Open child submenu inside the in-window fallback menu panel.
@@ -195,6 +197,8 @@ pub struct Editor {
     inline_code_runs: HashMap<code_run::InlineCodeRunTarget, code_run::CodeBlockRunState>,
     active_inline_code_run: Option<code_run::ActiveInlineCodeRunControl>,
     inline_code_run_popover: Option<code_run::InlineCodeRunTarget>,
+    inline_code_copy_toast: Option<code_run::InlineCodeCopyToast>,
+    inline_code_copy_toast_task: Option<Task<()>>,
     code_run_dialog: Option<code_run::CodeRunDialogKind>,
     quick_file_open: quick_file_open::QuickFileOpenState,
     path_picker: path_picker::PathPickerState,
@@ -405,6 +409,7 @@ impl Editor {
             table_axis_selection: None,
             cross_block_selection: None,
             cross_block_drag: None,
+            pre_drag_cross_block_selection: None,
             menu_bar_open: None,
             menu_submenu_open: None,
             menu_bar_hovered: false,
@@ -430,6 +435,8 @@ impl Editor {
             inline_code_runs: HashMap::new(),
             active_inline_code_run: None,
             inline_code_run_popover: None,
+            inline_code_copy_toast: None,
+            inline_code_copy_toast_task: None,
             code_run_dialog: None,
             quick_file_open: quick_file_open::QuickFileOpenState::new(cx),
             path_picker: path_picker::PathPickerState::new(cx),

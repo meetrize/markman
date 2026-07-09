@@ -24,6 +24,7 @@ pub(super) enum EditorOverlayKind {
     SingleLineInputContextMenu,
     TableInsertDialog,
     InlineCodeRunGroup,
+    InlineCodeCopyToast,
     AiPreview,
     AiPromptDialog,
     ModalExclusiveGroup,
@@ -74,6 +75,9 @@ impl Editor {
         }
         if self.inline_code_run_overlay_group_active(window, cx) {
             overlays.push(EditorOverlayKind::InlineCodeRunGroup);
+        }
+        if self.inline_code_copy_toast.is_some() {
+            overlays.push(EditorOverlayKind::InlineCodeCopyToast);
         }
         if self.ai_preview_overlay_active() {
             overlays.push(EditorOverlayKind::AiPreview);
@@ -141,6 +145,9 @@ impl Editor {
                     return Some(popover);
                 }
                 self.render_inline_code_run_button_overlay(window, cx)
+            }
+            EditorOverlayKind::InlineCodeCopyToast => {
+                self.render_inline_code_copy_toast_overlay(theme, strings, cx)
             }
             EditorOverlayKind::AiPreview => self.render_ai_preview_overlay(theme, cx),
             EditorOverlayKind::AiPromptDialog => {
@@ -223,12 +230,6 @@ impl Editor {
     }
 
     pub(super) fn inline_code_run_button_active(&self, window: &Window, cx: &App) -> bool {
-        if !crate::config::read_app_preferences()
-            .unwrap_or_default()
-            .allow_code_execution
-        {
-            return false;
-        }
         if !matches!(self.view_mode, ViewMode::Rendered) {
             return false;
         }

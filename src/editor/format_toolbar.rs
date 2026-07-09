@@ -16,8 +16,7 @@ use super::format_toolbar_overflow::{
 use super::toolbar_button::{
     toolbar_icon_button, toolbar_icon_label_button_styled, ToolbarIconLabelStyle,
 };
-use super::Editor;
-use super::ViewMode;
+use super::{CrossBlockSelection, Editor, ViewMode};
 
 const ICON_UNDO: &str = "icon/toolbar/undo-2.svg";
 const ICON_REDO: &str = "icon/toolbar/redo-2.svg";
@@ -108,15 +107,7 @@ impl Editor {
         }
 
         if action == MarkdownToolbarAction::CodeBlock && self.view_mode == ViewMode::Rendered {
-            if let Some(block) = self.focused_edit_target(window, cx) {
-                block.update(cx, |block, cx| {
-                    block.apply_rendered_toolbar_format(action, cx);
-                });
-            } else {
-                self.append_code_block_from_toolbar(cx);
-            }
-            self.mark_dirty(cx);
-            cx.notify();
+            self.apply_rendered_code_block_toolbar_action(window, cx);
             return;
         }
 
@@ -158,6 +149,24 @@ impl Editor {
         action: MarkdownToolbarAction,
         cx: &mut Context<Self>,
     ) {
+        // In source mode, use the same cross-block selection pattern as rendered mode.
+        // The pre_drag_cross_block_selection is saved before mouse-down clears the selection,
+        // so toolbar button clicks can still access the user's multi-line selection.
+        let effective_selection = self
+            .cross_block_selection
+            .clone()
+            .or_else(|| self.pre_drag_cross_block_selection.take());
+
+        // Handle CodeBlock specially: support multi-block selection in source mode
+        if action == MarkdownToolbarAction::CodeBlock {
+            if let Some(selection) = effective_selection {
+                self.apply_source_code_block_from_cross_block_selection(selection, cx);
+            } else {
+                self.apply_source_code_block_single_block(cx);
+            }
+            return;
+        }
+
         let Some(block_entity) = self
             .document
             .visible_blocks()
@@ -177,6 +186,98 @@ impl Editor {
             let selection = block.selected_range.clone();
             let (next_text, next_selection) =
                 apply_markdown_toolbar_action(&text, selection, action);
+            block.replace_text_in_visible_range(
+                0..text.len(),
+                &next_text,
+                Some(next_selection.clone()),
+                false,
+                cx,
+            );
+            block.selected_range = next_selection;
+            block.selection_reversed = false;
+            block.marked_range = None;
+            block.cursor_blink_epoch = std::time::Instant::now();
+            cx.emit(crate::components::BlockEvent::Changed);
+            cx.notify();
+        });
+        self.mark_dirty(cx);
+        cx.notify();
+    }
+
+    /// Wraps a cross-block selection in a code fence in source mode.
+    fn apply_source_code_block_from_cross_block_selection(
+        &mut self,
+        selection: CrossBlockSelection,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::components::markdown::source_format::insert_code_fence;
+
+        let source = self.document.raw_source_text(cx);
+        let mappings = self.source_mapping_by_entity_id(cx);
+
+        // Compute the normalized cross-block selection and get source offsets
+        let Some(normalized) = self.normalize_cross_block_selection(selection, cx) else {
+            return;
+        };
+        let Some(source_start) =
+            self.endpoint_source_offset(normalized.start, &mappings, cx)
+        else {
+            return;
+        };
+        let Some(source_end) =
+            self.endpoint_source_offset(normalized.end, &mappings, cx)
+        else {
+            return;
+        };
+        let source_range = source_start.min(source_end)..source_start.max(source_end);
+
+        let (next_text, next_selection) =
+            insert_code_fence(&source, source_range, "javascript");
+
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+
+        // Update the single source block with the new text
+        if let Some(block_entity) = self.document.first_root() {
+            block_entity.update(cx, |block, cx| {
+                block.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+                block.replace_text_in_visible_range(
+                    0..block.visible_len(),
+                    &next_text,
+                    Some(next_selection.clone()),
+                    false,
+                    cx,
+                );
+                block.selected_range = next_selection;
+                block.selection_reversed = false;
+                block.marked_range = None;
+                block.cursor_blink_epoch = std::time::Instant::now();
+                cx.emit(crate::components::BlockEvent::Changed);
+                cx.notify();
+            });
+        }
+
+        self.cross_block_selection = None;
+        self.cross_block_drag = None;
+        self.mark_dirty(cx);
+        self.finalize_pending_undo_capture(cx);
+        cx.notify();
+    }
+
+    /// Inserts an empty code fence at cursor position in source mode.
+    fn apply_source_code_block_single_block(&mut self, cx: &mut Context<Self>) {
+        let Some(block_entity) = self.document.first_root() else {
+            return;
+        };
+
+        block_entity.update(cx, |block, cx| {
+            if !block.show_source_line_numbers() {
+                return;
+            }
+            block.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+            let text = block.display_text().to_string();
+            let selection = block.selected_range.clone();
+            let (next_text, next_selection) =
+                apply_markdown_toolbar_action(&text, selection, MarkdownToolbarAction::CodeBlock);
             block.replace_text_in_visible_range(
                 0..text.len(),
                 &next_text,
@@ -845,6 +946,105 @@ impl Editor {
                 });
             })
         })
+    }
+
+    fn apply_rendered_code_block_toolbar_action(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        const LANGUAGE: &str = "javascript";
+
+        // 尝试使用当前选择，如果没有则使用拖拽前保存的选择（工具栏按钮点击时会被清除）
+        let had_cross = self.cross_block_selection.is_some();
+        let had_pre_drag = self.pre_drag_cross_block_selection.is_some();
+        let effective_selection = self.cross_block_selection
+            .or_else(|| self.pre_drag_cross_block_selection.take());
+
+        eprintln!("[CodeBlock] ENTER: had_cross={} had_pre_drag={} effective={}",
+            had_cross, had_pre_drag, effective_selection.is_some());
+
+        if effective_selection.is_some() {
+            // 临时恢复选择以便后续处理
+            let saved_selection = self.cross_block_selection.clone();
+            self.cross_block_selection = effective_selection;
+
+            let mut cross_block_handled = false;
+            if let Some(plain) = self.cross_block_selected_plain_text(cx) {
+                eprintln!("[CodeBlock] plain_text={:?}", plain);
+                // 去除首尾的空白行，避免选中不可见空行导致操作失败
+                let lines: Vec<&str> = plain.lines().collect();
+                eprintln!("[CodeBlock] lines_count={}, lines={:?}", lines.len(), lines);
+                let first = lines.iter().position(|l| !l.trim().is_empty());
+                let last = lines.iter().rposition(|l| !l.trim().is_empty());
+                eprintln!("[CodeBlock] first={:?} last={:?}", first, last);
+                let content = match (first, last) {
+                    (Some(f), Some(l)) => lines[f..=l].join("\n"),
+                    _ => String::new(),
+                };
+                eprintln!("[CodeBlock] content_stripped={:?}", content);
+                let fenced = format!("```{LANGUAGE}\n{content}\n```");
+                let ok = self.replace_cross_block_selection_with_text(
+                    &fenced,
+                    None,
+                    false,
+                    UndoCaptureKind::NonCoalescible,
+                    cx,
+                );
+                eprintln!("[CodeBlock] replace_result={}", ok);
+                if ok {
+                    return;
+                }
+                // 替换成功才标记为已处理
+                cross_block_handled = true;
+            } else {
+                eprintln!("[CodeBlock] plain_text returned None");
+            }
+
+            // 如果跨块处理失败，恢复原始选择，并回退到单块处理
+            self.cross_block_selection = saved_selection;
+            if cross_block_handled {
+                eprintln!("[CodeBlock] handled but replace failed -> return");
+                // 尝试了但替换失败，仍返回让用户有反馈
+                return;
+            }
+            // 跨块选择存在但获取文本失败 -> 回退到单块处理
+            eprintln!("[CodeBlock] fallback to single block");
+        } else {
+            eprintln!("[CodeBlock] no effective_selection");
+        }
+
+        if let Some(block) = self.focused_edit_target(window, cx) {
+            let (has_selection, is_full_block) = {
+                let block_ref = block.read(cx);
+                let selection = block_ref.active_text_selection_range();
+                let has_selection = !selection.is_empty();
+                let is_full_block =
+                    has_selection && selection == (0..block_ref.visible_len());
+                (has_selection, is_full_block)
+            };
+
+            eprintln!("[CodeBlock] single_block: has_selection={} is_full_block={}", has_selection, is_full_block);
+
+            if has_selection && !is_full_block
+                && self.convert_selected_text_to_code_block_from_toolbar(LANGUAGE, window, cx)
+            {
+                eprintln!("[CodeBlock] convert_selected_text_to_code_block_from_toolbar succeeded");
+                return;
+            }
+
+            eprintln!("[CodeBlock] applying rendered toolbar format on block");
+            block.update(cx, |block, cx| {
+                block.apply_rendered_toolbar_format(MarkdownToolbarAction::CodeBlock, cx);
+            });
+        } else {
+            eprintln!("[CodeBlock] no focused block → append new code block");
+            self.append_code_block_from_toolbar(cx);
+            return;
+        }
+
+        self.mark_dirty(cx);
+        cx.notify();
     }
 
     fn append_code_block_from_toolbar(&mut self, cx: &mut Context<Self>) {

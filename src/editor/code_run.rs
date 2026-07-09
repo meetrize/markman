@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::Child;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use futures::StreamExt as _;
 use futures::channel::mpsc;
@@ -18,16 +19,29 @@ use crate::code_runner::{
 };
 use crate::components::{Block, BlockEvent, BlockKind};
 use crate::config::{read_app_preferences, set_code_execution_confirm_shown};
-use crate::i18n::I18nManager;
+use crate::i18n::{I18nManager, I18nStrings};
 use crate::theme::Theme;
 
 use super::Editor;
 use super::ViewMode;
 
 const ICON_INLINE_CODE_RUN: &str = "icon/toolbar/circle-play.svg";
+const ICON_INLINE_CODE_COPY: &str = "icon/toolbar/copy.svg";
 const ICON_INLINE_CODE_RUN_STOP: &str = "icon/toolbar/circle-stop.svg";
 const ICON_INLINE_CODE_RUN_CLOSE: &str = "icon/toolbar/x.svg";
 const INLINE_CODE_RUN_VIEWPORT_MARGIN: f32 = 8.0;
+const INLINE_CODE_ACTION_BUTTON_GAP: f32 = 2.0;
+const INLINE_CODE_ACTION_AFTER_GAP: f32 = 3.0;
+const INLINE_CODE_ACTION_ICON_SIZE_RATIO: f32 = 0.62;
+const INLINE_CODE_ACTION_ICON_MIN_SIZE: f32 = 8.0;
+const INLINE_CODE_ACTION_ICON_MAX_SIZE: f32 = 11.0;
+const INLINE_CODE_ACTION_BUTTON_PAD: f32 = 2.0;
+const INLINE_CODE_COPY_TOAST_DURATION: Duration = Duration::from_secs(2);
+
+/// Brief "copied" toast anchored near inline-code action buttons.
+pub(crate) struct InlineCodeCopyToast {
+    pub anchor: Bounds<Pixels>,
+}
 
 /// Mutable run state owned by the editor for one code block.
 #[derive(Clone, Debug)]
@@ -821,12 +835,6 @@ impl Editor {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if !read_app_preferences()
-            .unwrap_or_default()
-            .allow_code_execution
-        {
-            return None;
-        }
         if !matches!(self.view_mode, ViewMode::Rendered) {
             return None;
         }
@@ -838,49 +846,173 @@ impl Editor {
         let span = block_ref.inline_code_run_action_span()?;
         let span_bounds = block_ref.visible_range_bounds(span.range.clone())?;
         let theme = cx.global::<crate::theme::ThemeManager>().current_arc();
-        let t = &theme.typography;
-        let icon_size = px((t.code_size + 1.0).max(12.0));
-        let button_size = px(f32::from(icon_size) + 8.0);
-        let button_x = f32::from(span_bounds.right()) + 4.0;
-        let button_y = f32::from(span_bounds.top());
+        let d = &theme.dimensions;
+        let pad_x = d.code_bg_pad_x;
+        let pad_y = d.code_bg_pad_y;
+        let text_height = f32::from(span_bounds.size.height);
+        let code_bg_height = text_height + pad_y * 2.0;
+        let code_bg_top = f32::from(span_bounds.top()) - pad_y;
+        let icon_size_f = (code_bg_height * INLINE_CODE_ACTION_ICON_SIZE_RATIO)
+            .max(INLINE_CODE_ACTION_ICON_MIN_SIZE)
+            .min(INLINE_CODE_ACTION_ICON_MAX_SIZE);
+        let icon_size = px(icon_size_f);
+        let button_size = px(icon_size_f + INLINE_CODE_ACTION_BUTTON_PAD * 2.0);
+        let container_x = f32::from(span_bounds.right()) + pad_x + INLINE_CODE_ACTION_AFTER_GAP;
+        let container_y = code_bg_top + (code_bg_height - f32::from(button_size)) / 2.0;
+        let icon_color = theme.colors.code_language_input_text;
+        let allow_run = read_app_preferences()
+            .unwrap_or_default()
+            .allow_code_execution;
+        let copy_source = block_ref
+            .inline_code_source_for_visible_span(&span.range)
+            .unwrap_or_default();
 
         let block_entity = block.clone();
-        Some(
+        let span_range = span.range.clone();
+        let action_button_count: u32 = if allow_run { 2 } else { 1 };
+        let action_row_width = f32::from(button_size) * action_button_count as f32
+            + INLINE_CODE_ACTION_BUTTON_GAP * action_button_count.saturating_sub(1) as f32;
+        let toast_anchor = Bounds::new(
+            point(px(container_x), px(container_y)),
+            size(px(action_row_width), button_size),
+        );
+
+        let mut row = div()
+            .id("inline-code-action-buttons")
+            .absolute()
+            .left(px(container_x))
+            .top(px(container_y))
+            .h(button_size)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(INLINE_CODE_ACTION_BUTTON_GAP));
+
+        row = row.child(
             div()
-                .id("inline-code-run-button")
-                .absolute()
-                .left(px(button_x))
-                .top(px(button_y))
+                .id("inline-code-copy-button")
                 .w(button_size)
                 .h(button_size)
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(4.0))
-                .bg(theme.colors.code_bg)
-                .border(px(1.0))
-                .border_color(theme.colors.code_language_input_border.opacity(0.45))
-                .opacity(0.88)
+                .opacity(0.72)
                 .hover(|this| this.opacity(1.0))
                 .cursor_pointer()
                 .occlude()
                 .on_mouse_down(MouseButton::Left, {
-                    let block_entity = block_entity.clone();
-                    let span_range = span.range.clone();
                     cx.listener(move |editor, _, _, cx| {
-                        editor.on_block_event(
-                            block_entity.clone(),
-                            &BlockEvent::RequestRunInlineCode { span_range: span_range.clone() },
-                            cx,
-                        );
+                        if !copy_source.is_empty() {
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                copy_source.clone(),
+                            ));
+                            editor.show_inline_code_copy_toast(toast_anchor, cx);
+                        }
                     })
                 })
                 .child(
                     svg()
-                        .path(ICON_INLINE_CODE_RUN)
+                        .path(ICON_INLINE_CODE_COPY)
                         .size(icon_size)
-                        .text_color(theme.colors.code_language_input_text),
-                )
+                        .text_color(icon_color),
+                ),
+        );
+
+        if allow_run {
+            let block_entity = block_entity.clone();
+            let span_range = span_range.clone();
+            row = row.child(
+                div()
+                    .id("inline-code-run-button")
+                    .w(button_size)
+                    .h(button_size)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .opacity(0.72)
+                    .hover(|this| this.opacity(1.0))
+                    .cursor_pointer()
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, {
+                        cx.listener(move |editor, _, _, cx| {
+                            editor.on_block_event(
+                                block_entity.clone(),
+                                &BlockEvent::RequestRunInlineCode {
+                                    span_range: span_range.clone(),
+                                },
+                                cx,
+                            );
+                        })
+                    })
+                    .child(
+                        svg()
+                            .path(ICON_INLINE_CODE_RUN)
+                            .size(icon_size)
+                            .text_color(icon_color),
+                    ),
+            );
+        }
+
+        Some(row.into_any_element())
+    }
+
+    pub(super) fn show_inline_code_copy_toast(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.inline_code_copy_toast = Some(InlineCodeCopyToast { anchor });
+        self.inline_code_copy_toast_task.take();
+
+        let weak_editor = cx.entity().downgrade();
+        self.inline_code_copy_toast_task = Some(cx.spawn(
+            async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor()
+                    .timer(INLINE_CODE_COPY_TOAST_DURATION)
+                    .await;
+                let _ = weak_editor.update(cx, |editor, cx| {
+                    editor.inline_code_copy_toast = None;
+                    editor.inline_code_copy_toast_task = None;
+                    cx.notify();
+                });
+            },
+        ));
+        cx.notify();
+    }
+
+    pub(super) fn render_inline_code_copy_toast_overlay(
+        &self,
+        theme: &Theme,
+        strings: &I18nStrings,
+        _cx: &App,
+    ) -> Option<AnyElement> {
+        let toast = self.inline_code_copy_toast.as_ref()?;
+        let c = &theme.colors;
+        let t = &theme.typography;
+        let anchor = toast.anchor;
+        let toast_height = px(22.0);
+        let toast_gap = px(4.0);
+        let toast_y = f32::from(anchor.top()) - f32::from(toast_height) - f32::from(toast_gap);
+        let toast_x = f32::from(anchor.left());
+
+        Some(
+            div()
+                .id("inline-code-copy-toast")
+                .absolute()
+                .left(px(toast_x))
+                .top(px(toast_y.max(0.0)))
+                .h(toast_height)
+                .px(px(8.0))
+                .flex()
+                .items_center()
+                .rounded(px(4.0))
+                .bg(c.code_bg)
+                .border(px(1.0))
+                .border_color(c.code_language_input_border.opacity(0.5))
+                .shadow_sm()
+                .text_size(px((t.code_size - 1.0).max(11.0)))
+                .text_color(c.code_language_input_text)
+                .child(strings.inline_code_copy_toast.clone())
                 .into_any_element(),
         )
     }

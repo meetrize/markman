@@ -222,8 +222,10 @@ fn strip_atx_heading_content(line: &str) -> &str {
     line
 }
 
-fn insert_code_fence(text: &str, selection: Range<usize>, language: &str) -> (String, Range<usize>) {
+pub(crate) fn insert_code_fence(text: &str, selection: Range<usize>, language: &str) -> (String, Range<usize>) {
     let selection = clamp_range(text, selection);
+    let selected_text = &text[selection.clone()];
+
     let prefix = if selection.start == 0 {
         String::new()
     } else if text[..selection.start].ends_with("\n\n") {
@@ -238,7 +240,16 @@ fn insert_code_fence(text: &str, selection: Range<usize>, language: &str) -> (St
     } else {
         "\n\n".to_string()
     };
-    let fence_body = format!("```{language}\n\n```");
+
+    // 如果有选中的文本，将其包含在代码围栏内；否则创建空的代码围栏
+    let fence_body = if selected_text.is_empty() {
+        format!("```{language}\n\n```")
+    } else {
+        // 去除选中文本首尾的换行符，避免多余的空行
+        let content = selected_text.trim_matches('\n');
+        format!("```{language}\n{content}\n```")
+    };
+
     let insertion = format!("{prefix}{fence_body}{suffix}");
     let insert_at = selection.start;
 
@@ -247,6 +258,7 @@ fn insert_code_fence(text: &str, selection: Range<usize>, language: &str) -> (St
     next.push_str(&insertion);
     next.push_str(&text[selection.end..]);
 
+    // 光标放在代码围栏的开始标记之后（准备输入或编辑代码）
     let cursor = insert_at + prefix.len() + language.len() + 4;
     (next, cursor..cursor)
 }
