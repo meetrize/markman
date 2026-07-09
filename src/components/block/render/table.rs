@@ -437,7 +437,6 @@ impl Block {
         let column_append_top = activation_band;
         let column_menu_icon_size = px((t.text_size * 0.85).max(12.0));
         let column_menu_handle_width = px(20.0);
-        let column_control_visible = self.table_append_column_hovered;
         let right_gutter = append_gutter;
         let weak_table_block = cx.entity().downgrade();
 
@@ -657,11 +656,10 @@ impl Block {
             .flex()
             .items_center()
             .justify_center()
-            .on_hover(cx.listener(Self::on_table_append_column_zone_hover))
             .child(
                 table_append_circle_button(
                     format!("table-append-column-button-{}", self.record.id).into(),
-                    column_control_visible,
+                    true,
                     append_extent,
                     append_icon_size,
                     c.table_border,
@@ -669,28 +667,15 @@ impl Block {
                     c.table_append_button_hover,
                     c.table_append_button_text,
                 )
-                .on_hover(cx.listener(Self::on_table_append_column_button_hover))
                 .on_click(cx.listener(Self::on_append_table_column)),
             );
-
-        let column_edge_band = div()
-            .id(ElementId::Name(
-                format!("table-append-column-edge-{}", self.record.id).into(),
-            ))
-            .absolute()
-            .top(column_append_top)
-            .bottom_0()
-            .right(right_gutter)
-            .w(activation_band)
-            .on_hover(cx.listener(Self::on_table_append_column_edge_hover));
 
         let table_row = div()
             .relative()
             .w_full()
             .pr(right_gutter)
             .child(table_grid)
-            .child(column_control)
-            .child(column_edge_band);
+            .child(column_control);
 
         let row_control = div()
             .id(ElementId::Name(
