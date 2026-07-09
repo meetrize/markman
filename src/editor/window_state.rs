@@ -106,18 +106,28 @@ impl Editor {
     pub(crate) fn on_undo(
         &mut self,
         _: &crate::components::Undo,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_search_input_active(window) {
+            self.workspace_search_undo(cx);
+            cx.stop_propagation();
+            return;
+        }
         self.undo_document(cx);
     }
 
     pub(crate) fn on_redo(
         &mut self,
         _: &crate::components::Redo,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_search_input_active(window) {
+            self.workspace_search_redo(cx);
+            cx.stop_propagation();
+            return;
+        }
         self.redo_document(cx);
     }
 

@@ -28,8 +28,8 @@ use crate::theme::chrome_ui_font;
 use super::single_line_input_element::SingleLineInputElement;
 use crate::components::{
     BlockEvent, Copy, Cut, Delete, DeleteBack, End, FenceInfo, Home, MoveLeft, MoveRight, Paste,
-    SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, UndoCaptureKind, is_closing_fence,
-    parse_opening_fence,
+    Redo, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, Undo, UndoCaptureKind,
+    is_closing_fence, parse_opening_fence,
 };
 use crate::i18n::I18nStrings;
 use crate::input::single_line_field::SingleLineFieldState;
@@ -661,24 +661,51 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let sanitized = new_text.replace(['\r', '\n'], "");
-        let query = &mut self.workspace.state.search_input.query;
-        let start = range.start.min(query.len());
-        let end = range.end.min(query.len());
-        query.replace_range(start..end, &sanitized);
+        let search_input = &mut self.workspace.state.search_input;
+        let start = range.start.min(search_input.query.len());
+        let end = range.end.min(search_input.query.len());
 
-        if mark_composing && !sanitized.is_empty() {
-            self.workspace.state.search_input.marked_range = Some(start..start + sanitized.len());
-        } else {
-            self.workspace.state.search_input.marked_range = None;
-        }
-
-        self.workspace.state.search_input.selected_range = new_selected.unwrap_or_else(|| {
+        let mut next_query = search_input.query.clone();
+        next_query.replace_range(start..end, &sanitized);
+        let next_selected = new_selected.unwrap_or_else(|| {
             let cursor = start + sanitized.len();
             cursor..cursor
         });
-        self.workspace.state.search_input.selection_reversed = false;
+        let next_marked = if mark_composing && !sanitized.is_empty() {
+            Some(start..start + sanitized.len())
+        } else {
+            None
+        };
+
+        if next_query == search_input.query
+            && search_input.selected_range == next_selected
+            && search_input.selection_reversed == false
+            && search_input.marked_range == next_marked
+        {
+            return;
+        }
+
+        search_input.prepare_undo(mark_composing);
+        search_input.query = next_query;
+        search_input.marked_range = next_marked;
+        search_input.selected_range = next_selected;
+        search_input.selection_reversed = false;
         self.run_workspace_search();
         cx.notify();
+    }
+
+    pub(crate) fn workspace_search_undo(&mut self, cx: &mut Context<Self>) {
+        if self.workspace.state.search_input.undo() {
+            self.run_workspace_search();
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn workspace_search_redo(&mut self, cx: &mut Context<Self>) {
+        if self.workspace.state.search_input.redo() {
+            self.run_workspace_search();
+            cx.notify();
+        }
     }
 
     fn toggle_workspace_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -689,11 +716,8 @@ impl Editor {
             window.focus(&self.workspace.search_focus);
             self.run_workspace_search();
         } else {
-            self.workspace.state.search_input.query.clear();
+            self.workspace.state.search_input.clear();
             self.workspace.state.search_results.clear();
-            self.workspace.state.search_input.marked_range = None;
-            self.workspace.state.search_input.selected_range = 0..0;
-            self.workspace.state.search_input.selection_reversed = false;
         }
         cx.notify();
     }
@@ -701,11 +725,8 @@ impl Editor {
     fn close_workspace_search(&mut self, cx: &mut Context<Self>) {
         if self.workspace.state.search_open {
             self.workspace.state.search_open = false;
-            self.workspace.state.search_input.query.clear();
+            self.workspace.state.search_input.clear();
             self.workspace.state.search_results.clear();
-            self.workspace.state.search_input.marked_range = None;
-            self.workspace.state.search_input.selected_range = 0..0;
-            self.workspace.state.search_input.selection_reversed = false;
             self.clear_search_match_highlight(cx);
             self.close_single_line_input_context_menu(cx);
             cx.notify();
@@ -761,6 +782,16 @@ impl Editor {
                 }
                 "a" => {
                     self.workspace_search_select_all_text(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "z" if modifiers.shift => {
+                    self.workspace_search_redo(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "z" => {
+                    self.workspace_search_undo(cx);
                     cx.stop_propagation();
                     return;
                 }
@@ -1130,6 +1161,32 @@ impl Editor {
         }
         cx.stop_propagation();
         self.workspace_search_select_all_text(cx);
+    }
+
+    pub(crate) fn on_workspace_search_undo(
+        &mut self,
+        _: &Undo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_undo(cx);
+    }
+
+    pub(crate) fn on_workspace_search_redo(
+        &mut self,
+        _: &Redo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.workspace_search_input_active(window) {
+            return;
+        }
+        cx.stop_propagation();
+        self.workspace_search_redo(cx);
     }
 
     pub(crate) fn on_workspace_search_move_left(
@@ -1756,6 +1813,8 @@ impl Editor {
                     .on_action(cx.listener(Self::on_workspace_search_copy))
                     .on_action(cx.listener(Self::on_workspace_search_cut))
                     .on_action(cx.listener(Self::on_workspace_search_select_all))
+                    .on_action(cx.listener(Self::on_workspace_search_undo))
+                    .on_action(cx.listener(Self::on_workspace_search_redo))
                     .on_action(cx.listener(Self::on_workspace_search_move_left))
                     .on_action(cx.listener(Self::on_workspace_search_move_right))
                     .on_action(cx.listener(Self::on_workspace_search_home))
