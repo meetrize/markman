@@ -194,9 +194,12 @@ impl Editor {
             });
             let _ = cx.update_window(
                 window_handle,
-                move |_view: AnyView, window: &mut Window, _cx: &mut App| {
+                move |_view: AnyView, window: &mut Window, cx: &mut App| {
                     window.set_window_edited(false);
                     if should_close_after_save {
+                        let _ = weak_editor.update(cx, |editor, cx| {
+                            editor.persist_session_state(cx);
+                        });
                         window.remove_window();
                     }
                 },
@@ -210,6 +213,7 @@ impl Editor {
             let should_close_after_save = self.pending_close_after_save;
             if self.save_to_existing_path(&path, window, cx) {
                 if should_close_after_save {
+                    self.persist_session_state(cx);
                     window.remove_window();
                 }
             } else if should_close_after_save {

@@ -1560,6 +1560,7 @@ impl Render for Editor {
             self.apply_pending_focus(window, cx);
         }
         self.apply_pending_scroll_into_view(window, cx);
+        self.apply_pending_session_scroll(cx);
         self.last_selection_snapshot = self.capture_source_selection_snapshot(cx);
         self.sync_pending_save(window, cx);
         self.sync_pending_save_as(window, cx);

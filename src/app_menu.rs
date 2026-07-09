@@ -60,12 +60,29 @@ pub(crate) fn open_editor_window(
     markdown: String,
     file_path: Option<PathBuf>,
 ) -> WindowHandle<Editor> {
+    open_editor_window_with_session(cx, markdown, file_path, None)
+}
+
+fn open_editor_window_with_session(
+    cx: &mut App,
+    markdown: String,
+    file_path: Option<PathBuf>,
+    session: Option<crate::config::session::EditorSessionState>,
+) -> WindowHandle<Editor> {
     let bounds = Bounds::centered(None, size(px(1080.), px(720.)), cx);
     let title = window_title(file_path.as_deref());
     let handle = cx
         .open_window(
             velotype_window_options(title, bounds),
-            move |_window, cx| cx.new(move |cx| Editor::from_markdown(cx, markdown, file_path)),
+            move |_window, cx| {
+                cx.new(move |cx| {
+                    let mut editor = Editor::from_markdown(cx, markdown, file_path);
+                    if let Some(session) = session.as_ref() {
+                        editor.restore_session_state(session, cx);
+                    }
+                    editor
+                })
+            },
         )
         .unwrap();
 
@@ -101,22 +118,51 @@ pub(crate) fn open_default_startup_window(
     cx: &mut App,
     preferences: &crate::config::store::AppPreferences,
 ) -> WindowHandle<Editor> {
-    let handle =
-        if preferences.startup_open == crate::config::StartupOpenPreference::LastOpenedFile
-            && let Some(path) = crate::config::first_existing_recent_markdown_file()
-        {
-            match std::fs::read_to_string(&path) {
-                Ok(markdown) => open_editor_window(cx, markdown, Some(path)),
-                Err(err) => {
-                    eprintln!("failed to read last opened file '{}': {err}", path.display());
-                    open_editor_window(cx, String::new(), None)
-                }
+    let handle = if let Some(session) = crate::config::session::first_existing_editor_session() {
+        match std::fs::read_to_string(&session.file_path) {
+            Ok(markdown) => {
+                let path = session.file_path.clone();
+                let handle = open_editor_window_with_session(
+                    cx,
+                    markdown,
+                    Some(path.clone()),
+                    Some(session),
+                );
+                record_recent_file_and_refresh(&path, cx);
+                handle
             }
-        } else {
-            open_editor_window(cx, String::new(), None)
-        };
+            Err(err) => {
+                eprintln!(
+                    "failed to read last session file '{}': {err}",
+                    session.file_path.display()
+                );
+                open_empty_startup_window(cx, preferences)
+            }
+        }
+    } else {
+        open_empty_startup_window(cx, preferences)
+    };
     restore_last_workspace_folder(&handle, cx);
     handle
+}
+
+fn open_empty_startup_window(
+    cx: &mut App,
+    preferences: &crate::config::store::AppPreferences,
+) -> WindowHandle<Editor> {
+    if preferences.startup_open == crate::config::StartupOpenPreference::LastOpenedFile
+        && let Some(path) = crate::config::first_existing_recent_markdown_file()
+    {
+        match std::fs::read_to_string(&path) {
+            Ok(markdown) => open_editor_window(cx, markdown, Some(path)),
+            Err(err) => {
+                eprintln!("failed to read last opened file '{}': {err}", path.display());
+                open_editor_window(cx, String::new(), None)
+            }
+        }
+    } else {
+        open_editor_window(cx, String::new(), None)
+    }
 }
 
 /// Opens Markdown files requested by the OS (Open With, file-manager handoff, etc.).

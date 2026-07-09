@@ -20,6 +20,7 @@ impl Editor {
         self.pending_close_after_save = false;
 
         if self.on_window_should_close(window, cx) {
+            self.persist_session_state(cx);
             self.close_dialog_restore_focus = None;
             window.remove_window();
         }
@@ -91,6 +92,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.persist_session_state(cx);
         self.pending_close_after_save = false;
         self.close_dialog_restore_focus = None;
         self.close_menu_bar(cx);

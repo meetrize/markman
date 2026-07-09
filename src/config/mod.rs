@@ -12,6 +12,7 @@ pub(crate) mod ai_toolbar;
 pub(crate) mod format_toolbar;
 pub(crate) mod catalog;
 pub(crate) mod preferences;
+pub(crate) mod session;
 pub(crate) mod store;
 mod ui;
 
@@ -70,6 +71,10 @@ impl MarkmanConfigDirs {
 
     pub(crate) fn last_workspace_file(&self) -> PathBuf {
         self.root.join(".last_workspace")
+    }
+
+    pub(crate) fn last_session_file(&self) -> PathBuf {
+        self.root.join(".last_session")
     }
 
     pub(crate) fn folder_history_file(&self) -> PathBuf {

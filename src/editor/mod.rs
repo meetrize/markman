@@ -60,6 +60,7 @@ mod wiki_link_picker;
 mod preview_freeze;
 mod render;
 mod runtime_context;
+mod session;
 mod document_search;
 mod single_line_input;
 mod single_line_input_element;
@@ -116,6 +117,8 @@ pub struct Editor {
     active_entity_id: Option<EntityId>,
     pending_scroll_active_block_into_view: bool,
     pending_scroll_recheck_after_layout: bool,
+    pending_session_scroll_y: Option<f32>,
+    session_scroll_restore_pending: bool,
     pending_save: bool,
     pending_save_as: bool,
     /// When enabled, edits debounce into automatic saves for documents with a path.
@@ -358,6 +361,8 @@ impl Editor {
             active_entity_id: pending_focus,
             pending_scroll_active_block_into_view: true,
             pending_scroll_recheck_after_layout: true,
+            pending_session_scroll_y: None,
+            session_scroll_restore_pending: false,
             pending_save: false,
             pending_save_as: false,
             auto_save_enabled: false,
