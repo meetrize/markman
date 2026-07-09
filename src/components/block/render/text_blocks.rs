@@ -142,14 +142,10 @@ impl Block {
             let border_color = if focused {
                 c.table_cell_active_outline
             } else {
-                match highlight {
-                    TableAxisHighlight::None => c.table_border,
-                    TableAxisHighlight::Preview => c.table_axis_preview_bg,
-                    TableAxisHighlight::Selected => c.table_axis_selected_bg,
-                }
+                c.table_border
             };
-            let cell_base = style_native_table_cell_borders(
-                self.render_shell(
+            let shell = self
+                .render_shell(
                     block_id,
                     false,
                     if showing_rendered_image {
@@ -164,13 +160,17 @@ impl Block {
                 )
                 .w_full()
                 .h_full()
+                .min_w(px(0.0))
                 .min_h(px(d.table_cell_min_height))
                 .px(px(d.table_cell_padding_x))
                 .py(px(d.table_cell_padding_y))
                 .bg(bg)
                 .text_size(px(t.text_size))
                 .text_color(c.text_default)
-                .line_height(relative(t.text_line_height)),
+                .line_height(relative(t.text_line_height));
+
+            let cell_base = style_native_table_cell_borders(
+                shell,
                 position,
                 extent,
                 border_color,
@@ -185,14 +185,20 @@ impl Block {
 
             if showing_rendered_image && let Some(runtime) = self.image_runtime() {
                 return cell_base
-                    .child(self.render_image_content(
-                        runtime,
-                        Length::Definite(relative(1.0)),
-                        px(d.image_cell_max_height),
-                        px(d.image_cell_placeholder_height),
-                        &theme,
-                        &strings,
-                    ))
+                    .child(
+                        div()
+                            .w_full()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(self.render_image_content(
+                                runtime,
+                                Length::Definite(relative(1.0)),
+                                px(d.image_cell_max_height),
+                                px(d.image_cell_placeholder_height),
+                                &theme,
+                                &strings,
+                            )),
+                    )
                     .into_any_element();
             }
 
@@ -207,25 +213,39 @@ impl Block {
                     },
                 )
             {
-                return cell_base.child(inline_images).into_any_element();
+                return cell_base
+                    .child(
+                        div()
+                            .w_full()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(inline_images),
+                    )
+                    .into_any_element();
             }
 
             return cell_base
-                .child(self.render_text_or_mixed_inline_visuals(
-                    &theme,
-                    focused,
-                    is_placeholder,
-                    None,
-                    None,
-                    c.text_default,
-                    t.text_size,
-                    if is_header {
-                        FontWeight::MEDIUM
-                    } else {
-                        FontWeight::NORMAL
-                    },
-                    cx,
-                ))
+                .child(
+                    div()
+                        .w_full()
+                        .h_full()
+                        .overflow_hidden()
+                        .child(self.render_text_or_mixed_inline_visuals(
+                            &theme,
+                            focused,
+                            is_placeholder,
+                            None,
+                            None,
+                            c.text_default,
+                            t.text_size,
+                            if is_header {
+                                FontWeight::MEDIUM
+                            } else {
+                                FontWeight::NORMAL
+                            },
+                            cx,
+                        )),
+                )
                 .into_any_element();
         }
 

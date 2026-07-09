@@ -11,12 +11,13 @@ use crate::layout::centered_column_width;
 use crate::theme::{Theme, ThemeDimensions};
 
 pub(super) const ICON_TABLE_COLUMN_MENU: &str = "icon/toolbar/ellipsis-vertical.svg";
+pub(super) const ICON_TABLE_APPEND_PLUS: &str = "icon/toolbar/plus.svg";
 pub(super) const TABLE_COLUMN_RESIZE_HANDLE_WIDTH: f32 = 8.0;
 
 pub(super) fn style_native_table_cell_borders(
     mut cell: Stateful<Div>,
     position: TableCellPosition,
-    extent: (usize, usize),
+    _extent: (usize, usize),
     border_color: Hsla,
     focused: bool,
 ) -> Stateful<Div> {
@@ -24,14 +25,49 @@ pub(super) fn style_native_table_cell_borders(
         return cell.border(px(1.0)).border_color(border_color);
     }
 
-    let (columns, rows) = extent;
-    if position.column + 1 < columns {
-        cell = cell.border_r(px(1.0));
-    }
-    if position.row + 1 < rows {
-        cell = cell.border_b(px(1.0));
+    cell = cell.border_r(px(1.0));
+    if position.column == 0 {
+        cell = cell.border_l(px(1.0));
     }
     cell.border_color(border_color)
+}
+
+fn table_append_circle_button(
+    element_id: SharedString,
+    visible: bool,
+    append_extent: Pixels,
+    append_icon_size: Pixels,
+    border_color: Hsla,
+    button_bg: Hsla,
+    button_hover_bg: Hsla,
+    icon_color: Hsla,
+) -> Stateful<Div> {
+    let mut button = div()
+        .id(ElementId::Name(element_id))
+        .size(append_extent)
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .rounded(px(999.0))
+        .border(px(1.0))
+        .border_color(border_color.opacity(0.35))
+        .bg(button_bg)
+        .hover(|this| this.bg(button_hover_bg))
+        .cursor_pointer()
+        .opacity(if visible { 1.0 } else { 0.0 })
+        .child(
+            svg()
+                .path(ICON_TABLE_APPEND_PLUS)
+                .size(append_icon_size)
+                .text_color(icon_color),
+        );
+
+    if visible {
+        button = button.occlude();
+    }
+
+    button
 }
 
 
@@ -248,7 +284,14 @@ impl Block {
         let row_extent = 1 + table.rows.len();
         let column_extent = column_count;
 
-        let header_row = div().w_full().flex().gap(px(0.0)).children(
+        let header_row = div()
+            .w_full()
+            .flex()
+            .gap(px(0.0))
+            .border_t(px(1.0))
+            .border_b(px(1.0))
+            .border_color(c.table_border)
+            .children(
             table.header.iter().enumerate().map(|(column, cell)| {
                 let position = TableCellPosition { row: 0, column };
                 let alignment = table
@@ -266,6 +309,7 @@ impl Block {
                         .w(relative(column_layout.fraction(column)))
                         .h_full()
                         .min_w(px(0.0))
+                        .overflow_hidden()
                         .min_h(px(d.table_cell_min_height))
                         .px(px(d.table_cell_padding_x))
                         .py(px(d.table_cell_padding_y))
@@ -291,7 +335,13 @@ impl Block {
 
         let body_rows = table.rows.iter().enumerate().map(|(body_row_index, row)| {
             let row_index = body_row_index + 1;
-            div().w_full().flex().gap(px(0.0)).children(row.iter().enumerate().map(
+            div()
+                .w_full()
+                .flex()
+                .gap(px(0.0))
+                .border_b(px(1.0))
+                .border_color(c.table_border)
+                .children(row.iter().enumerate().map(
                 |(column, cell)| {
                     let position = TableCellPosition {
                         row: row_index,
@@ -315,6 +365,7 @@ impl Block {
                             .w(relative(column_layout.fraction(column)))
                             .h_full()
                             .min_w(px(0.0))
+                            .overflow_hidden()
                             .min_h(px(d.table_cell_min_height))
                             .px(px(d.table_cell_padding_x))
                             .py(px(d.table_cell_padding_y))
@@ -345,9 +396,6 @@ impl Block {
             .relative()
             .flex()
             .flex_col()
-            .border(px(1.0))
-            .border_color(c.table_border)
-            .overflow_hidden()
             .gap(px(0.0))
             .child(header_row)
             .children(body_rows)
@@ -384,21 +432,13 @@ impl Block {
         let append_extent = px(d.table_append_button_extent);
         let append_inset = px(d.table_append_button_inset);
         let activation_band = px(d.table_append_activation_band);
+        let append_gutter = append_extent + append_inset;
+        let append_icon_size = px((d.table_append_button_extent * 0.55).max(11.0));
         let column_append_top = activation_band;
         let column_menu_icon_size = px((t.text_size * 0.85).max(12.0));
         let column_menu_handle_width = px(20.0);
         let column_control_visible = self.table_append_column_hovered;
-        let row_control_visible = self.table_append_row_hovered;
-        let right_gutter = if column_control_visible {
-            append_extent + append_inset
-        } else {
-            px(0.0)
-        };
-        let bottom_gutter = if row_control_visible {
-            append_extent + append_inset
-        } else {
-            px(0.0)
-        };
+        let right_gutter = append_gutter;
         let weak_table_block = cx.entity().downgrade();
 
         let header_cells = runtime.header;
@@ -406,13 +446,23 @@ impl Block {
         let resize_handle_offset = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH * 0.5);
         let resize_handle_width = px(TABLE_COLUMN_RESIZE_HANDLE_WIDTH);
 
-        let header_row = div().w_full().flex().gap(px(0.0)).children(
+        let header_row = div()
+            .w_full()
+            .flex()
+            .gap(px(0.0))
+            .border_t(px(1.0))
+            .border_b(px(1.0))
+            .border_color(c.table_border)
+            .children(
             header_cells.into_iter().enumerate().map(|(column, cell)| {
                 let menu_block = weak_table_block.clone();
                 let resize_block = weak_table_block.clone();
                 let resize_fractions = column_fractions.clone();
                 let can_resize_column = column + 1 < column_count;
                 let mut column_shell = div()
+                    .id(ElementId::Name(
+                        format!("table-column-shell-{}-{}", self.record.id, column).into(),
+                    ))
                     .relative()
                     .flex_none()
                     .flex_basis(relative(column_layout.fraction(column)))
@@ -421,44 +471,44 @@ impl Block {
                     .min_w(px(0.0))
                     .child(cell)
                     .child(
-                        div()
-                            .id(ElementId::Name(
-                                format!("table-column-menu-handle-{}-{}", self.record.id, column)
-                                    .into(),
-                            ))
-                            .absolute()
-                            .top_0()
-                            .bottom_0()
-                            .right(if can_resize_column {
-                                resize_handle_width
-                            } else {
-                                px(0.0)
-                            })
-                            .w(column_menu_handle_width)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .cursor_pointer()
-                            .opacity(0.55)
-                            .hover(|this| this.opacity(0.9))
-                            .occlude()
-                            .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
-                                let _ = menu_block.update(cx, |_block, cx| {
-                                    cx.stop_propagation();
-                                    cx.emit(BlockEvent::RequestOpenTableAxisMenu {
-                                        kind: TableAxisKind::Column,
-                                        index: column,
-                                        position: event.position,
-                                    });
+                    div()
+                        .id(ElementId::Name(
+                            format!("table-column-menu-handle-{}-{}", self.record.id, column)
+                                .into(),
+                        ))
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .right(if can_resize_column {
+                            resize_handle_width
+                        } else {
+                            px(0.0)
+                        })
+                        .w(column_menu_handle_width)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .opacity(0.55)
+                        .hover(|this| this.opacity(0.9))
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
+                            let _ = menu_block.update(cx, |_block, cx| {
+                                cx.stop_propagation();
+                                cx.emit(BlockEvent::RequestOpenTableAxisMenu {
+                                    kind: TableAxisKind::Column,
+                                    index: column,
+                                    position: event.position,
                                 });
-                            })
-                            .child(
-                                svg()
-                                    .path(ICON_TABLE_COLUMN_MENU)
-                                    .size(column_menu_icon_size)
-                                    .text_color(c.text_default),
-                            ),
-                    );
+                            });
+                        })
+                        .child(
+                            svg()
+                                .path(ICON_TABLE_COLUMN_MENU)
+                                .size(column_menu_icon_size)
+                                .text_color(c.text_default),
+                        ),
+                );
 
                 if can_resize_column {
                     column_shell = column_shell.child(
@@ -516,6 +566,8 @@ impl Block {
                 .w_full()
                 .flex()
                 .gap(px(0.0))
+                .border_b(px(1.0))
+                .border_color(c.table_border)
                 .child(
                     div()
                         .id(ElementId::Name(
@@ -564,6 +616,13 @@ impl Block {
                 )
                 .children(row.into_iter().enumerate().map(|(column, cell)| {
                     div()
+                        .id(ElementId::Name(
+                            format!(
+                                "table-body-cell-shell-{}-{}-{}",
+                                self.record.id, body_row_index, column
+                            )
+                            .into(),
+                        ))
                         .flex_none()
                         .flex_basis(relative(column_layout.fraction(column)))
                         .w(relative(column_layout.fraction(column)))
@@ -577,129 +636,99 @@ impl Block {
         rows.push(header_row.into_any_element());
         rows.extend(body_rows.map(|row| row.into_any_element()));
 
+        let table_grid = div()
+            .id(ElementId::Name(format!("table-grid-{}", self.record.id).into()))
+            .w_full()
+            .relative()
+            .flex()
+            .flex_col()
+            .gap(px(0.0))
+            .children(rows);
+
+        let column_control = div()
+            .id(ElementId::Name(
+                format!("table-append-column-zone-{}", self.record.id).into(),
+            ))
+            .absolute()
+            .top(column_append_top)
+            .bottom_0()
+            .right_0()
+            .w(right_gutter)
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_hover(cx.listener(Self::on_table_append_column_zone_hover))
+            .child(
+                table_append_circle_button(
+                    format!("table-append-column-button-{}", self.record.id).into(),
+                    column_control_visible,
+                    append_extent,
+                    append_icon_size,
+                    c.table_border,
+                    c.table_append_button_bg,
+                    c.table_append_button_hover,
+                    c.table_append_button_text,
+                )
+                .on_hover(cx.listener(Self::on_table_append_column_button_hover))
+                .on_click(cx.listener(Self::on_append_table_column)),
+            );
+
         let column_edge_band = div()
             .id(ElementId::Name(
                 format!("table-append-column-edge-{}", self.record.id).into(),
             ))
             .absolute()
             .top(column_append_top)
-            .bottom(bottom_gutter)
+            .bottom_0()
             .right(right_gutter)
             .w(activation_band)
             .on_hover(cx.listener(Self::on_table_append_column_edge_hover));
 
-        let row_edge_band = div()
+        let table_row = div()
+            .relative()
+            .w_full()
+            .pr(right_gutter)
+            .child(table_grid)
+            .child(column_control)
+            .child(column_edge_band);
+
+        let row_control = div()
             .id(ElementId::Name(
-                format!("table-append-row-edge-{}", self.record.id).into(),
+                format!("table-append-row-zone-{}", self.record.id).into(),
             ))
-            .absolute()
-            .left_0()
-            .right(right_gutter)
-            .bottom(bottom_gutter)
-            .h(activation_band)
-            .on_hover(cx.listener(Self::on_table_append_row_edge_hover));
-
-        let column_control = {
-            let base = div()
-                .id(ElementId::Name(
-                    format!("table-append-column-zone-{}", self.record.id).into(),
-                ))
-                .absolute()
-                .top(column_append_top)
-                .bottom(bottom_gutter)
-                .right_0()
-                .w(right_gutter)
-                .on_hover(cx.listener(Self::on_table_append_column_zone_hover));
-
-            if column_control_visible {
-                base.child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("table-append-column-button-{}", self.record.id).into(),
-                        ))
-                        .absolute()
-                        .top(append_inset)
-                        .bottom_0()
-                        .right_0()
-                        .w(append_extent)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(999.0))
-                        .bg(c.table_append_button_bg)
-                        .hover(|this| this.bg(c.table_append_button_hover))
-                        .cursor_pointer()
-                        .text_size(px(t.text_size))
-                        .text_color(c.table_append_button_text)
-                        .occlude()
-                        .on_hover(cx.listener(Self::on_table_append_column_button_hover))
-                        .on_click(cx.listener(Self::on_append_table_column))
-                        .child("+"),
+            .w_full()
+            .min_h(append_gutter)
+            .flex()
+            .items_start()
+            .justify_center()
+            .pt(append_inset)
+            .child(
+                table_append_circle_button(
+                    format!("table-append-row-button-{}", self.record.id).into(),
+                    true,
+                    append_extent,
+                    append_icon_size,
+                    c.table_border,
+                    c.table_append_button_bg,
+                    c.table_append_button_hover,
+                    c.table_append_button_text,
                 )
-            } else {
-                base
-            }
-        };
-
-        let row_control = {
-            let base = div()
-                .id(ElementId::Name(
-                    format!("table-append-row-zone-{}", self.record.id).into(),
-                ))
-                .absolute()
-                .left_0()
-                .right(right_gutter)
-                .bottom_0()
-                .h(bottom_gutter)
-                .on_hover(cx.listener(Self::on_table_append_row_zone_hover));
-
-            if row_control_visible {
-                base.child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("table-append-row-button-{}", self.record.id).into(),
-                        ))
-                        .absolute()
-                        .left(append_inset)
-                        .right(append_inset)
-                        .bottom_0()
-                        .h(append_extent)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(999.0))
-                        .bg(c.table_append_button_bg)
-                        .hover(|this| this.bg(c.table_append_button_hover))
-                        .cursor_pointer()
-                        .text_size(px(t.text_size))
-                        .text_color(c.table_append_button_text)
-                        .occlude()
-                        .on_hover(cx.listener(Self::on_table_append_row_button_hover))
-                        .on_click(cx.listener(Self::on_append_table_row))
-                        .child("+"),
-                )
-            } else {
-                base
-            }
-        };
+                .on_click(cx.listener(Self::on_append_table_row)),
+            );
 
         div()
             .id(block_id)
             .w_full()
-            .relative()
             .flex()
             .flex_col()
-            .border(px(1.0))
-            .border_color(c.table_border)
-            .overflow_hidden()
-            .pr(right_gutter)
-            .pb(bottom_gutter)
-            .gap(px(0.0))
-            .children(rows)
-            .child(column_edge_band)
-            .child(row_edge_band)
-            .child(column_control)
-            .child(row_control)
+            .child(table_row)
+            .child(
+                div()
+                    .w_full()
+                    .pr(right_gutter)
+                    .flex()
+                    .child(row_control),
+            )
             .into_any_element()
     }
 
