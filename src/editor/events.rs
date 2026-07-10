@@ -181,6 +181,7 @@ impl Editor {
                 | BlockEvent::RequestQuoteBreak
                 | BlockEvent::RequestCalloutBreak
                 | BlockEvent::RequestMergeIntoPrev { .. }
+                | BlockEvent::RequestMergeNextIntoSelf
                 | BlockEvent::RequestPasteMultiline { .. }
                 | BlockEvent::RequestIndent
                 | BlockEvent::RequestOutdent
@@ -1058,6 +1059,51 @@ impl Editor {
                 self.finalize_pending_undo_capture(cx);
                 cx.notify();
             }
+            BlockEvent::RequestMergeNextIntoSelf => {
+                if current_visible_index + 1 >= visible_before.len() {
+                    return;
+                }
+                let next = visible_before[current_visible_index + 1].entity.clone();
+                let quote_related = self.block_is_quote_structure_related(&block, cx)
+                    || self.block_is_quote_structure_related(&next, cx);
+                self.prepare_undo_capture(crate::components::UndoCaptureKind::NonCoalescible, cx);
+
+                let cursor_pos = block.read(cx).display_text().len();
+                let next_content = next.read(cx).record.title.clone();
+                let adopted_children = super::tree::DocumentTree::take_children(&next, cx);
+                let removed_entity_id = next.entity_id();
+
+                self.document.with_structure_mutation(cx, |document, cx| {
+                    block.update(cx, {
+                        let next_content = next_content.clone();
+                        let adopted_children = adopted_children.clone();
+                        move |block, cx| {
+                            let mut merged_title = block.record.title.clone();
+                            merged_title.append_tree(next_content.clone());
+                            block.record.set_title(merged_title);
+                            block.sync_render_cache();
+                            block.children.extend(adopted_children.clone());
+                            block.selected_range = cursor_pos..cursor_pos;
+                            block.selection_reversed = false;
+                            block.marked_range = None;
+                            block.vertical_motion_x = None;
+                            block.cursor_blink_epoch = Instant::now();
+                            cx.notify();
+                        }
+                    });
+                    let _ = document.remove_block_by_id_raw(removed_entity_id, cx);
+                });
+
+                self.focus_block(block.entity_id());
+                if quote_related {
+                    self.normalize_rendered_quote_structure(cx);
+                } else {
+                    self.rebuild_image_runtimes(cx);
+                }
+                self.mark_dirty(cx);
+                self.finalize_pending_undo_capture(cx);
+                cx.notify();
+            }
             BlockEvent::RequestPasteMultiline {
                 leading,
                 lines,
@@ -1549,6 +1595,68 @@ mod tests {
         InlineTextTree, Newline,
     };
     use gpui::{AppContext, TestAppContext};
+
+    #[gpui::test]
+    async fn delete_at_block_end_merges_next_visible_block(cx: &mut TestAppContext) {
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\nbeta".to_string(), None));
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let first = visible[0].entity.clone();
+            let merge_point = first.read(cx).visible_len();
+            editor.focus_block(first.entity_id());
+            first.update(cx, |block, cx| {
+                block.selected_range = merge_point..merge_point;
+                cx.notify();
+            });
+
+            editor.on_block_event(first, &BlockEvent::RequestMergeNextIntoSelf, cx);
+
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 1);
+            let block = visible[0].entity.read(cx);
+            assert_eq!(block.display_text(), "alphabeta");
+            assert_eq!(block.selected_range, merge_point..merge_point);
+            assert_eq!(editor.document.markdown_text(cx), "alphabeta");
+        });
+    }
+
+    #[gpui::test]
+    async fn delete_key_at_paragraph_end_merges_next_line(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "first\n\nsecond".to_string(), None));
+
+        let merge_point = editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let first = visible[0].entity.clone();
+            let merge_point = first.read(cx).visible_len();
+            editor.focus_block(first.entity_id());
+            first.update(cx, |block, cx| {
+                block.selected_range = merge_point..merge_point;
+                cx.notify();
+            });
+            merge_point
+        });
+
+        cx.update(|window, app_cx| {
+            editor.update(app_cx, |editor, cx| {
+                let first = editor.document.visible_blocks()[0].entity.clone();
+                first.update(cx, |block, block_cx| {
+                    block.on_delete(&Delete, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 1);
+            let block = visible[0].entity.read(cx);
+            assert_eq!(block.display_text(), "firstsecond");
+            assert_eq!(block.selected_range, merge_point..merge_point);
+        });
+    }
 
     #[gpui::test]
     async fn request_quote_break_creates_new_root_leaf_quote_group(cx: &mut TestAppContext) {

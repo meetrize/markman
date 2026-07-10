@@ -374,7 +374,12 @@ impl Block {
         }
 
         if self.selected_range.is_empty() {
-            self.select_to(self.next_boundary(self.cursor_offset()), cx);
+            let next = self.next_boundary(self.cursor_offset());
+            if next == self.cursor_offset() {
+                cx.emit(BlockEvent::RequestMergeNextIntoSelf);
+                return;
+            }
+            self.select_to(next, cx);
         }
         self.replace_text_in_range(None, "", window, cx);
     }
