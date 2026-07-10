@@ -2,8 +2,8 @@
 
 use gpui::*;
 
-use super::super::element::BlockTextElement;
 use super::super::Block;
+use super::super::element::BlockTextElement;
 use super::shared::html_css_color_to_hsla;
 use crate::components::InlineScript;
 use crate::theme::Theme;
@@ -31,10 +31,13 @@ impl Block {
         // anchored to editable text rather than rendered SVG/script offsets.
         // While document search highlights are active, keep BlockTextElement so
         // highlight overlays share the same text layout as the search query.
+        // When a cross-block selection (Cmd+A in preview mode) is active, keep
+        // BlockTextElement so the selection highlight is visible on every block.
         // Unfocused blocks with highlight/math/script use div-based preview runs.
         if focused
             || is_placeholder
             || !self.search_highlight_ranges.is_empty()
+            || self.editor_selection_range.is_some()
         {
             return match placeholder_text {
                 Some(placeholder) => BlockTextElement::with_placeholder(
@@ -259,5 +262,4 @@ impl Block {
 
         element.into_any_element()
     }
-
 }

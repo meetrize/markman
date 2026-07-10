@@ -101,6 +101,7 @@ impl Editor {
             block.cursor_blink_epoch = Instant::now();
             cx.notify();
         });
+        self.sync_cross_block_selection_visuals(cx);
         cx.notify();
     }
 
@@ -1564,6 +1565,49 @@ mod tests {
                 editor.cross_block_selected_markdown(cx).as_deref(),
                 Some("pha\nbeta\nga")
             );
+        });
+        cx.quit();
+    }
+
+    #[test]
+    fn select_all_document_highlights_focused_and_unfocused_blocks() {
+        let mut cx = TestAppContext::single();
+        init_editor_test_app(&mut cx);
+        let editor = cx.new(|cx| {
+            Editor::from_markdown(cx, "alpha\n\nbeta".to_string(), None)
+        });
+
+        editor.update(&mut cx, |editor, cx| {
+            let visible = editor.document.visible_blocks().to_vec();
+            assert_eq!(visible.len(), 2);
+            let second = visible[1].entity.clone();
+            editor.focus_block(second.entity_id());
+            second.update(cx, |block, cx| {
+                block.selected_range = 0..0;
+                cx.notify();
+            });
+
+            editor.select_all_document(cx);
+
+            for visible in editor.document.visible_blocks().to_vec() {
+                let block = visible.entity.read(cx);
+                assert_eq!(
+                    block.editor_selection_range,
+                    Some(0..block.visible_len()),
+                    "block {:?} should be fully highlighted",
+                    block.display_text()
+                );
+            }
+
+            second.update(cx, |block, cx| {
+                block.sync_inline_projection_for_focus(true);
+                assert_eq!(
+                    block.editor_selection_range,
+                    Some(0..block.visible_len()),
+                    "focused block should keep cross-block highlight after projection sync"
+                );
+                cx.notify();
+            });
         });
         cx.quit();
     }

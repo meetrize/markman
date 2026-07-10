@@ -1009,11 +1009,17 @@ impl Block {
             self.collapsed_caret_affinity = CollapsedCaretAffinity::Default;
         } else if clean_selected.is_empty() {
             if self.selected_range.is_empty() {
-                let offset = self.clean_to_current_cursor_offset_with_affinity(
-                    clean_selected.start,
-                    collapsed_affinity,
-                );
-                self.assign_collapsed_selection_offset(offset, collapsed_affinity, None);
+                let preserve_cross_block_visual = self
+                    .editor_selection_range
+                    .as_ref()
+                    .is_some_and(|range| !range.is_empty());
+                if !preserve_cross_block_visual {
+                    let offset = self.clean_to_current_cursor_offset_with_affinity(
+                        clean_selected.start,
+                        collapsed_affinity,
+                    );
+                    self.assign_collapsed_selection_offset(offset, collapsed_affinity, None);
+                }
             }
         } else {
             self.selected_range = self.clean_to_current_range(clean_selected.clone());
