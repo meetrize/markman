@@ -34,7 +34,7 @@ pub(in crate::editor) struct WorkspaceController {
 impl WorkspaceController {
     pub(in crate::editor) fn new(cx: &mut Context<Editor>) -> Self {
         Self {
-            state: WorkspaceState::default(),
+            state: WorkspaceState::from_preferences(),
             search_focus: cx.focus_handle(),
             name_focus: cx.focus_handle(),
             file_context_menu: None,

@@ -52,6 +52,7 @@ const FOLDER_PLUS_ICON: &str = "icon/workspace/folder-plus.svg";
 const EXPAND_ALL_ICON: &str = "icon/workspace/list-tree.svg";
 const COLLAPSE_ALL_ICON: &str = "icon/toolbar/list-collapse.svg";
 const SORT_ICON: &str = "icon/workspace/arrow-up-down.svg";
+const FILE_LABEL_MODE_ICON: &str = "icon/toolbar/heading-1.svg";
 const HEADING_1_ICON: &str = "icon/toolbar/heading-1.svg";
 const HEADING_2_ICON: &str = "icon/toolbar/heading-2.svg";
 const HEADING_3_ICON: &str = "icon/toolbar/heading-3.svg";
@@ -73,6 +74,8 @@ const OUTLINE_TEXT_SCALE: f32 = 0.82;
 const WORKSPACE_TAB_ICON_SIZE: f32 = 12.0;
 const WORKSPACE_ROOT_ACTION_ICON_SIZE: f32 = 12.0;
 const WORKSPACE_RESIZE_HANDLE_WIDTH: f32 = 5.0;
+const DOCUMENT_TITLE_READ_LIMIT: usize = 4096;
+const DOCUMENT_DISPLAY_LABEL_MAX_LEN: usize = 40;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WorkspaceSearchResult {
@@ -105,6 +108,13 @@ pub(super) enum WorkspaceFileSort {
     #[default]
     ByName,
     ByModifiedTime,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum WorkspaceFileLabelMode {
+    #[default]
+    FileName,
+    DocumentTitle,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,6 +167,19 @@ pub(super) struct WorkspaceState {
     selected_tag: Option<String>,
     tag_sort: WorkspaceTagSort,
     file_sort: WorkspaceFileSort,
+    file_label_mode: WorkspaceFileLabelMode,
+}
+
+impl WorkspaceState {
+    pub(in crate::editor) fn from_preferences() -> Self {
+        let mut state = Self::default();
+        if let Ok(preferences) = crate::config::read_app_preferences()
+            && preferences.workspace_show_document_titles
+        {
+            state.file_label_mode = WorkspaceFileLabelMode::DocumentTitle;
+        }
+        state
+    }
 }
 
 impl Default for WorkspaceState {
@@ -189,6 +212,7 @@ impl Default for WorkspaceState {
             selected_tag: None,
             tag_sort: WorkspaceTagSort::default(),
             file_sort: WorkspaceFileSort::default(),
+            file_label_mode: WorkspaceFileLabelMode::default(),
         }
     }
 }
@@ -326,6 +350,7 @@ impl Editor {
 
         self.workspace.state.file_tree_busy = true;
         let sort = self.workspace.state.file_sort;
+        let label_mode = self.workspace.state.file_label_mode;
         let editor = cx.entity().downgrade();
         cx.spawn(async move |_this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = scan_workspace_dir(&root, sort);
@@ -335,14 +360,20 @@ impl Editor {
                 }
                 editor.workspace.state.file_tree_busy = false;
                 match result {
-                    Ok(tree) => {
+                    Ok(mut tree) => {
                         editor.workspace.state.expanded.insert(tree.id.clone());
-                        editor.workspace.state.file_tree = Some(tree);
+                        editor.workspace.state.file_tree = Some(tree.clone());
                         editor.workspace.state.file_error = None;
                         editor.workspace.state.selected = editor
                             .file_path
                             .as_ref()
                             .map(|path| WorkspaceSelection::File(path.clone()));
+                        if label_mode == WorkspaceFileLabelMode::DocumentTitle {
+                            enrich_workspace_tree_labels(&mut tree, label_mode, sort);
+                            if editor.workspace.state.file_label_mode == label_mode {
+                                editor.workspace.state.file_tree = Some(tree);
+                            }
+                        }
                     }
                     Err(err) => {
                         editor.workspace.state.file_tree = None;
@@ -1410,6 +1441,21 @@ impl Editor {
         self.workspace_refresh_file_tree(cx);
     }
 
+    pub(super) fn toggle_workspace_file_label_mode(&mut self, cx: &mut Context<Self>) {
+        let next = match self.workspace.state.file_label_mode {
+            WorkspaceFileLabelMode::FileName => WorkspaceFileLabelMode::DocumentTitle,
+            WorkspaceFileLabelMode::DocumentTitle => WorkspaceFileLabelMode::FileName,
+        };
+        self.workspace.state.file_label_mode = next;
+        let show_titles = matches!(next, WorkspaceFileLabelMode::DocumentTitle);
+        if let Err(err) = crate::config::update_app_preferences(|preferences| {
+            preferences.workspace_show_document_titles = show_titles;
+        }) {
+            eprintln!("failed to save workspace title preference: {err}");
+        }
+        self.workspace_refresh_file_tree(cx);
+    }
+
     fn select_outline_node(&mut self, id: String, line_index: usize, cx: &mut Context<Self>) {
         self.workspace.state.selected = Some(WorkspaceSelection::Outline(id));
         if self.jump_to_source_line_index(line_index, cx) {
@@ -2149,7 +2195,7 @@ impl Editor {
                     ),
             )
             .child(
-                workspace_root_action_button("workspace-outline-expand-toggle", expand_icon, theme)
+                workspace_root_action_button("workspace-outline-expand-toggle", expand_icon, theme, false, None)
                     .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                         cx.stop_propagation();
                     })
@@ -2781,6 +2827,15 @@ impl Editor {
         let arrow_node_id = node.id.clone();
         let arrow_editor = editor.clone();
         let chevron_color = c.dialog_muted;
+        let workspace_root = self.effective_workspace_root();
+        let file_node_tooltip = match &node.kind {
+            WorkspaceTreeKind::File(path) => Some(workspace_file_node_tooltip(
+                workspace_root.as_deref(),
+                path,
+                _strings,
+            )),
+            _ => None,
+        };
 
         let mut arrow_el = div()
             .w(px(WORKSPACE_CHEVRON_SIZE))
@@ -2856,8 +2911,9 @@ impl Editor {
                     .text_color(color)
                     .into_any_element()
             }))
-            .child(
-                div()
+            .child({
+                let label_base = div()
+                    .id(("workspace-file-label", stable_node_hash(&node.id)))
                     .flex_1()
                     .min_w(px(0.0))
                     .overflow_hidden()
@@ -2865,8 +2921,17 @@ impl Editor {
                     .text_size(px(t.text_size * 0.84))
                     .line_height(px(t.text_size * 1.15))
                     .text_color(label_color)
-                    .child(node.label.clone()),
-            );
+                    .child(node.label.clone());
+                if let Some(tooltip) = file_node_tooltip {
+                    label_base
+                        .tooltip(super::toolbar_button::editor_toolbar_tooltip(
+                            tooltip, theme,
+                        ))
+                        .into_any_element()
+                } else {
+                    label_base.into_any_element()
+                }
+            });
 
         if is_tree_root {
             let file_count = workspace_directory_file_count(node);
@@ -2877,7 +2942,7 @@ impl Editor {
                     .text_color(c.dialog_muted.opacity(0.85))
                     .child(file_count.to_string()),
             );
-            row = row.child(self.render_workspace_root_actions(node, theme, editor));
+            row = row.child(self.render_workspace_root_actions(node, theme, editor, _strings));
         }
 
         row.on_click(move |_event, window, cx| {
@@ -2923,6 +2988,7 @@ impl Editor {
         node: &WorkspaceTreeNode,
         theme: &Theme,
         editor: &WeakEntity<Editor>,
+        strings: &I18nStrings,
     ) -> impl IntoElement {
         let root_path = match &node.kind {
             WorkspaceTreeKind::Directory(path) => path.clone(),
@@ -2934,10 +3000,18 @@ impl Editor {
         } else {
             EXPAND_ALL_ICON
         };
+        let title_mode_active =
+            self.workspace.state.file_label_mode == WorkspaceFileLabelMode::DocumentTitle;
+        let title_mode_tooltip = if title_mode_active {
+            strings.workspace_files_show_filenames.clone()
+        } else {
+            strings.workspace_files_show_titles.clone()
+        };
 
         let new_file_editor = editor.clone();
         let new_folder_editor = editor.clone();
         let expand_editor = editor.clone();
+        let label_mode_editor = editor.clone();
         let sort_editor = editor.clone();
         let root_for_new = root_path.clone();
 
@@ -2952,6 +3026,8 @@ impl Editor {
                     "workspace-root-new-file",
                     FILE_PLUS_ICON,
                     theme,
+                    false,
+                    None,
                 )
                 .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                     cx.stop_propagation();
@@ -2969,6 +3045,8 @@ impl Editor {
                     "workspace-root-new-folder",
                     FOLDER_PLUS_ICON,
                     theme,
+                    false,
+                    None,
                 )
                 .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                     cx.stop_propagation();
@@ -2986,6 +3064,8 @@ impl Editor {
                     "workspace-root-expand-toggle",
                     expand_icon,
                     theme,
+                    false,
+                    None,
                 )
                 .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                     cx.stop_propagation();
@@ -2999,9 +3079,29 @@ impl Editor {
             )
             .child(
                 workspace_root_action_button(
+                    "workspace-root-label-mode",
+                    FILE_LABEL_MODE_ICON,
+                    theme,
+                    title_mode_active,
+                    Some(title_mode_tooltip.into()),
+                )
+                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click(move |_event, _window, cx| {
+                    cx.stop_propagation();
+                    let _ = label_mode_editor.update(cx, |editor, cx| {
+                        editor.toggle_workspace_file_label_mode(cx);
+                    });
+                }),
+            )
+            .child(
+                workspace_root_action_button(
                     "workspace-root-sort",
                     SORT_ICON,
                     theme,
+                    false,
+                    Some(strings.workspace_files_sort.clone().into()),
                 )
                 .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                     cx.stop_propagation();
@@ -3298,6 +3398,203 @@ fn workspace_node_path(node: &WorkspaceTreeNode) -> Option<&Path> {
     }
 }
 
+fn enrich_workspace_tree_labels(
+    node: &mut WorkspaceTreeNode,
+    mode: WorkspaceFileLabelMode,
+    sort: WorkspaceFileSort,
+) {
+    match &node.kind {
+        WorkspaceTreeKind::Directory(_) => {
+            for child in &mut node.children {
+                enrich_workspace_tree_labels(child, mode, sort);
+            }
+            sort_workspace_children(&mut node.children, sort);
+        }
+        WorkspaceTreeKind::File(path) => {
+            if mode == WorkspaceFileLabelMode::DocumentTitle && is_markdown_file(path) {
+                if let Some(prefix) = read_markdown_prefix(path) {
+                    node.label = extract_document_display_title(&prefix, path);
+                }
+            } else {
+                node.label = file_label(path);
+            }
+        }
+        WorkspaceTreeKind::Heading { .. } => {}
+    }
+}
+
+fn read_markdown_prefix(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    let truncated = if bytes.len() > DOCUMENT_TITLE_READ_LIMIT {
+        truncate_bytes_at_char_boundary(&bytes, DOCUMENT_TITLE_READ_LIMIT)
+    } else {
+        &bytes[..]
+    };
+    String::from_utf8(truncated.to_vec()).ok()
+}
+
+fn truncate_bytes_at_char_boundary(bytes: &[u8], max_len: usize) -> &[u8] {
+    if bytes.len() <= max_len {
+        return bytes;
+    }
+    let mut end = max_len;
+    while end > 0 && std::str::from_utf8(&bytes[..end]).is_err() {
+        end -= 1;
+    }
+    &bytes[..end]
+}
+
+fn extract_document_display_title(markdown: &str, path: &Path) -> String {
+    if let Some(title) = first_atx_heading_in_markdown(markdown) {
+        return truncate_display_label(&title);
+    }
+    if let Some(line) = first_body_line_in_markdown(markdown) {
+        return truncate_display_label(&line);
+    }
+    file_stem_label(path)
+}
+
+fn first_atx_heading_in_markdown(markdown: &str) -> Option<String> {
+    let mut fence: Option<FenceInfo> = None;
+    for line in markdown.lines() {
+        if let Some(ref opener) = fence {
+            if is_closing_fence(line, opener) {
+                fence = None;
+            }
+            continue;
+        }
+        if let Some(next_fence) = parse_opening_fence(line) {
+            fence = Some(next_fence);
+            continue;
+        }
+        if let Some((_level, title)) = BlockKind::parse_atx_heading_line(line) {
+            return Some(title);
+        }
+    }
+    None
+}
+
+fn first_body_line_in_markdown(markdown: &str) -> Option<String> {
+    let mut fence: Option<FenceInfo> = None;
+    for line in markdown.lines() {
+        if let Some(ref opener) = fence {
+            if is_closing_fence(line, opener) {
+                fence = None;
+            }
+            continue;
+        }
+        if let Some(next_fence) = parse_opening_fence(line) {
+            fence = Some(next_fence);
+            continue;
+        }
+        let stripped = strip_line_for_display(line);
+        if !stripped.is_empty() {
+            return Some(stripped);
+        }
+    }
+    None
+}
+
+fn strip_line_for_display(line: &str) -> String {
+    let mut text = line.trim().to_string();
+    if text.is_empty() {
+        return text;
+    }
+
+    if let Some((_level, title)) = BlockKind::parse_atx_heading_line(&text) {
+        return title;
+    }
+
+    while text.starts_with('>') {
+        text = text[1..].trim_start().to_string();
+    }
+
+    if let Some(rest) = text.strip_prefix("- [ ] ") {
+        text = rest.to_string();
+    } else if let Some(rest) = text.strip_prefix("- [x] ") {
+        text = rest.to_string();
+    } else if let Some(rest) = text.strip_prefix("- [X] ") {
+        text = rest.to_string();
+    } else if let Some((prefix, rest)) = text.split_once(". ")
+        && !prefix.is_empty()
+        && prefix.chars().all(|ch| ch.is_ascii_digit())
+    {
+        text = rest.to_string();
+    }
+
+    for prefix in ["- ", "* ", "+ "] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            text = rest.to_string();
+            break;
+        }
+    }
+
+    strip_inline_markdown_for_display(&text)
+}
+
+fn strip_inline_markdown_for_display(text: &str) -> String {
+    let mut output = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '`' => {
+                while chars.next().is_some_and(|next| next != '`') {}
+            }
+            '[' => {
+                let mut label = String::new();
+                for next in chars.by_ref() {
+                    if next == ']' {
+                        break;
+                    }
+                    label.push(next);
+                }
+                if chars.next() == Some('(') {
+                    while chars.next().is_some_and(|next| next != ')') {}
+                }
+                output.push_str(&label);
+            }
+            '*' | '_' | '~' => {}
+            _ => output.push(ch),
+        }
+    }
+    output.trim().to_string()
+}
+
+fn truncate_display_label(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= DOCUMENT_DISPLAY_LABEL_MAX_LEN {
+        return trimmed.to_string();
+    }
+    trimmed
+        .chars()
+        .take(DOCUMENT_DISPLAY_LABEL_MAX_LEN)
+        .chain(['…'])
+        .collect()
+}
+
+fn file_stem_label(path: &Path) -> String {
+    path.file_stem()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_label(path))
+}
+
+fn workspace_file_node_tooltip(
+    root: Option<&Path>,
+    path: &Path,
+    strings: &I18nStrings,
+) -> SharedString {
+    let filename = file_label(path);
+    let path_label = root
+        .and_then(|root| path.strip_prefix(root).ok())
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned());
+    strings
+        .workspace_file_node_tooltip_template
+        .replace("{filename}", &filename)
+        .replace("{path}", &path_label)
+        .into()
+}
+
 fn path_modified_time(path: &Path) -> Option<std::time::SystemTime> {
     fs::metadata(path).and_then(|meta| meta.modified()).ok()
 }
@@ -3394,9 +3691,21 @@ fn workspace_root_action_button(
     id: &'static str,
     icon: &'static str,
     theme: &Theme,
+    active: bool,
+    tooltip: Option<SharedString>,
 ) -> Stateful<Div> {
     let c = &theme.colors;
-    div()
+    let bg = if active {
+        c.selection.opacity(0.35)
+    } else {
+        hsla(0.0, 0.0, 0.0, 0.0)
+    };
+    let hover_bg = if active {
+        c.selection.opacity(0.5)
+    } else {
+        c.dialog_secondary_button_hover
+    };
+    let mut button = div()
         .id(id)
         .size(px(WORKSPACE_ROOT_ACTION_ICON_SIZE + 4.0))
         .flex()
@@ -3404,15 +3713,20 @@ fn workspace_root_action_button(
         .items_center()
         .justify_center()
         .rounded(px(3.0))
+        .bg(bg)
         .occlude()
-        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+        .hover(|this| this.bg(hover_bg))
         .cursor_pointer()
         .child(
             svg()
                 .path(icon)
                 .size(px(WORKSPACE_ROOT_ACTION_ICON_SIZE))
                 .text_color(c.dialog_muted),
-        )
+        );
+    if let Some(text) = tooltip {
+        button = button.tooltip(super::toolbar_button::editor_toolbar_tooltip(text, theme));
+    }
+    button
 }
 
 fn file_label(path: &Path) -> String {
@@ -4187,8 +4501,10 @@ impl EntityInputHandler for Editor {
 mod tests {
     use super::{
         WorkspaceFileSort, WorkspaceSelection, WorkspaceState, WorkspaceTreeKind,
-        build_outline_tree, collect_expandable_outline_node_ids, prune_outline_state,
-        scan_workspace_dir, search_markdown_files, workspace_panel_width_for_viewport,
+        build_outline_tree, collect_expandable_outline_node_ids, enrich_workspace_tree_labels,
+        extract_document_display_title, first_atx_heading_in_markdown, first_body_line_in_markdown,
+        prune_outline_state, scan_workspace_dir, search_markdown_files,
+        workspace_panel_width_for_viewport, WorkspaceFileLabelMode,
     };
     use std::fs;
 
@@ -4338,5 +4654,71 @@ mod tests {
             workspace_panel_width_for_viewport(1000.0, Some(280.0)),
             280.0
         );
+    }
+
+    #[test]
+    fn document_title_prefers_first_atx_heading() {
+        let markdown = "Intro\n\n# Main Title\n\nBody";
+        assert_eq!(
+            first_atx_heading_in_markdown(markdown),
+            Some("Main Title".to_string())
+        );
+        assert_eq!(
+            extract_document_display_title(markdown, std::path::Path::new("note.md")),
+            "Main Title"
+        );
+    }
+
+    #[test]
+    fn document_title_skips_headings_inside_fenced_code() {
+        let markdown = "```md\n# ignored\n```\n\nFirst visible line\n";
+        assert_eq!(first_atx_heading_in_markdown(markdown), None);
+        assert_eq!(
+            first_body_line_in_markdown(markdown),
+            Some("First visible line".to_string())
+        );
+    }
+
+    #[test]
+    fn document_title_falls_back_to_first_body_line() {
+        let markdown = "\n- Task item\n\nParagraph";
+        assert_eq!(
+            extract_document_display_title(markdown, std::path::Path::new("note.md")),
+            "Task item"
+        );
+    }
+
+    #[test]
+    fn document_title_falls_back_to_file_stem() {
+        let markdown = "\n\n";
+        assert_eq!(
+            extract_document_display_title(markdown, std::path::Path::new("note.md")),
+            "note"
+        );
+    }
+
+    #[test]
+    fn enrich_workspace_tree_labels_replaces_markdown_file_names() {
+        let root =
+            std::env::temp_dir().join(format!("velotype-workspace-titles-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create root");
+        fs::write(root.join("alpha.md"), "# Alpha Title\n").expect("write alpha");
+        fs::write(root.join("beta.txt"), "plain").expect("write beta");
+
+        let mut tree = scan_workspace_dir(&root, WorkspaceFileSort::ByName).expect("scan tree");
+        enrich_workspace_tree_labels(
+            &mut tree,
+            WorkspaceFileLabelMode::DocumentTitle,
+            WorkspaceFileSort::ByName,
+        );
+
+        let labels = tree
+            .children
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["Alpha Title", "beta.txt"]);
+
+        let _ = fs::remove_dir_all(root);
     }
 }

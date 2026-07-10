@@ -370,6 +370,12 @@ pub struct I18nStrings {
     pub workspace_files_sort_by_name: String,
     /// Workspace file-tree sort menu: sort by modified time.
     pub workspace_files_sort_by_time: String,
+    /// Workspace file-tree root row: switch to document title labels.
+    pub workspace_files_show_titles: String,
+    /// Workspace file-tree root row: switch to file name labels.
+    pub workspace_files_show_filenames: String,
+    /// Tooltip for workspace file nodes. Supports `{filename}` and `{path}`.
+    pub workspace_file_node_tooltip_template: String,
     /// Title of the dialog shown before opening a non-Markdown workspace file.
     pub workspace_open_non_markdown_title: String,
     /// Body template for opening a non-Markdown workspace file. Supports `{filename}`.
@@ -807,6 +813,9 @@ struct I18nStringsDe {
     workspace_files_sort: Option<String>,
     workspace_files_sort_by_name: Option<String>,
     workspace_files_sort_by_time: Option<String>,
+    workspace_files_show_titles: Option<String>,
+    workspace_files_show_filenames: Option<String>,
+    workspace_file_node_tooltip_template: Option<String>,
     workspace_open_non_markdown_title: Option<String>,
     workspace_open_non_markdown_message_template: Option<String>,
     workspace_open_non_markdown_confirm: Option<String>,
@@ -1129,6 +1138,9 @@ const I18N_STRING_KEYS: &[&str] = &[
     "workspace_files_sort",
     "workspace_files_sort_by_name",
     "workspace_files_sort_by_time",
+    "workspace_files_show_titles",
+    "workspace_files_show_filenames",
+    "workspace_file_node_tooltip_template",
     "workspace_open_non_markdown_title",
     "workspace_open_non_markdown_message_template",
     "workspace_open_non_markdown_confirm",
@@ -1819,6 +1831,15 @@ impl I18nStringsDe {
             workspace_files_sort_by_time: self
                 .workspace_files_sort_by_time
                 .unwrap_or(defaults.workspace_files_sort_by_time),
+            workspace_files_show_titles: self
+                .workspace_files_show_titles
+                .unwrap_or(defaults.workspace_files_show_titles),
+            workspace_files_show_filenames: self
+                .workspace_files_show_filenames
+                .unwrap_or(defaults.workspace_files_show_filenames),
+            workspace_file_node_tooltip_template: self
+                .workspace_file_node_tooltip_template
+                .unwrap_or(defaults.workspace_file_node_tooltip_template),
             workspace_open_non_markdown_title: self
                 .workspace_open_non_markdown_title
                 .unwrap_or(defaults.workspace_open_non_markdown_title),
@@ -2376,6 +2397,9 @@ impl I18nStrings {
             workspace_files_sort: "排序".into(),
             workspace_files_sort_by_name: "按文件名排序".into(),
             workspace_files_sort_by_time: "按修改时间排序".into(),
+            workspace_files_show_titles: "显示文档标题".into(),
+            workspace_files_show_filenames: "显示文件名".into(),
+            workspace_file_node_tooltip_template: "{filename}\n{path}".into(),
             workspace_open_non_markdown_title: "打开非 Markdown 文件？".into(),
             workspace_open_non_markdown_message_template:
                 "「{filename}」不是 Markdown 文件。将以 Markdown 形式打开，格式可能无法正确显示。是否继续？"
@@ -2721,6 +2745,9 @@ impl I18nStrings {
             workspace_files_sort: "Sort".into(),
             workspace_files_sort_by_name: "Sort by Name".into(),
             workspace_files_sort_by_time: "Sort by Modified Time".into(),
+            workspace_files_show_titles: "Show document titles".into(),
+            workspace_files_show_filenames: "Show file names".into(),
+            workspace_file_node_tooltip_template: "{filename}\n{path}".into(),
             workspace_open_non_markdown_title: "Open Non-Markdown File?".into(),
             workspace_open_non_markdown_message_template:
                 "\"{filename}\" is not a Markdown file. It will be opened as Markdown and may not render correctly. Continue?"

@@ -109,6 +109,8 @@ pub(crate) struct AppPreferences {
     pub(crate) document_zoom_x100: u16,
     /// Mermaid flowchart rendering style.
     pub(crate) mermaid_display_style: MermaidDisplayStyle,
+    /// When true, workspace file tree shows document titles instead of file names.
+    pub(crate) workspace_show_document_titles: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,6 +160,7 @@ impl Default for AppPreferences {
             format_toolbar: default_format_toolbar_button_configs(),
             document_zoom_x100: crate::theme::DEFAULT_DOCUMENT_ZOOM_X100,
             mermaid_display_style: MermaidDisplayStyle::Default,
+            workspace_show_document_titles: false,
         }
     }
 }
@@ -175,6 +178,12 @@ struct PreferencesFile {
     format_toolbar: Vec<FormatToolbarButtonConfigFile>,
     editor: EditorPreferencesFile,
     mermaid: MermaidPreferencesFile,
+    workspace: WorkspacePreferencesFile,
+}
+
+#[derive(Serialize)]
+struct WorkspacePreferencesFile {
+    show_document_titles: bool,
 }
 
 #[derive(Serialize)]
@@ -288,6 +297,9 @@ impl From<&AppPreferences> for PreferencesFile {
             },
             mermaid: MermaidPreferencesFile {
                 display_style: value.mermaid_display_style.as_str().into(),
+            },
+            workspace: WorkspacePreferencesFile {
+                show_document_titles: value.workspace_show_document_titles,
             },
         }
     }
@@ -431,6 +443,11 @@ fn app_preferences_from_toml_value(
         .and_then(|value| value.as_str())
         .map(MermaidDisplayStyle::parse)
         .unwrap_or_default();
+    let workspace_show_document_titles = value
+        .get("workspace")
+        .and_then(|section| section.get("show_document_titles"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     AppPreferences {
         startup_open,
@@ -450,6 +467,7 @@ fn app_preferences_from_toml_value(
         format_toolbar,
         document_zoom_x100,
         mermaid_display_style,
+        workspace_show_document_titles,
     }
 }
 

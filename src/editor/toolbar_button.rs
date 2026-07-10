@@ -186,7 +186,7 @@ impl Render for EditorToolbarTooltip {
     }
 }
 
-fn editor_toolbar_tooltip(
+pub(in crate::editor) fn editor_toolbar_tooltip(
     text: impl Into<SharedString>,
     theme: &Theme,
 ) -> impl Fn(&mut Window, &mut App) -> AnyView + Clone + 'static {
