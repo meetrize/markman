@@ -94,6 +94,9 @@ impl AssetSource for VelotypeAssets {
             "icon/workspace/folder-plus.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/workspace/folder-plus.svg"
             )))),
+            "icon/workspace/arrow-up-down.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon/workspace/arrow-up-down.svg"
+            )))),
             "icon/titlebar/chrome-close.svg" => Ok(Some(Cow::Borrowed(include_bytes!(
                 "../assets/icon/titlebar/chrome-close.svg"
             )))),
