@@ -24,6 +24,12 @@ DEST_APP="$INSTALL_DIR/$APP_BUNDLE"
 BINARY_PATH="$DEST_APP/Contents/MacOS/$MARKMAN_BINARY_NAME"
 CLI_LINK="/usr/local/bin/$MARKMAN_BINARY_NAME"
 LEGACY_CLI_LINK="/usr/local/bin/velotype"
+PASSWORD="dddd"
+
+# Pass hardcoded password to sudo, avoiding interactive prompt.
+sudo_pw() {
+    echo "$PASSWORD" | sudo -S "$@"
+}
 
 DO_BUILD=1
 DO_CLI=1
@@ -107,12 +113,12 @@ install_with_privilege() {
 if [[ -w "$INSTALL_DIR" ]]; then
   install_with_privilege "$SOURCE_APP" "$DEST_APP"
 else
-  markman_info "Requesting administrator privileges to write to $INSTALL_DIR"
-  if [[ -e "$DEST_APP" ]]; then
-    sudo rm -rf "$DEST_APP"
-  fi
-  markman_info "Installing to $DEST_APP"
-  sudo ditto "$SOURCE_APP" "$DEST_APP"
+	  markman_info "Requesting administrator privileges to write to $INSTALL_DIR"
+	  if [[ -e "$DEST_APP" ]]; then
+	    sudo_pw rm -rf "$DEST_APP"
+	  fi
+	  markman_info "Installing to $DEST_APP"
+	  sudo_pw ditto "$SOURCE_APP" "$DEST_APP"
 fi
 
 if ((DO_CLI)); then
@@ -121,8 +127,8 @@ if ((DO_CLI)); then
     rm -f "$CLI_LINK" "$LEGACY_CLI_LINK"
     ln -sf "$BINARY_PATH" "$CLI_LINK"
   else
-    sudo rm -f "$CLI_LINK" "$LEGACY_CLI_LINK"
-    sudo ln -sf "$BINARY_PATH" "$CLI_LINK"
+	    sudo_pw rm -f "$CLI_LINK" "$LEGACY_CLI_LINK"
+	    sudo_pw ln -sf "$BINARY_PATH" "$CLI_LINK"
   fi
 fi
 

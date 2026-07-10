@@ -368,6 +368,11 @@ impl Block {
             return;
         }
 
+        if self.selected_range.is_empty() && self.display_text().is_empty() {
+            cx.emit(BlockEvent::RequestDelete);
+            return;
+        }
+
         if self.selected_range.is_empty() {
             self.select_to(self.next_boundary(self.cursor_offset()), cx);
         }
