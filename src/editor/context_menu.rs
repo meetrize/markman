@@ -317,6 +317,7 @@ impl Editor {
         let had_file_menu = self.workspace.file_context_menu.take().is_some();
         let had_file_sort_menu = self.workspace.file_sort_menu.take().is_some();
         let had_name_dialog = self.workspace.name_dialog.take().is_some();
+        let had_ai_chat_context_dropdown = self.ai_chat.context_dropdown_open;
         let had_code_language_menu = self.close_all_code_language_menus(cx);
         if had_document_search {
             self.close_document_search(cx);
@@ -330,6 +331,9 @@ impl Editor {
         if had_wiki_link_picker {
             self.close_wiki_link_picker(cx);
         }
+        if had_ai_chat_context_dropdown {
+            self.ai_chat.context_dropdown_open = false;
+        }
         if had_inline_code_popover
             || had_menu
             || had_dialog
@@ -341,6 +345,7 @@ impl Editor {
             || had_file_menu
             || had_file_sort_menu
             || had_name_dialog
+            || had_ai_chat_context_dropdown
             || had_document_search
             || had_quick_file_open
             || had_wiki_link_picker

@@ -2708,6 +2708,23 @@ async fn ai_chat_defaults_to_full_document_context_mode(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+async fn ai_chat_tab_renders_without_panicking(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let (editor, cx) = cx.add_window_view(|_window, cx| Editor::empty(cx));
+
+    cx.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.open_ai_chat_tab(window, cx);
+        });
+    });
+    redraw(cx);
+
+    editor.read_with(cx, |editor, _cx| {
+        assert!(editor.workspace_ai_tab_open());
+    });
+}
+
+#[gpui::test]
 async fn ai_chat_clear_conversation_resets_messages_and_error(cx: &mut TestAppContext) {
     init_editor_test_app(cx);
     let editor = cx.new(Editor::empty);
