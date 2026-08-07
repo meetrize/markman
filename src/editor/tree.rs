@@ -104,6 +104,18 @@ impl DocumentTree {
             .map(|visible| visible.entity.clone())
     }
 
+    pub(super) fn block_entity_by_record_id(
+        &self,
+        block_id: uuid::Uuid,
+        cx: &App,
+    ) -> Option<Entity<Block>> {
+        self.snapshot
+            .visible
+            .iter()
+            .find(|visible| visible.entity.read(cx).record.id == block_id)
+            .map(|visible| visible.entity.clone())
+    }
+
     pub(super) fn find_block_location(&self, entity_id: EntityId) -> Option<BlockLocation> {
         self.snapshot.location_by_entity.get(&entity_id).cloned()
     }
@@ -125,6 +137,13 @@ impl DocumentTree {
     pub(super) fn markdown_text(&self, cx: &App) -> String {
         let mut lines = Vec::new();
         Self::collect_root_markdown_lines(&self.roots, cx, &mut lines);
+        lines.join("\n")
+    }
+
+    /// Serialize one block (and its children) the same way document export does.
+    pub(super) fn block_markdown_text(&self, block: &Entity<Block>, cx: &App) -> String {
+        let mut lines = Vec::new();
+        Self::collect_single_block_markdown_lines(block.read(cx), 0, cx, &mut lines);
         lines.join("\n")
     }
 

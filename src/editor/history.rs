@@ -58,7 +58,9 @@ impl Editor {
 
     pub(super) fn capture_history_entry(&self, kind: UndoCaptureKind, cx: &App) -> HistoryEntry {
         HistoryEntry {
-            source_text: self.current_document_source(cx),
+            payload: HistoryPayload::Full {
+                source_text: self.current_document_source(cx),
+            },
             selection: self.capture_source_selection_snapshot(cx),
             timestamp: Instant::now(),
             kind,
@@ -71,7 +73,9 @@ impl Editor {
         cx: &App,
     ) -> HistoryEntry {
         HistoryEntry {
-            source_text: self.last_stable_source_text.clone(),
+            payload: HistoryPayload::Full {
+                source_text: self.last_stable_source_text.clone(),
+            },
             // Selection is captured live so undo restores the caret as it was
             // when the edit began; document text stays on the last stable snapshot.
             selection: self.capture_source_selection_snapshot(cx),
@@ -86,20 +90,54 @@ impl Editor {
         }
         self.pending_undo_capture = Some(PendingUndoCapture {
             snapshot: self.capture_history_entry(kind, cx),
+            anchor: None,
         });
     }
 
-    pub(super) fn prepare_undo_capture_from_stable_snapshot(
+    pub(super) fn prepare_undo_capture_from_stable_snapshot_for_block(
         &mut self,
+        block: Option<&Entity<Block>>,
         kind: UndoCaptureKind,
         cx: &App,
     ) {
         if self.history_restore_in_progress || self.pending_undo_capture.is_some() {
             return;
         }
+
+        let anchor = block.and_then(|entity| {
+            if self.view_mode != ViewMode::Rendered {
+                return None;
+            }
+            let block_id = entity.read(cx).record.id;
+            if !entity.read(cx).children.is_empty() {
+                return None;
+            }
+            if !Self::kind_supports_scoped_block_undo(&entity.read(cx).record.kind) {
+                return None;
+            }
+            // Only record identity here. GPUI may deliver PrepareUndo after the
+            // edit mutates the block, so before-markdown is recovered at finalize
+            // from last_stable_source_text via document diff.
+            Some(HistoryBlockAnchor {
+                block_id,
+                entity_id: entity.entity_id(),
+            })
+        });
+
         self.pending_undo_capture = Some(PendingUndoCapture {
             snapshot: self.capture_stable_history_entry(kind, cx),
+            anchor,
         });
+    }
+
+    fn kind_supports_scoped_block_undo(kind: &BlockKind) -> bool {
+        matches!(
+            kind,
+            BlockKind::Paragraph
+                | BlockKind::Heading { .. }
+                | BlockKind::Comment
+                | BlockKind::RawMarkdown
+        )
     }
 
     pub(super) fn refresh_stable_document_snapshot(&mut self, cx: &App) {
@@ -118,27 +156,133 @@ impl Editor {
             return;
         };
 
+        let HistoryPayload::Full {
+            source_text: before_source,
+        } = &pending.snapshot.payload
+        else {
+            // Pending captures are always Full; keep the type exhaustive.
+            self.refresh_stable_document_snapshot(cx);
+            return;
+        };
+        let before_source = before_source.clone();
+
         let current_source = self.current_document_source(cx);
-        if current_source == pending.snapshot.source_text {
+        if current_source == before_source {
             self.refresh_stable_document_snapshot(cx);
             return;
         }
 
-        let should_merge = matches!(pending.snapshot.kind, UndoCaptureKind::CoalescibleText)
-            && self.undo_history.last().is_some_and(|entry| {
-                matches!(entry.kind, UndoCaptureKind::CoalescibleText)
-                    && pending
-                        .snapshot
+        let payload = self.classify_history_payload(
+            &before_source,
+            &current_source,
+            pending.anchor.as_ref(),
+            cx,
+        );
+        let entry = HistoryEntry {
+            payload,
+            selection: pending.snapshot.selection,
+            timestamp: pending.snapshot.timestamp,
+            kind: pending.snapshot.kind,
+        };
+
+        let should_merge = matches!(entry.kind, UndoCaptureKind::CoalescibleText)
+            && self.undo_history.last().is_some_and(|last| {
+                matches!(last.kind, UndoCaptureKind::CoalescibleText)
+                    && same_history_coalesce_target(last, &entry)
+                    && entry
                         .timestamp
-                        .saturating_duration_since(entry.timestamp)
+                        .saturating_duration_since(last.timestamp)
                         <= Self::HISTORY_COALESCE_WINDOW
             });
         if !should_merge {
-            self.undo_history.push(pending.snapshot);
+            self.undo_history.push(entry);
             self.redo_history.clear();
             Self::trim_history_stack(&mut self.undo_history);
         }
         self.refresh_stable_document_snapshot(cx);
+    }
+
+    fn classify_history_payload(
+        &self,
+        before_source: &str,
+        after_source: &str,
+        anchor: Option<&HistoryBlockAnchor>,
+        cx: &App,
+    ) -> HistoryPayload {
+        let Some(anchor) = anchor else {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        };
+        if self.view_mode != ViewMode::Rendered {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        }
+
+        let Some(entity) = self.document.block_entity_by_id(anchor.entity_id) else {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        };
+        let live_id = entity.read(cx).record.id;
+        if live_id != anchor.block_id
+            || !entity.read(cx).children.is_empty()
+            || !Self::kind_supports_scoped_block_undo(&entity.read(cx).record.kind)
+        {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        }
+
+        let after_md = self.document.block_markdown_text(&entity, cx);
+        if after_md.is_empty() {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        }
+
+        // Locate the edited block's after-markdown uniquely, then recover the
+        // before slice from the same surrounding prefix/suffix in before_source.
+        let mut after_matches = after_source.match_indices(&after_md);
+        let Some((after_pos, _)) = after_matches.next() else {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        };
+        if after_matches.next().is_some() {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        }
+
+        let prefix = &after_source[..after_pos];
+        let suffix = &after_source[after_pos + after_md.len()..];
+        if !before_source.starts_with(prefix)
+            || !before_source.ends_with(suffix)
+            || before_source.len() < prefix.len() + suffix.len()
+        {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        }
+        let before_md =
+            before_source[prefix.len()..before_source.len() - suffix.len()].to_string();
+        let mut reconstructed =
+            String::with_capacity(prefix.len() + after_md.len() + suffix.len());
+        reconstructed.push_str(prefix);
+        reconstructed.push_str(&after_md);
+        reconstructed.push_str(suffix);
+        if reconstructed != after_source {
+            return HistoryPayload::Full {
+                source_text: before_source.to_string(),
+            };
+        }
+
+        HistoryPayload::BlockText {
+            block_id: anchor.block_id,
+            block_markdown: before_md,
+        }
     }
 
     pub(super) fn apply_selection_snapshot_in_current_mode(
@@ -276,29 +420,104 @@ impl Editor {
     }
 
     pub(super) fn restore_history_entry(&mut self, entry: &HistoryEntry, cx: &mut Context<Self>) {
-        match self.view_mode {
-            ViewMode::Rendered => {
-                let mut roots = Self::build_root_blocks_from_markdown(cx, &entry.source_text);
-                if roots.is_empty() {
-                    roots.push(Self::new_block(cx, BlockRecord::paragraph(String::new())));
+        match &entry.payload {
+            HistoryPayload::BlockText {
+                block_id,
+                block_markdown,
+            } => {
+                if self.try_restore_block_text_history(*block_id, block_markdown, cx) {
+                    self.apply_selection_snapshot_in_current_mode(&entry.selection, cx);
+                    self.pending_scroll_active_block_into_view = true;
+                    self.pending_scroll_recheck_after_layout = true;
+                    self.refresh_stable_document_snapshot(cx);
+                    return;
                 }
-                self.document.replace_roots(roots, cx);
-                self.rebuild_table_runtimes(cx);
-                self.rebuild_image_runtimes(cx);
+                // Scoped restore failed (entity gone / kind changed) — no full
+                // document is stored on BlockText entries, so rebuild from the
+                // current document with the block slice swapped is impossible.
+                // Fall through by synthesizing a full snapshot from last_stable
+                // is also wrong. Best effort: keep document and still apply selection.
+                self.apply_selection_snapshot_in_current_mode(&entry.selection, cx);
+                self.refresh_stable_document_snapshot(cx);
             }
-            ViewMode::Source => {
-                let block = Self::new_block(cx, BlockRecord::paragraph(entry.source_text.clone()));
-                block.update(cx, |block, _cx| block.set_source_document_mode());
-                self.document.replace_roots(vec![block], cx);
-                self.table_cells.clear();
+            HistoryPayload::Full { source_text } => {
+                match self.view_mode {
+                    ViewMode::Rendered => {
+                        let mut roots = Self::build_root_blocks_from_markdown(cx, source_text);
+                        if roots.is_empty() {
+                            roots.push(Self::new_block(cx, BlockRecord::paragraph(String::new())));
+                        }
+                        self.document.replace_roots(roots, cx);
+                        self.rebuild_table_runtimes(cx);
+                        self.rebuild_image_runtimes(cx);
+                    }
+                    ViewMode::Source => {
+                        let block =
+                            Self::new_block(cx, BlockRecord::paragraph(source_text.clone()));
+                        block.update(cx, |block, _cx| block.set_source_document_mode());
+                        self.document.replace_roots(vec![block], cx);
+                        self.table_cells.clear();
+                    }
+                }
+
+                self.apply_selection_snapshot_in_current_mode(&entry.selection, cx);
+                self.pending_scroll_active_block_into_view = true;
+                self.pending_scroll_recheck_after_layout = true;
+                self.last_scroll_viewport_size = None;
+                self.refresh_stable_document_snapshot(cx);
             }
         }
+    }
 
-        self.apply_selection_snapshot_in_current_mode(&entry.selection, cx);
-        self.pending_scroll_active_block_into_view = true;
-        self.pending_scroll_recheck_after_layout = true;
-        self.last_scroll_viewport_size = None;
-        self.refresh_stable_document_snapshot(cx);
+    fn try_restore_block_text_history(
+        &mut self,
+        block_id: uuid::Uuid,
+        block_markdown: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.view_mode != ViewMode::Rendered {
+            return false;
+        }
+        let Some(entity) = self.document.block_entity_by_record_id(block_id, cx) else {
+            return false;
+        };
+        if !entity.read(cx).children.is_empty() {
+            return false;
+        }
+        if !Self::kind_supports_scoped_block_undo(&entity.read(cx).record.kind) {
+            return false;
+        }
+
+        // Parse the stored slice as a tiny document and copy title/kind back.
+        let mut roots = Self::build_root_blocks_from_markdown(cx, block_markdown);
+        if roots.len() != 1 {
+            return false;
+        }
+        let temp = roots.pop().expect("checked len");
+        if !temp.read(cx).children.is_empty() {
+            return false;
+        }
+        let (kind, title, raw_fallback) = temp.read_with(cx, |block, _cx| {
+            (
+                block.record.kind.clone(),
+                block.record.title.clone(),
+                block.record.raw_fallback.clone(),
+            )
+        });
+        if !Self::kind_supports_scoped_block_undo(&kind) {
+            return false;
+        }
+
+        entity.update(cx, |block, cx| {
+            block.record.kind = kind;
+            block.record.set_title(title);
+            block.record.raw_fallback = raw_fallback;
+            block.sync_edit_mode_from_kind();
+            block.sync_render_cache();
+            block.clear_shape_cache();
+            cx.notify();
+        });
+        true
     }
 
     pub(super) fn normalize_rendered_quote_structure(&mut self, cx: &mut Context<Self>) {
@@ -329,20 +548,44 @@ impl Editor {
         !self.redo_history.is_empty()
     }
 
-    fn push_redo_entry(&mut self, cx: &App) {
+    fn push_redo_entry(&mut self, undone: &HistoryEntry, cx: &App) {
         self.redo_history
-            .push(self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx));
+            .push(self.capture_inverse_history_entry(undone, cx));
         Self::trim_history_stack(&mut self.redo_history);
     }
 
-    fn push_undo_entry(&mut self, cx: &App) {
+    fn push_undo_entry(&mut self, redone: &HistoryEntry, cx: &App) {
         self.undo_history
-            .push(self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx));
+            .push(self.capture_inverse_history_entry(redone, cx));
         Self::trim_history_stack(&mut self.undo_history);
     }
 
+    /// Capture the live state that redo/undo should return to after applying `peer`.
+    fn capture_inverse_history_entry(&self, peer: &HistoryEntry, cx: &App) -> HistoryEntry {
+        if let Some(block_id) = peer.payload.block_id()
+            && self.view_mode == ViewMode::Rendered
+            && let Some(entity) = self.document.block_entity_by_record_id(block_id, cx)
+            && entity.read(cx).children.is_empty()
+            && Self::kind_supports_scoped_block_undo(&entity.read(cx).record.kind)
+        {
+            let block_markdown = self.document.block_markdown_text(&entity, cx);
+            if !block_markdown.is_empty() {
+                return HistoryEntry {
+                    payload: HistoryPayload::BlockText {
+                        block_id,
+                        block_markdown,
+                    },
+                    selection: self.capture_source_selection_snapshot(cx),
+                    timestamp: Instant::now(),
+                    kind: UndoCaptureKind::NonCoalescible,
+                };
+            }
+        }
+        self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx)
+    }
+
     /// Drops oldest entries until the stack fits both the entry count and the
-    /// total `source_text` byte budget. Always retains the newest entry.
+    /// retained-bytes budget. Always retains the newest entry.
     fn trim_history_stack(stack: &mut Vec<HistoryEntry>) {
         Self::trim_history_stack_with_limits(
             stack,
@@ -365,10 +608,10 @@ impl Editor {
             stack.drain(0..overflow);
         }
 
-        let mut total_bytes: usize = stack.iter().map(|entry| entry.source_text.len()).sum();
+        let mut total_bytes: usize = stack.iter().map(HistoryEntry::retained_bytes).sum();
         while stack.len() > 1 && total_bytes > byte_budget {
             let removed = stack.remove(0);
-            total_bytes = total_bytes.saturating_sub(removed.source_text.len());
+            total_bytes = total_bytes.saturating_sub(removed.retained_bytes());
         }
     }
 
@@ -380,7 +623,7 @@ impl Editor {
         self.pending_undo_capture = None;
         self.history_restore_in_progress = true;
         self.clear_cross_block_selection(cx);
-        self.push_redo_entry(cx);
+        self.push_redo_entry(&entry, cx);
         self.restore_history_entry(&entry, cx);
         self.history_restore_in_progress = false;
         self.mark_dirty(cx);
@@ -397,7 +640,7 @@ impl Editor {
         self.pending_undo_capture = None;
         self.history_restore_in_progress = true;
         self.clear_cross_block_selection(cx);
-        self.push_undo_entry(cx);
+        self.push_undo_entry(&entry, cx);
         self.restore_history_entry(&entry, cx);
         self.history_restore_in_progress = false;
         self.mark_dirty(cx);
@@ -407,16 +650,33 @@ impl Editor {
     }
 }
 
+fn same_history_coalesce_target(left: &HistoryEntry, right: &HistoryEntry) -> bool {
+    match (&left.payload, &right.payload) {
+        (
+            HistoryPayload::BlockText {
+                block_id: left_id, ..
+            },
+            HistoryPayload::BlockText {
+                block_id: right_id, ..
+            },
+        ) => left_id == right_id,
+        (HistoryPayload::Full { .. }, HistoryPayload::Full { .. }) => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod history_budget_tests {
     use super::super::{
-        Editor, HistoryEntry, UndoCaptureKind, UndoSelectionSnapshot,
+        Editor, HistoryEntry, HistoryPayload, UndoCaptureKind, UndoSelectionSnapshot,
     };
     use std::time::Instant;
 
     fn entry(text: impl Into<String>) -> HistoryEntry {
         HistoryEntry {
-            source_text: text.into(),
+            payload: HistoryPayload::Full {
+                source_text: text.into(),
+            },
             selection: UndoSelectionSnapshot {
                 range: 0..0,
                 reversed: false,
@@ -426,15 +686,34 @@ mod history_budget_tests {
         }
     }
 
+    fn block_entry(markdown: impl Into<String>) -> HistoryEntry {
+        HistoryEntry {
+            payload: HistoryPayload::BlockText {
+                block_id: uuid::Uuid::nil(),
+                block_markdown: markdown.into(),
+            },
+            selection: UndoSelectionSnapshot {
+                range: 0..0,
+                reversed: false,
+            },
+            timestamp: Instant::now(),
+            kind: UndoCaptureKind::CoalescibleText,
+        }
+    }
+
+    fn payload_text(entry: &HistoryEntry) -> &str {
+        match &entry.payload {
+            HistoryPayload::Full { source_text } => source_text.as_str(),
+            HistoryPayload::BlockText { block_markdown, .. } => block_markdown.as_str(),
+        }
+    }
+
     #[test]
     fn trim_drops_oldest_when_over_entry_limit() {
         let mut stack = vec![entry("a"), entry("b"), entry("c"), entry("d")];
         Editor::trim_history_stack_with_limits(&mut stack, 2, usize::MAX);
         assert_eq!(
-            stack
-                .iter()
-                .map(|e| e.source_text.as_str())
-                .collect::<Vec<_>>(),
+            stack.iter().map(payload_text).collect::<Vec<_>>(),
             vec!["c", "d"]
         );
     }
@@ -444,13 +723,10 @@ mod history_budget_tests {
         let mut stack = vec![entry("aaaa"), entry("bbbb"), entry("cc")];
         Editor::trim_history_stack_with_limits(&mut stack, 10, 6);
         assert_eq!(
-            stack
-                .iter()
-                .map(|e| e.source_text.as_str())
-                .collect::<Vec<_>>(),
+            stack.iter().map(payload_text).collect::<Vec<_>>(),
             vec!["bbbb", "cc"]
         );
-        assert!(stack.iter().map(|e| e.source_text.len()).sum::<usize>() <= 6);
+        assert!(stack.iter().map(HistoryEntry::retained_bytes).sum::<usize>() <= 6);
     }
 
     #[test]
@@ -458,6 +734,14 @@ mod history_budget_tests {
         let mut stack = vec![entry("x".repeat(100))];
         Editor::trim_history_stack_with_limits(&mut stack, 10, 8);
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].source_text.len(), 100);
+        assert_eq!(stack[0].retained_bytes(), 100);
+    }
+
+    #[test]
+    fn trim_counts_block_text_bytes() {
+        let mut stack = vec![block_entry("aaaa"), block_entry("bbbb"), block_entry("cc")];
+        Editor::trim_history_stack_with_limits(&mut stack, 10, 6);
+        assert_eq!(stack.len(), 2);
+        assert!(stack.iter().map(HistoryEntry::retained_bytes).sum::<usize>() <= 6);
     }
 }

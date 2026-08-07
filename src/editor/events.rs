@@ -838,7 +838,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         if let BlockEvent::PrepareUndo { kind } = event {
-            self.prepare_undo_capture_from_stable_snapshot(*kind, cx);
+            self.prepare_undo_capture_from_stable_snapshot_for_block(Some(&block), *kind, cx);
             return;
         }
 

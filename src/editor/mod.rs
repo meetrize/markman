@@ -283,19 +283,62 @@ struct UndoSelectionSnapshot {
     reversed: bool,
 }
 
-/// One undo history entry containing source text and selection state.
+/// Undo payload: full document snapshot, or a single-block markdown slice.
+#[derive(Clone, Debug)]
+enum HistoryPayload {
+    Full {
+        source_text: String,
+    },
+    /// Single leaf text change; restore patches the live entity by `block_id`.
+    BlockText {
+        block_id: uuid::Uuid,
+        block_markdown: String,
+    },
+}
+
+impl HistoryPayload {
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Full { source_text } => source_text.len(),
+            Self::BlockText { block_markdown, .. } => block_markdown.len(),
+        }
+    }
+
+    fn block_id(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::BlockText { block_id, .. } => Some(*block_id),
+            Self::Full { .. } => None,
+        }
+    }
+}
+
+/// One undo history entry containing document/block state and selection.
 #[derive(Clone, Debug)]
 struct HistoryEntry {
-    source_text: String,
+    payload: HistoryPayload,
     selection: UndoSelectionSnapshot,
     timestamp: Instant,
     kind: UndoCaptureKind,
+}
+
+impl HistoryEntry {
+    fn retained_bytes(&self) -> usize {
+        self.payload.retained_bytes()
+    }
+}
+
+/// Block that originated a prepare-undo (used to classify single-block edits).
+#[derive(Clone, Debug)]
+struct HistoryBlockAnchor {
+    block_id: uuid::Uuid,
+    entity_id: EntityId,
 }
 
 /// Deferred undo capture used to coalesce adjacent typing edits.
 #[derive(Clone, Debug)]
 struct PendingUndoCapture {
     snapshot: HistoryEntry,
+    anchor: Option<HistoryBlockAnchor>,
 }
 
 /// Cross-block selection endpoint in visible block order.
