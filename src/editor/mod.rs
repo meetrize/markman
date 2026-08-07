@@ -59,6 +59,7 @@ pub(crate) mod path_picker;
 mod wiki_link_picker;
 mod preview_freeze;
 mod render;
+mod resize_throttle;
 mod runtime_context;
 mod session;
 mod document_search;
@@ -122,6 +123,10 @@ pub struct Editor {
     virtual_row_extents: Vec<f32>,
     /// Last measured content heights by block entity, retained across unfocus clears.
     measured_block_heights: std::collections::HashMap<EntityId, f32>,
+    /// True while viewport width is changing; coarse wrap + reduced overscan until settle.
+    resize_throttle_active: bool,
+    last_layout_viewport_width: Option<f32>,
+    resize_settle_task: Option<Task<()>>,
     pending_session_scroll_y: Option<f32>,
     session_scroll_restore_pending: bool,
     pending_save: bool,
@@ -376,6 +381,9 @@ impl Editor {
             pending_scroll_recheck_after_layout: true,
             virtual_row_extents: Vec::new(),
             measured_block_heights: std::collections::HashMap::new(),
+            resize_throttle_active: false,
+            last_layout_viewport_width: None,
+            resize_settle_task: None,
             pending_session_scroll_y: None,
             session_scroll_restore_pending: false,
             pending_save: false,
