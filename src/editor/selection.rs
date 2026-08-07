@@ -549,7 +549,12 @@ impl Editor {
         cx: &App,
     ) -> Option<usize> {
         let mapping = mappings.get(&endpoint.entity_id).or_else(|| {
-            eprintln!("[endpoint_source] entity {:?} NOT in mappings ({} entries)", endpoint.entity_id, mappings.len());
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[endpoint_source] entity {:?} NOT in mappings ({} entries)",
+                endpoint.entity_id,
+                mappings.len()
+            );
             None
         })?;
         let block = mapping.entity.read(cx);
@@ -558,7 +563,11 @@ impl Editor {
             return Some(mapping.full_source_range.start);
         }
         if endpoint.offset >= visible_len {
-            eprintln!("[endpoint_source] offset={} >= visible_len={} → range.end={}", endpoint.offset, visible_len, mapping.full_source_range.end);
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[endpoint_source] offset={} >= visible_len={} → range.end={}",
+                endpoint.offset, visible_len, mapping.full_source_range.end
+            );
             return Some(mapping.full_source_range.end);
         }
         let markdown_offset = block
@@ -566,7 +575,14 @@ impl Editor {
             .start;
         let max_content = mapping.content_to_source.len().saturating_sub(1);
         let idx = markdown_offset.min(max_content);
-        eprintln!("[endpoint_source] offset={} markdown_off={} idx={} content_to_source_len={}", endpoint.offset, markdown_offset, idx, mapping.content_to_source.len());
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[endpoint_source] offset={} markdown_off={} idx={} content_to_source_len={}",
+            endpoint.offset,
+            markdown_offset,
+            idx,
+            mapping.content_to_source.len()
+        );
         Some(
             mapping.full_source_range.start
                 + mapping.content_to_source[idx],
@@ -770,7 +786,11 @@ impl Editor {
             }
             _ => {
                 // No mapped blocks found in the selection
-                eprintln!("[source_range_fallback] no mapped blocks found in selection range {}..{}", selection.start_index, selection.end_index);
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[source_range_fallback] no mapped blocks found in selection range {}..{}",
+                    selection.start_index, selection.end_index
+                );
                 None
             }
         }
@@ -890,13 +910,23 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> bool {
         let Some(selection) = self.normalized_cross_block_selection(cx) else {
+            #[cfg(debug_assertions)]
             eprintln!("[replace_cross] normalized_cross_block_selection returned None");
             return false;
         };
         let Some(source_range) = self.cross_block_source_range_for_normalized(selection, cx) else {
-            eprintln!("[replace_cross] cross_block_source_range_for_normalized returned None");
-            eprintln!("[replace_cross]   selection.start=(entity={:?}, offset={})", selection.start.entity_id, selection.start.offset);
-            eprintln!("[replace_cross]   selection.end=(entity={:?}, offset={})", selection.end.entity_id, selection.end.offset);
+            #[cfg(debug_assertions)]
+            {
+                eprintln!("[replace_cross] cross_block_source_range_for_normalized returned None");
+                eprintln!(
+                    "[replace_cross]   selection.start=(entity={:?}, offset={})",
+                    selection.start.entity_id, selection.start.offset
+                );
+                eprintln!(
+                    "[replace_cross]   selection.end=(entity={:?}, offset={})",
+                    selection.end.entity_id, selection.end.offset
+                );
+            }
             return false;
         };
 

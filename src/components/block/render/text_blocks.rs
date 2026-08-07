@@ -99,8 +99,8 @@ impl Block {
 
         if input_active && self.cursor_blink_task.is_none() {
             self.start_cursor_blink(cx);
-        } else         if !input_active && self.cursor_blink_task.is_some() {
-            self.cursor_blink_task = None;
+        } else if !input_active && self.cursor_blink_task.is_some() {
+            self.suspend_cursor_blink();
         }
 
         let block_id = ElementId::Name(format!("block-{}", self.record.id).into());
@@ -273,7 +273,7 @@ impl Block {
             if focused && self.cursor_blink_task.is_none() {
                 self.start_cursor_blink(cx);
             } else if !focused && self.cursor_blink_task.is_some() {
-                self.cursor_blink_task = None;
+                self.suspend_cursor_blink();
             }
             let source_base = self
                 .render_shell(
