@@ -7,6 +7,8 @@
 
 use std::ops::Range;
 
+use gpui::SharedString;
+
 use super::footnote::{
     InlineFootnoteHit, InlineFootnoteReference,
     superscript_ordinal,
@@ -30,7 +32,7 @@ mod style;
 
 pub use fragment::{
     InlineFragment, InlineInsertionAttributes, InlineLink, InlineLinkHit, InlineMath, InlineSpan,
-    InlineTagHit, TextCursor,
+    InlineTagHit,
 };
 #[allow(unused_imports)]
 pub use fragment::InlineTag;
@@ -43,29 +45,20 @@ pub(crate) use serialize::can_use_markdown_script_delimiters;
 pub(crate) use emoji::resolve_emoji_shortcode;
 
 /// Flattens the fragment tree into a visible text string plus a list of
-/// [`InlineSpan`]s.  Also maintains bidirectional mapping tables between
-/// visible offsets and fragment positions, used by the IME subsystem.
+/// [`InlineSpan`]s used to build styled text runs.
 #[derive(Clone, Debug, Default)]
 pub struct InlineRenderCache {
-    visible_text: String,
+    visible_text: SharedString,
     spans: Vec<InlineSpan>,
-    #[allow(dead_code)]
-    visible_to_tree: Vec<TextCursor>,
-    #[allow(dead_code)]
-    tree_to_visible: Vec<usize>,
 }
 
-/// Bidirectional offset map between source Markdown and visible inline text.
 impl InlineRenderCache {
     pub fn from_tree(tree: &InlineTextTree) -> Self {
         let mut visible_text = String::new();
         let mut spans = Vec::new();
-        let mut visible_to_tree = vec![TextCursor::default(); tree.visible_len() + 1];
-        let mut tree_to_visible = Vec::with_capacity(tree.fragments.len() + 1);
         let mut visible_offset = 0;
 
-        for (fragment_index, fragment) in tree.fragments.iter().enumerate() {
-            tree_to_visible.push(visible_offset);
+        for fragment in &tree.fragments {
             let fragment_start = visible_offset;
             visible_text.push_str(&fragment.text);
             let fragment_len = fragment.text.len();
@@ -87,31 +80,22 @@ impl InlineRenderCache {
                 });
             }
 
-            for byte_offset in 0..=fragment_len {
-                visible_to_tree[fragment_start + byte_offset] = TextCursor {
-                    fragment_index,
-                    byte_offset,
-                };
-            }
-
             visible_offset += fragment_len;
         }
 
-        tree_to_visible.push(visible_offset);
-        if tree.fragments.is_empty() {
-            visible_to_tree[0] = TextCursor::default();
-        }
-
         Self {
-            visible_text,
+            visible_text: SharedString::from(visible_text),
             spans,
-            visible_to_tree,
-            tree_to_visible,
         }
     }
 
     pub fn visible_text(&self) -> &str {
-        &self.visible_text
+        self.visible_text.as_ref()
+    }
+
+    /// Cheap clone of the visible text (`SharedString` Arc bump).
+    pub fn shared_visible_text(&self) -> SharedString {
+        self.visible_text.clone()
     }
 
     pub fn spans(&self) -> &[InlineSpan] {
