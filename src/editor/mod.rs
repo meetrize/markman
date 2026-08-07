@@ -334,7 +334,11 @@ pub(crate) enum InfoDialogKind {
 }
 
 impl Editor {
-    const HISTORY_LIMIT: usize = 200;
+    /// Max undo/redo entries kept per stack (was 200; full-doc snapshots).
+    const HISTORY_LIMIT: usize = 80;
+    /// Soft cap on total `source_text` bytes retained in one undo or redo stack.
+    /// A single oversized entry is kept so the latest edit remains undoable.
+    const HISTORY_BYTE_BUDGET: usize = 8 * 1024 * 1024;
     const HISTORY_COALESCE_WINDOW: Duration = Duration::from_millis(1_000);
 
     pub fn from_markdown(
