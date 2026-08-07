@@ -2033,8 +2033,64 @@ async fn undo_reverts_recent_rendered_typing(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_eq!(editor.document.markdown_text(cx), "alpha beta");
         assert_eq!(editor.undo_history.len(), 1);
+        assert!(matches!(
+            editor.undo_history[0].payload,
+            super::HistoryPayload::BlockText { .. }
+        ));
+        let block_id_before = editor.document.first_root().unwrap().read(cx).record.id;
         editor.undo_document(cx);
         assert_eq!(editor.document.markdown_text(cx), "alpha");
+        let block_id_after = editor.document.first_root().unwrap().read(cx).record.id;
+        assert_eq!(block_id_before, block_id_after);
+    });
+}
+
+#[gpui::test]
+async fn scoped_block_undo_keeps_sibling_entity_alive(cx: &mut TestAppContext) {
+    let editor = cx.new(|cx| Editor::from_markdown(cx, "one\n\ntwo\n\nthree".to_string(), None));
+
+    let sibling_ids = editor.update(cx, |editor, cx| {
+        let middle = editor
+            .document
+            .visible_blocks()
+            .iter()
+            .map(|visible| visible.entity.clone())
+            .find(|entity| entity.read(cx).display_text() == "two")
+            .expect("middle paragraph");
+        let sibling_ids: Vec<_> = editor
+            .document
+            .visible_blocks()
+            .iter()
+            .map(|visible| visible.entity.entity_id())
+            .collect();
+        editor.active_entity_id = Some(middle.entity_id());
+        middle.update(cx, |block, cx| {
+            block.prepare_undo_capture(crate::components::UndoCaptureKind::CoalescibleText, cx);
+            let len = block.visible_len();
+            block.replace_text_in_visible_range(len..len, "!", None, false, cx);
+        });
+        sibling_ids
+    });
+
+    editor.update(cx, |editor, cx| {
+        assert_eq!(editor.document.markdown_text(cx), "one\n\ntwo!\n\nthree");
+        assert_eq!(editor.undo_history.len(), 1);
+        assert!(
+            matches!(
+                editor.undo_history[0].payload,
+                super::HistoryPayload::BlockText { .. }
+            ),
+            "middle-paragraph typing should store BlockText"
+        );
+        editor.undo_document(cx);
+        let after_ids: Vec<_> = editor
+            .document
+            .visible_blocks()
+            .iter()
+            .map(|visible| visible.entity.entity_id())
+            .collect();
+        assert_eq!(sibling_ids, after_ids);
+        assert_eq!(editor.document.markdown_text(cx), "one\n\ntwo\n\nthree");
     });
 }
 
