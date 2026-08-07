@@ -127,6 +127,9 @@ pub struct Editor {
     resize_throttle_active: bool,
     last_layout_viewport_width: Option<f32>,
     resize_settle_task: Option<Task<()>>,
+    /// True briefly after scroll activity; pauses blink until settle.
+    scroll_freeze_active: bool,
+    scroll_freeze_settle_task: Option<Task<()>>,
     pending_session_scroll_y: Option<f32>,
     session_scroll_restore_pending: bool,
     pending_save: bool,
@@ -384,6 +387,8 @@ impl Editor {
             resize_throttle_active: false,
             last_layout_viewport_width: None,
             resize_settle_task: None,
+            scroll_freeze_active: false,
+            scroll_freeze_settle_task: None,
             pending_session_scroll_y: None,
             session_scroll_restore_pending: false,
             pending_save: false,

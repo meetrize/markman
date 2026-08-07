@@ -2501,6 +2501,10 @@ impl Block {
     }
 
     pub(super) fn start_cursor_blink(&mut self, cx: &mut Context<Self>) {
+        if crate::layout::preview_motion_freeze_active() {
+            self.suspend_cursor_blink();
+            return;
+        }
         self.cursor_blink_epoch = Instant::now();
         self.last_blink_notify_bucket = None;
         self.cursor_blink_task = Some(cx.spawn(
@@ -2510,6 +2514,10 @@ impl Block {
                     .await;
                 if this
                     .update(cx, |this: &mut Block, cx: &mut Context<Block>| {
+                        if crate::layout::preview_motion_freeze_active() {
+                            this.suspend_cursor_blink();
+                            return;
+                        }
                         let bucket = this.cursor_opacity_notify_bucket();
                         if bucket != this.last_blink_notify_bucket {
                             this.last_blink_notify_bucket = bucket;
