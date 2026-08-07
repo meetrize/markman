@@ -11,10 +11,21 @@ use anyhow::{Context as _, anyhow};
 use directories::ProjectDirs;
 
 use crate::app_identity::MARKMAN_PROJECT_QUALIFIER;
+use crate::components::heavy_preview_cache::{HeavyPreviewMemo, hash_key};
 use crate::config::{MermaidDisplayStyle, read_app_preferences};
 
 const MERMAID_MIN_DISPLAY_SCALE: f32 = 0.1;
 const MERMAID_MAX_DISPLAY_SCALE: f32 = 4.0;
+
+#[derive(Clone, Debug)]
+struct MermaidDisplayMemo {
+    path: PathBuf,
+    display_width: f32,
+    display_height: f32,
+    display_scale: f32,
+}
+
+static MERMAID_DISPLAY_MEMO: HeavyPreviewMemo<MermaidDisplayMemo> = HeavyPreviewMemo::new();
 
 /// Opening fence metadata for a Mermaid fenced code block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +181,27 @@ fn render_mermaid_svg_for_display_with(
     style: MermaidDisplayStyle,
     renderer: MermaidRenderer,
 ) -> anyhow::Result<MermaidSvgRender> {
+    let width_q = quantize_mermaid_layout_dim(available_width);
+    let height_q = quantize_mermaid_layout_dim(available_height);
+    let device_q = (device_scale * 100.0).round() as i32;
+    let memo_key = hash_key((
+        "mermaid-display-memo-v1",
+        mermaid_cache_key(&source.body, style),
+        style.as_str(),
+        width_q,
+        height_q,
+        device_q,
+    ));
+    if let Some(memo) = MERMAID_DISPLAY_MEMO.get(memo_key) {
+        return Ok(MermaidSvgRender {
+            path: memo.path,
+            svg: String::new(),
+            display_width: memo.display_width,
+            display_height: memo.display_height,
+            display_scale: memo.display_scale,
+        });
+    }
+
     let base_key = mermaid_cache_key(&source.body, style);
     let base_path = mermaid_base_cache_path(&base_key)?;
     let base_svg = render_mermaid_to_svg_cached_with(&source.body, style, &base_path, renderer)?;
@@ -185,14 +217,37 @@ fn render_mermaid_svg_for_display_with(
     let display_key = mermaid_display_cache_key(&source.body, style, scale, device_scale);
     let display_path = mermaid_display_cache_path(&display_key)?;
     if display_path.exists() {
-        let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
-        return Ok(MermaidSvgRender {
-            path: display_path,
-            svg,
-            display_width: size.width,
-            display_height: size.height,
-            display_scale: scale,
-        });
+        let rendered = if let Ok(png) = fs::read(&display_path)
+            && let Some((pixel_w, pixel_h)) = png_dimensions(&png)
+        {
+            let scale_factor = device_scale.max(0.01);
+            MermaidSvgRender {
+                path: display_path,
+                svg: String::new(),
+                display_width: (pixel_w / scale_factor).max(1.0),
+                display_height: (pixel_h / scale_factor).max(1.0),
+                display_scale: scale,
+            }
+        } else {
+            let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
+            MermaidSvgRender {
+                path: display_path,
+                svg,
+                display_width: size.width,
+                display_height: size.height,
+                display_scale: scale,
+            }
+        };
+        MERMAID_DISPLAY_MEMO.insert(
+            memo_key,
+            MermaidDisplayMemo {
+                path: rendered.path.clone(),
+                display_width: rendered.display_width,
+                display_height: rendered.display_height,
+                display_scale: rendered.display_scale,
+            },
+        );
+        return Ok(rendered);
     }
 
     let (svg, size) = scale_mermaid_svg_for_display(&base_svg, scale)?;
@@ -203,13 +258,37 @@ fn render_mermaid_svg_for_display_with(
             display_path.display()
         )
     })?;
-    Ok(MermaidSvgRender {
+    let rendered = MermaidSvgRender {
         path: display_path,
         svg,
         display_width: size.width,
         display_height: size.height,
         display_scale: scale,
-    })
+    };
+    MERMAID_DISPLAY_MEMO.insert(
+        memo_key,
+        MermaidDisplayMemo {
+            path: rendered.path.clone(),
+            display_width: rendered.display_width,
+            display_height: rendered.display_height,
+            display_scale: rendered.display_scale,
+        },
+    );
+    Ok(rendered)
+}
+
+fn quantize_mermaid_layout_dim(value: f32) -> i32 {
+    let rounded = value.round() as i32;
+    let quantum = if crate::layout::resize_throttle_active() {
+        crate::layout::WRAP_QUANTUM_PX_WHILE_RESIZING
+    } else {
+        1
+    };
+    if quantum <= 1 {
+        rounded
+    } else {
+        ((rounded + quantum / 2) / quantum) * quantum
+    }
 }
 
 /// Render a Mermaid diagram body into cached SVG text.
@@ -416,7 +495,6 @@ fn rasterize_mermaid_svg_for_display(
         .map_err(|err| anyhow!("failed to encode Mermaid PNG: {err}"))
 }
 
-#[cfg(test)]
 fn png_dimensions(png: &[u8]) -> Option<(f32, f32)> {
     const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
     if png.len() < 24 || png.get(0..8)? != PNG_SIGNATURE {
@@ -1033,18 +1111,35 @@ mod tests {
         assert!(rendered.display_height > 1.0);
         assert!(rendered.display_scale >= 1.0);
         assert_eq!(rendered.path.extension().and_then(|ext| ext.to_str()), Some("png"));
-        assert!(
-            rendered
-                .svg
-                .contains(&format!("width=\"{:.3}\"", rendered.display_width))
-        );
-        assert!(
-            rendered
-                .svg
-                .contains(&format!("height=\"{:.3}\"", rendered.display_height))
-        );
+        if !rendered.svg.is_empty() {
+            assert!(
+                rendered
+                    .svg
+                    .contains(&format!("width=\"{:.3}\"", rendered.display_width))
+            );
+            assert!(
+                rendered
+                    .svg
+                    .contains(&format!("height=\"{:.3}\"", rendered.display_height))
+            );
+        }
         let png = fs::read(&rendered.path).expect("read display png");
         assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
+    fn display_render_memo_skips_rerasterize() {
+        let source = parse_mermaid_fence_source(
+            "```mermaid\nflowchart LR\nMemoA --> MemoB\n```",
+        )
+        .expect("source");
+        let first =
+            render_mermaid_svg_for_display(&source, 640.0, 800.0, 2.0, TEST_STYLE).expect("first");
+        let second =
+            render_mermaid_svg_for_display(&source, 640.0, 800.0, 2.0, TEST_STYLE).expect("memo");
+        assert_eq!(first.path, second.path);
+        assert!((first.display_width - second.display_width).abs() < 0.5);
+        assert!(second.svg.is_empty());
     }
 
     #[test]

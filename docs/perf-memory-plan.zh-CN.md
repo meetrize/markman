@@ -283,7 +283,7 @@ fix(history): 限制 undo 全文快照总字节上限
 - [x] P2.2 虚拟化接入 render
 - [x] P2.3 导航兼容
 - [x] P2.4 resize 节流
-- [ ] P2.5 重型块懒渲染
+- [x] P2.5 重型块懒渲染
 - [ ] P2.6 preview freeze 扩展
 
 ### Phase 3
