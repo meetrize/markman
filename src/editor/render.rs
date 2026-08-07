@@ -1587,6 +1587,7 @@ impl Render for Editor {
         let viewport_bounds = self.scroll_handle.bounds();
         let viewport_size = viewport_bounds.size;
         self.sync_scroll_viewport(viewport_size, cx);
+        self.sync_resize_throttle(viewport_size, cx);
 
         let theme = cx.global::<ThemeManager>().current_arc();
         let preferences = crate::config::read_app_preferences().unwrap_or_default();
@@ -1702,11 +1703,12 @@ impl Render for Editor {
         self.virtual_row_extents = row_extents.clone();
 
         let block_window = if virtualizing {
+            let overscan = self.virtualization_overscan_rows();
             let mut window = super::virtualization::compute_block_window(
                 &row_extents,
                 current_scroll_y,
                 viewport_height,
-                super::virtualization::OVERSCAN_ROWS,
+                overscan,
             );
             let callout_anchors: Vec<_> = (0..visible_blocks.len())
                 .map(|i| spacing_for(i).callout_anchor)
@@ -1733,7 +1735,7 @@ impl Render for Editor {
                 window = super::virtualization::include_index_in_window(
                     window,
                     idx,
-                    super::virtualization::OVERSCAN_ROWS,
+                    overscan,
                     &row_extents,
                 );
                 let (start, end) = super::virtualization::expand_window_for_spacing_groups(

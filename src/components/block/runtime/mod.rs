@@ -253,9 +253,23 @@ impl BlockShapeCache {
     }
 }
 
-/// Quantize wrap width so sub-pixel layout jitter still hits the shape cache.
+/// Quantize wrap width so sub-pixel layout jitter (and active resize) still
+/// hits the shape cache. During resize throttle, snaps to
+/// [`crate::layout::WRAP_QUANTUM_PX_WHILE_RESIZING`].
 pub(crate) fn quantize_wrap_width_px(wrap_width: Option<Pixels>) -> Option<i32> {
-    wrap_width.map(|width| f32::from(width).round() as i32)
+    wrap_width.map(|width| {
+        let rounded = f32::from(width).round() as i32;
+        let quantum = if crate::layout::resize_throttle_active() {
+            crate::layout::WRAP_QUANTUM_PX_WHILE_RESIZING
+        } else {
+            1
+        };
+        if quantum <= 1 {
+            rounded
+        } else {
+            ((rounded + quantum / 2) / quantum) * quantum
+        }
+    })
 }
 
 /// Fingerprint `TextRun` styling so search/theme/color changes invalidate cache.
@@ -312,9 +326,22 @@ mod shape_cache_tests {
 
     #[test]
     fn quantize_wrap_width_rounds_to_whole_pixels() {
+        crate::layout::set_resize_throttle_active(false);
         assert_eq!(quantize_wrap_width_px(Some(px(12.4))), Some(12));
         assert_eq!(quantize_wrap_width_px(Some(px(12.6))), Some(13));
         assert_eq!(quantize_wrap_width_px(None), None);
+    }
+
+    #[test]
+    fn quantize_wrap_width_snaps_while_resize_throttle_active() {
+        crate::layout::set_resize_throttle_active(false);
+        assert_eq!(quantize_wrap_width_px(Some(px(803.2))), Some(803));
+
+        crate::layout::set_resize_throttle_active(true);
+        let q = crate::layout::WRAP_QUANTUM_PX_WHILE_RESIZING;
+        let expected = ((803 + q / 2) / q) * q;
+        assert_eq!(quantize_wrap_width_px(Some(px(803.2))), Some(expected));
+        crate::layout::set_resize_throttle_active(false);
     }
 
     #[test]
