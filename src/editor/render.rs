@@ -411,9 +411,10 @@ impl Editor {
                 && !self.virtual_row_extents.is_empty()
             {
                 let mut offset = self.scroll_handle.offset();
-                offset.y = super::virtualization::scroll_offset_for_row(
+                offset.y = super::virtualization::scroll_offset_for_row_with_padding(
                     &self.virtual_row_extents,
                     focused_idx,
+                    20.0,
                 );
                 let max_offset_y = self.scroll_handle.max_offset().height.max(px(0.0));
                 offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
@@ -1663,16 +1664,44 @@ impl Render for Editor {
             ));
             previous_gap_spacing = Some(spacing);
         }
+
+        let virtualizing = super::virtualization::should_virtualize(visible_blocks.len());
+        let scroll_anchor = if virtualizing && !self.virtual_row_extents.is_empty() {
+            Some(super::virtualization::scroll_anchor_at(
+                &self.virtual_row_extents,
+                current_scroll_y,
+            ))
+        } else {
+            None
+        };
+
+        self.measured_block_heights = super::virtualization::refresh_measured_block_heights(
+            &self.measured_block_heights,
+            &visible_blocks,
+            cx,
+        );
         let row_extents = super::virtualization::build_row_extents(
             &visible_blocks,
             &top_gaps,
+            &self.measured_block_heights,
             line_height,
             doc_d.block_min_height,
             cx,
         );
+
+        let mut current_scroll_y = current_scroll_y;
+        if let Some(anchor) = scroll_anchor {
+            let restored = super::virtualization::scroll_y_for_anchor(&row_extents, anchor);
+            if (restored - current_scroll_y).abs() > 0.5 {
+                let mut offset = self.scroll_handle.offset();
+                offset.y = -px(restored);
+                self.scroll_handle.set_offset(offset);
+                current_scroll_y = restored;
+            }
+        }
         self.virtual_row_extents = row_extents.clone();
 
-        let block_window = if super::virtualization::should_virtualize(visible_blocks.len()) {
+        let block_window = if virtualizing {
             let mut window = super::virtualization::compute_block_window(
                 &row_extents,
                 current_scroll_y,
@@ -1691,10 +1720,32 @@ impl Render for Editor {
                 &callout_anchors,
                 &footnote_anchors,
             );
-            window.top_spacer = row_extents[..start].iter().sum();
-            window.bottom_spacer = row_extents[end..].iter().sum();
             window.start = start;
             window.end = end;
+            window = window.with_spacers(&row_extents);
+
+            let pin_index = self
+                .pending_focus
+                .or(self.active_entity_id)
+                .or(self.search.state.scroll_entity_id)
+                .and_then(|id| self.document.visible_index_for_entity_id(id));
+            if let Some(idx) = pin_index {
+                window = super::virtualization::include_index_in_window(
+                    window,
+                    idx,
+                    super::virtualization::OVERSCAN_ROWS,
+                    &row_extents,
+                );
+                let (start, end) = super::virtualization::expand_window_for_spacing_groups(
+                    window.start,
+                    window.end,
+                    &callout_anchors,
+                    &footnote_anchors,
+                );
+                window.start = start;
+                window.end = end;
+                window = window.with_spacers(&row_extents);
+            }
             window
         } else {
             super::virtualization::BlockWindow::full(visible_blocks.len())

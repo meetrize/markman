@@ -120,6 +120,8 @@ pub struct Editor {
     pending_scroll_recheck_after_layout: bool,
     /// Estimated row extents (gap + content) for viewport windowing / scroll-into-view.
     virtual_row_extents: Vec<f32>,
+    /// Last measured content heights by block entity, retained across unfocus clears.
+    measured_block_heights: std::collections::HashMap<EntityId, f32>,
     pending_session_scroll_y: Option<f32>,
     session_scroll_restore_pending: bool,
     pending_save: bool,
@@ -373,6 +375,7 @@ impl Editor {
             pending_scroll_active_block_into_view: true,
             pending_scroll_recheck_after_layout: true,
             virtual_row_extents: Vec::new(),
+            measured_block_heights: std::collections::HashMap::new(),
             pending_session_scroll_y: None,
             session_scroll_restore_pending: false,
             pending_save: false,
