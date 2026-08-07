@@ -398,6 +398,7 @@ impl Editor {
             return;
         }
         self.bump_scrollbar_visibility(cx);
+        self.note_scroll_freeze_activity(cx);
         if super::virtualization::should_virtualize(self.document.visible_blocks().len()) {
             // Viewport windowing must rebuild children when scroll offset changes.
             cx.notify();
@@ -420,6 +421,7 @@ impl Editor {
         });
         self.pending_scroll_active_block_into_view = false;
         self.pending_scroll_recheck_after_layout = false;
+        self.note_scroll_freeze_activity(cx);
         self.bump_scrollbar_visibility(cx);
         cx.notify();
     }
@@ -446,11 +448,13 @@ impl Editor {
         offset.y = -px(scroll_y);
         self.scroll_handle.set_offset(offset);
         self.bump_scrollbar_visibility(cx);
+        self.note_scroll_freeze_activity(cx);
         cx.notify();
     }
 
     pub(crate) fn end_scrollbar_drag(&mut self, cx: &mut Context<Self>) {
         if self.scrollbar_drag.take().is_some() {
+            self.note_scroll_freeze_activity(cx);
             self.bump_scrollbar_visibility(cx);
             cx.notify();
         }
