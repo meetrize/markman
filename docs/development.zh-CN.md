@@ -216,5 +216,7 @@ cargo bench                        # 同 ./scripts/bench.sh
 
 ## 相关文档
 
+- [内存与响应性能优化方案](perf-memory-plan.zh-CN.md)：长文档内存占用与拖窗口卡顿的根因、分阶段 PR 计划与验收指标
+- [代码重构执行计划](refactor-execution-plan.zh-CN.md)：结构清理与模块拆分（与性能计划互补，不阻塞 P1–P2）
 - [行内代码执行 — AI 实施提示词](inline-code-run-implementation.zh-CN.md)：分步提示词，供 AI Agent 按序实现行内代码执行功能
 - [Wiki 链接 `[[路径/文件名]]` — 方案设计](wiki-link-implementation.zh-CN.md)：Obsidian 风格本地文件链接的语法、架构映射与分阶段实施计划
