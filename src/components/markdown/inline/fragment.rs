@@ -94,16 +94,6 @@ pub struct InlineLinkHit {
     pub is_document_relative_file: bool,
 }
 
-/// A cursor inside the inline text tree.
-///
-/// `fragment_index` identifies the fragment and `byte_offset` addresses a byte
-/// boundary inside that fragment's text.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TextCursor {
-    pub fragment_index: usize,
-    pub byte_offset: usize,
-}
-
 /// A visible-text range with its associated [`InlineStyle`], used by
 /// the render cache to build styled text runs for the text system.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -274,7 +274,7 @@ fix(history): 限制 undo 全文快照总字节上限
 - [x] P1.2 render 去重 / blink 降噪
 - [x] P1.3 shaping 缓存
 - [x] P1.4 undo 上限
-- [ ] P1.5 dead cache / 共享 display text
+- [x] P1.5 dead cache / 共享 display text
 - [ ] P1.6 feature 瘦身（可选）
 
 ### Phase 2

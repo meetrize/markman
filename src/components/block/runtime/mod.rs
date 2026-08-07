@@ -160,10 +160,6 @@ pub struct Block {
     /// rebuild is skipped — saves a full O(fragments + text) walk per
     /// render frame (cursor blink + every arrow keypress).
     projection_cache_key: Option<(bool, Range<usize>, Option<Range<usize>>)>,
-    /// Display text held as a SharedString so renders can clone an Arc
-    /// instead of re-allocating per frame. Refreshed in `sync_render_cache`,
-    /// `rebuild_inline_projection`, and `clear_inline_projection`.
-    cached_display_text: SharedString,
     inline_math_source_edit_original: Option<InlineTextTree>,
     collapsed_caret_affinity: CollapsedCaretAffinity,
     /// When true, block-level shortcuts and inline formatting are
@@ -379,7 +375,6 @@ impl Block {
             cursor_blink_task: None,
             projection: None,
             projection_cache_key: None,
-            cached_display_text: SharedString::default(),
             inline_math_source_edit_original: None,
             collapsed_caret_affinity: CollapsedCaretAffinity::Default,
             edit_mode,
@@ -416,7 +411,6 @@ impl Block {
             code_run_snapshot: crate::code_runner::CodeBlockRunSnapshot::default(),
         };
         block.sync_code_highlight();
-        block.refresh_cached_display_text();
         block
     }
 
@@ -554,20 +548,11 @@ impl Block {
         self.display_text()[range].to_string()
     }
 
-    /// Cheap clone of the current display text as a `SharedString` (Arc bump)
-    /// — avoids a fresh String allocation per render. The cached value is
-    /// refreshed by [`Self::refresh_cached_display_text`] whenever the
-    /// underlying text might have changed.
+    /// Cheap clone of the current display text as a `SharedString` (Arc bump).
+    /// Backed by [`InlineRenderCache::shared_visible_text`] for the active
+    /// render/projection cache — no separate string copy on the block.
     pub(crate) fn shared_display_text(&self) -> SharedString {
-        self.cached_display_text.clone()
-    }
-
-    fn refresh_cached_display_text(&mut self) {
-        let current = self.current_cache().visible_text();
-        if self.cached_display_text.as_ref() != current {
-            self.cached_display_text = SharedString::from(current.to_string());
-            self.shape_cache = None;
-        }
+        self.current_cache().shared_visible_text()
     }
 
     pub(crate) fn clear_shape_cache(&mut self) {
@@ -875,7 +860,7 @@ impl Block {
             self.marked_range = clean_marked;
             self.collapsed_caret_affinity = CollapsedCaretAffinity::Default;
         }
-        self.refresh_cached_display_text();
+        self.clear_shape_cache();
     }
 
     pub(crate) fn image_reference_definitions(&self) -> &Arc<ImageReferenceDefinitions> {
@@ -1181,7 +1166,7 @@ impl Block {
         self.set_selection_from_anchor_focus(clean_anchor, clean_focus);
         self.marked_range = clean_marked;
         self.collapsed_caret_affinity = CollapsedCaretAffinity::Default;
-        self.refresh_cached_display_text();
+        self.clear_shape_cache();
     }
 
     fn rebuild_inline_projection(
@@ -1199,7 +1184,7 @@ impl Block {
             clean_selected,
             clean_marked,
         );
-        self.refresh_cached_display_text();
+        self.clear_shape_cache();
     }
 
     fn projection_segments(&self) -> &[ExpandedInlineSegment] {
