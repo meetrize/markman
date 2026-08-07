@@ -74,6 +74,7 @@ mod toolbar_button;
 mod tests;
 mod tree;
 mod update;
+mod virtualization;
 mod window_state;
 mod workspace;
 mod workspace_file_menu;
@@ -117,6 +118,8 @@ pub struct Editor {
     active_entity_id: Option<EntityId>,
     pending_scroll_active_block_into_view: bool,
     pending_scroll_recheck_after_layout: bool,
+    /// Estimated row extents (gap + content) for viewport windowing / scroll-into-view.
+    virtual_row_extents: Vec<f32>,
     pending_session_scroll_y: Option<f32>,
     session_scroll_restore_pending: bool,
     pending_save: bool,
@@ -369,6 +372,7 @@ impl Editor {
             active_entity_id: pending_focus,
             pending_scroll_active_block_into_view: true,
             pending_scroll_recheck_after_layout: true,
+            virtual_row_extents: Vec::new(),
             pending_session_scroll_y: None,
             session_scroll_restore_pending: false,
             pending_save: false,
