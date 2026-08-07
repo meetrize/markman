@@ -2,6 +2,7 @@
 
 mod actions;
 mod block;
+mod heavy_preview_cache;
 pub(crate) mod latex;
 pub(crate) mod markdown;
 pub(crate) mod mermaid;

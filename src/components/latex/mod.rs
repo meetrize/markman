@@ -10,9 +10,12 @@ use directories::ProjectDirs;
 use gpui::{Hsla, Rgba};
 
 use crate::app_identity::MARKMAN_PROJECT_QUALIFIER;
+use crate::components::heavy_preview_cache::{HeavyPreviewMemo, hash_key};
 
 const DISPLAY_MATH_SCALE: f32 = 1.25;
 const INLINE_MATH_SCALE: f32 = 1.12;
+
+static LATEX_PATH_MEMO: HeavyPreviewMemo<PathBuf> = HeavyPreviewMemo::new();
 
 /// Parsed display-math source preserved from Markdown.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,13 +94,29 @@ fn render_latex_svg_to_cache(
     text_color: Hsla,
     font_size: f32,
 ) -> anyhow::Result<LatexSvgRender> {
-    let svg = render_latex_to_svg(latex, text_color, font_size)?;
     let key = latex_cache_key(latex, text_color, font_size);
-    let path = latex_cache_dir()?.join(format!("{key}.svg"));
-    if !path.exists() {
-        fs::write(&path, &svg)
-            .with_context(|| format!("failed to write LaTeX SVG cache '{}'", path.display()))?;
+    let memo_key = hash_key(&key);
+    if let Some(path) = LATEX_PATH_MEMO.get(memo_key) {
+        return Ok(LatexSvgRender {
+            path,
+            svg: String::new(),
+        });
     }
+
+    let path = latex_cache_dir()?.join(format!("{key}.svg"));
+    if path.exists() {
+        LATEX_PATH_MEMO.insert(memo_key, path.clone());
+        return Ok(LatexSvgRender {
+            path,
+            // Editor only needs the path for `img()`; skip re-reading / re-layout.
+            svg: String::new(),
+        });
+    }
+
+    let svg = render_latex_to_svg(latex, text_color, font_size)?;
+    fs::write(&path, &svg)
+        .with_context(|| format!("failed to write LaTeX SVG cache '{}'", path.display()))?;
+    LATEX_PATH_MEMO.insert(memo_key, path.clone());
     Ok(LatexSvgRender { path, svg })
 }
 
@@ -226,5 +245,18 @@ mod tests {
     #[test]
     fn invalid_latex_returns_error() {
         assert!(render_latex_to_svg("\\frac{a}", Hsla::from(rgba(0xffffffff)), 18.0).is_err());
+    }
+
+    #[test]
+    fn disk_cache_hit_skips_rerender() {
+        let latex = "\\alpha+\\beta";
+        let color = Hsla::from(rgba(0xffffffff));
+        let first = render_latex_svg_to_cache(latex, color, 18.0).expect("first render");
+        assert!(first.path.exists());
+        assert!(!first.svg.is_empty());
+
+        let second = render_latex_svg_to_cache(latex, color, 18.0).expect("cache hit");
+        assert_eq!(first.path, second.path);
+        assert!(second.svg.is_empty());
     }
 }
