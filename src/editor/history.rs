@@ -65,10 +65,16 @@ impl Editor {
         }
     }
 
-    pub(super) fn capture_stable_history_entry(&self, kind: UndoCaptureKind) -> HistoryEntry {
+    pub(super) fn capture_stable_history_entry(
+        &self,
+        kind: UndoCaptureKind,
+        cx: &App,
+    ) -> HistoryEntry {
         HistoryEntry {
             source_text: self.last_stable_source_text.clone(),
-            selection: self.last_selection_snapshot.clone(),
+            // Selection is captured live so undo restores the caret as it was
+            // when the edit began; document text stays on the last stable snapshot.
+            selection: self.capture_source_selection_snapshot(cx),
             timestamp: Instant::now(),
             kind,
         }
@@ -83,12 +89,16 @@ impl Editor {
         });
     }
 
-    pub(super) fn prepare_undo_capture_from_stable_snapshot(&mut self, kind: UndoCaptureKind) {
+    pub(super) fn prepare_undo_capture_from_stable_snapshot(
+        &mut self,
+        kind: UndoCaptureKind,
+        cx: &App,
+    ) {
         if self.history_restore_in_progress || self.pending_undo_capture.is_some() {
             return;
         }
         self.pending_undo_capture = Some(PendingUndoCapture {
-            snapshot: self.capture_stable_history_entry(kind),
+            snapshot: self.capture_stable_history_entry(kind, cx),
         });
     }
 

@@ -148,6 +148,8 @@ pub struct Block {
     pub list_ordinal: Option<usize>,
     pub is_selecting: bool,
     pub cursor_blink_epoch: Instant,
+    /// Last opacity bucket that triggered a blink `notify` (see [`Self::start_cursor_blink`]).
+    last_blink_notify_bucket: Option<u8>,
     pub vertical_motion_x: Option<Pixels>,
     pub(super) cursor_blink_task: Option<Task<()>>,
     /// Cached projection used to show editable inline delimiters for the
@@ -372,6 +374,7 @@ impl Block {
             list_ordinal: None,
             is_selecting: false,
             cursor_blink_epoch: Instant::now(),
+            last_blink_notify_bucket: None,
             vertical_motion_x: None,
             cursor_blink_task: None,
             projection: None,
@@ -2470,30 +2473,37 @@ impl Block {
         cx.notify();
     }
 
-    /// Starts the cursor blink loop: a repeating background timer every 33ms
-    /// that calls `cx.notify()` to repaint the cursor — but only while the
-    /// cursor opacity is actually animating. During the first 0.5 s after
-    /// each `cursor_blink_epoch` reset (which arrow keys / typing trigger),
-    /// opacity is pinned to 1.0, so a repaint would just re-do the full
-    /// projection rebuild for no visible change.
+    /// Starts the cursor blink loop. A background timer samples opacity and
+    /// calls `cx.notify()` only when the quantized opacity bucket changes.
+    ///
+    /// During the first 0.5 s after each `cursor_blink_epoch` reset (arrow
+    /// keys / typing), opacity is pinned to 1.0 and no blink-driven notify
+    /// fires. After that, cosine blink is quantized into a small number of
+    /// buckets so idle focus does not repaint at 30 Hz.
     ///
     /// The blink task is automatically cancelled when the block loses focus
     /// (the task handle is dropped in [`Block::render`]).
     pub(crate) fn suspend_cursor_blink(&mut self) {
         self.cursor_blink_task = None;
+        self.last_blink_notify_bucket = None;
     }
 
     pub(super) fn start_cursor_blink(&mut self, cx: &mut Context<Self>) {
         self.cursor_blink_epoch = Instant::now();
+        self.last_blink_notify_bucket = None;
         self.cursor_blink_task = Some(cx.spawn(
             async |this: WeakEntity<Block>, cx: &mut AsyncApp| loop {
                 cx.background_executor()
-                    .timer(Duration::from_millis(33))
+                    .timer(Duration::from_millis(50))
                     .await;
                 if this
                     .update(cx, |this: &mut Block, cx: &mut Context<Block>| {
-                        if this.cursor_blink_epoch.elapsed().as_secs_f32() >= 0.5 {
-                            cx.notify();
+                        let bucket = this.cursor_opacity_notify_bucket();
+                        if bucket != this.last_blink_notify_bucket {
+                            this.last_blink_notify_bucket = bucket;
+                            if bucket.is_some() {
+                                cx.notify();
+                            }
                         }
                     })
                     .is_err()
@@ -2505,7 +2515,7 @@ impl Block {
     }
 
     /// Cosine-based smooth blink: fully opaque for 0.5s, then oscillates
-    /// with a period of ~1s (33ms x 30 ticks ~= 1s).
+    /// with a period of ~1s.
     pub fn cursor_opacity(&self) -> f32 {
         let elapsed = self.cursor_blink_epoch.elapsed().as_secs_f32();
         if elapsed < 0.5 {
@@ -2513,6 +2523,18 @@ impl Block {
         }
         let t = elapsed - 0.5;
         (f32::cos(t * std::f32::consts::TAU) + 1.0) / 2.0
+    }
+
+    /// Quantized opacity used to throttle blink-driven repaints.
+    ///
+    /// `None` means the solid (pre-blink) phase — no notify needed.
+    fn cursor_opacity_notify_bucket(&self) -> Option<u8> {
+        let elapsed = self.cursor_blink_epoch.elapsed().as_secs_f32();
+        if elapsed < 0.5 {
+            return None;
+        }
+        let opacity = self.cursor_opacity();
+        Some(((opacity * 8.0).round() as u8).min(8))
     }
 
     pub fn cursor_offset(&self) -> usize {
