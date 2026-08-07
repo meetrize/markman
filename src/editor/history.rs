@@ -136,10 +136,7 @@ impl Editor {
         if !should_merge {
             self.undo_history.push(pending.snapshot);
             self.redo_history.clear();
-            if self.undo_history.len() > Self::HISTORY_LIMIT {
-                let overflow = self.undo_history.len() - Self::HISTORY_LIMIT;
-                self.undo_history.drain(0..overflow);
-            }
+            Self::trim_history_stack(&mut self.undo_history);
         }
         self.refresh_stable_document_snapshot(cx);
     }
@@ -335,18 +332,43 @@ impl Editor {
     fn push_redo_entry(&mut self, cx: &App) {
         self.redo_history
             .push(self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx));
-        if self.redo_history.len() > Self::HISTORY_LIMIT {
-            let overflow = self.redo_history.len() - Self::HISTORY_LIMIT;
-            self.redo_history.drain(0..overflow);
-        }
+        Self::trim_history_stack(&mut self.redo_history);
     }
 
     fn push_undo_entry(&mut self, cx: &App) {
         self.undo_history
             .push(self.capture_history_entry(UndoCaptureKind::NonCoalescible, cx));
-        if self.undo_history.len() > Self::HISTORY_LIMIT {
-            let overflow = self.undo_history.len() - Self::HISTORY_LIMIT;
-            self.undo_history.drain(0..overflow);
+        Self::trim_history_stack(&mut self.undo_history);
+    }
+
+    /// Drops oldest entries until the stack fits both the entry count and the
+    /// total `source_text` byte budget. Always retains the newest entry.
+    fn trim_history_stack(stack: &mut Vec<HistoryEntry>) {
+        Self::trim_history_stack_with_limits(
+            stack,
+            Self::HISTORY_LIMIT,
+            Self::HISTORY_BYTE_BUDGET,
+        );
+    }
+
+    fn trim_history_stack_with_limits(
+        stack: &mut Vec<HistoryEntry>,
+        entry_limit: usize,
+        byte_budget: usize,
+    ) {
+        if entry_limit == 0 {
+            stack.clear();
+            return;
+        }
+        if stack.len() > entry_limit {
+            let overflow = stack.len() - entry_limit;
+            stack.drain(0..overflow);
+        }
+
+        let mut total_bytes: usize = stack.iter().map(|entry| entry.source_text.len()).sum();
+        while stack.len() > 1 && total_bytes > byte_budget {
+            let removed = stack.remove(0);
+            total_bytes = total_bytes.saturating_sub(removed.source_text.len());
         }
     }
 
@@ -382,5 +404,60 @@ impl Editor {
         self.sync_table_axis_visuals(cx);
         self.dismiss_contextual_overlays(cx);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod history_budget_tests {
+    use super::super::{
+        Editor, HistoryEntry, UndoCaptureKind, UndoSelectionSnapshot,
+    };
+    use std::time::Instant;
+
+    fn entry(text: impl Into<String>) -> HistoryEntry {
+        HistoryEntry {
+            source_text: text.into(),
+            selection: UndoSelectionSnapshot {
+                range: 0..0,
+                reversed: false,
+            },
+            timestamp: Instant::now(),
+            kind: UndoCaptureKind::NonCoalescible,
+        }
+    }
+
+    #[test]
+    fn trim_drops_oldest_when_over_entry_limit() {
+        let mut stack = vec![entry("a"), entry("b"), entry("c"), entry("d")];
+        Editor::trim_history_stack_with_limits(&mut stack, 2, usize::MAX);
+        assert_eq!(
+            stack
+                .iter()
+                .map(|e| e.source_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c", "d"]
+        );
+    }
+
+    #[test]
+    fn trim_drops_oldest_when_over_byte_budget() {
+        let mut stack = vec![entry("aaaa"), entry("bbbb"), entry("cc")];
+        Editor::trim_history_stack_with_limits(&mut stack, 10, 6);
+        assert_eq!(
+            stack
+                .iter()
+                .map(|e| e.source_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["bbbb", "cc"]
+        );
+        assert!(stack.iter().map(|e| e.source_text.len()).sum::<usize>() <= 6);
+    }
+
+    #[test]
+    fn trim_keeps_newest_entry_even_if_over_budget() {
+        let mut stack = vec![entry("x".repeat(100))];
+        Editor::trim_history_stack_with_limits(&mut stack, 10, 8);
+        assert_eq!(stack.len(), 1);
+        assert_eq!(stack[0].source_text.len(), 100);
     }
 }
