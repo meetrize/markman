@@ -839,6 +839,7 @@ impl Block {
                 if !focused {
                     self.last_layout = None;
                     self.last_bounds = None;
+                    self.clear_shape_cache();
                 }
                 let child = if focused {
                     BlockTextElement::new(cx.entity(), is_placeholder).into_any_element()
@@ -860,6 +861,7 @@ impl Block {
                     self.last_layout = None;
                     self.last_bounds = None;
                     self.interaction_bounds = None;
+                    self.clear_shape_cache();
                 }
                 let viewport_width = f32::from(window.viewport_size().width.max(px(1.0)));
                 div()

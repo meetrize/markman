@@ -127,6 +127,7 @@ impl Block {
                 if !focused {
                     self.last_layout = None;
                     self.last_bounds = None;
+                    self.clear_shape_cache();
                 }
                 let child = if focused {
                     BlockTextElement::new(cx.entity(), is_placeholder).into_any_element()

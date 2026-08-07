@@ -4,7 +4,10 @@ use std::rc::Rc;
 
 use gpui::*;
 
-use super::{Block, InlineFootnoteHit, InlineLinkHit, InlineTagHit, code_highlight_class_at, code_highlight_color};
+use super::{
+    Block, InlineFootnoteHit, InlineLinkHit, InlineTagHit, code_highlight_class_at,
+    code_highlight_color, fingerprint_text_runs, quantize_wrap_width_px,
+};
 use crate::components::{HtmlCssColor, InlineTextTree};
 use crate::theme::{ThemeColors, ThemeDimensions, ThemeManager};
 
@@ -1894,6 +1897,9 @@ impl Element for BlockTextElement {
 
         let shared_cache = Rc::new(RefCell::new(None));
         let shared_cache_clone = shared_cache.clone();
+        let input_entity = self.input.clone();
+        let runs_fingerprint = fingerprint_text_runs(&runs);
+        let display_text_for_cache = display_text.clone();
 
         let mut layout_style = Style::default();
         layout_style.size.width = relative(1.).into();
@@ -1902,7 +1908,7 @@ impl Element for BlockTextElement {
 
         let layout_id = window.request_measured_layout(
             layout_style,
-            move |known_dimensions, available_space, window, _cx| {
+            move |known_dimensions, available_space, window, cx| {
                 let wrap_width = known_dimensions.width.or(match available_space.width {
                     AvailableSpace::Definite(x) => Some(x),
                     AvailableSpace::MinContent => Some(px(1.0)),
@@ -1915,18 +1921,45 @@ impl Element for BlockTextElement {
                         - code_block_pad_x * 2.0)
                         .max(px(1.0))
                 });
+                let wrap_width_px = quantize_wrap_width_px(text_wrap_width);
 
-                let lines = window
-                    .text_system()
-                    .shape_text(
-                        display_text.clone(),
-                        font_size,
-                        &runs,
-                        text_wrap_width,
-                        None,
-                    )
-                    .map(|lines| lines.into_vec())
-                    .unwrap_or_default();
+                let lines = {
+                    let cached = input_entity.read(cx).shape_cache.as_ref().and_then(|cache| {
+                        cache
+                            .matches(
+                                &display_text_for_cache,
+                                font_size,
+                                wrap_width_px,
+                                runs_fingerprint,
+                            )
+                            .then(|| cache.lines().to_vec())
+                    });
+                    if let Some(lines) = cached {
+                        lines
+                    } else {
+                        let lines = window
+                            .text_system()
+                            .shape_text(
+                                display_text.clone(),
+                                font_size,
+                                &runs,
+                                text_wrap_width,
+                                None,
+                            )
+                            .map(|shaped| shaped.into_vec())
+                            .unwrap_or_default();
+                        input_entity.update(cx, |block, _cx| {
+                            block.store_shape_cache(
+                                display_text_for_cache.clone(),
+                                font_size,
+                                wrap_width_px,
+                                runs_fingerprint,
+                                lines.clone(),
+                            );
+                        });
+                        lines
+                    }
+                };
 
                 let mut total_size: Size<Pixels> = Size::default();
                 for line in &lines {
