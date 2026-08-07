@@ -1,9 +1,16 @@
 //! Persistent app preference storage: TOML load/save, defaults, and merge logic.
 //!
 //! This module intentionally has no GPUI dependency.
+//!
+//! [`read_app_preferences`] is called from hot paths (including every
+//! `Editor::render`). Successful loads are cached in process memory and
+//! refreshed whenever preferences are saved through this module. External
+//! edits to `config.toml` while the app is running are not observed until
+//! the next save or process restart.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::Context as _;
 use serde::Serialize;
@@ -305,13 +312,23 @@ impl From<&AppPreferences> for PreferencesFile {
     }
 }
 
-pub(crate) fn read_app_preferences() -> anyhow::Result<AppPreferences> {
-    read_app_preferences_with_dirs(&MarkmanConfigDirs::from_system()?)
+fn app_preferences_cache() -> &'static Mutex<HashMap<PathBuf, AppPreferences>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, AppPreferences>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(crate) fn read_app_preferences_with_dirs(
-    dirs: &MarkmanConfigDirs,
-) -> anyhow::Result<AppPreferences> {
+fn cached_app_preferences(dirs: &MarkmanConfigDirs) -> Option<AppPreferences> {
+    let guard = app_preferences_cache().lock().ok()?;
+    guard.get(&dirs.app_config_file()).cloned()
+}
+
+fn store_cached_app_preferences(dirs: &MarkmanConfigDirs, preferences: &AppPreferences) {
+    if let Ok(mut guard) = app_preferences_cache().lock() {
+        guard.insert(dirs.app_config_file(), preferences.clone());
+    }
+}
+
+fn load_app_preferences_from_disk(dirs: &MarkmanConfigDirs) -> anyhow::Result<AppPreferences> {
     let path = dirs.app_config_file();
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
@@ -327,6 +344,22 @@ pub(crate) fn read_app_preferences_with_dirs(
     };
 
     Ok(app_preferences_from_toml_value(&value, DEFAULT_LANGUAGE_ID))
+}
+
+pub(crate) fn read_app_preferences() -> anyhow::Result<AppPreferences> {
+    read_app_preferences_with_dirs(&MarkmanConfigDirs::from_system()?)
+}
+
+pub(crate) fn read_app_preferences_with_dirs(
+    dirs: &MarkmanConfigDirs,
+) -> anyhow::Result<AppPreferences> {
+    if let Some(cached) = cached_app_preferences(dirs) {
+        return Ok(cached);
+    }
+
+    let preferences = load_app_preferences_from_disk(dirs)?;
+    store_cached_app_preferences(dirs, &preferences);
+    Ok(preferences)
 }
 
 pub(crate) fn load_or_create_app_preferences() -> anyhow::Result<AppPreferences> {
@@ -565,7 +598,9 @@ pub(crate) fn save_app_preferences_with_dirs(
     let mut normalized = preferences.clone();
     normalized.default_theme_id = normalize_builtin_theme_id(&normalized.default_theme_id);
     let text = toml::to_string_pretty(&PreferencesFile::from(&normalized))?;
-    std::fs::write(&path, text).with_context(|| format!("failed to write '{}'", path.display()))
+    std::fs::write(&path, text).with_context(|| format!("failed to write '{}'", path.display()))?;
+    store_cached_app_preferences(dirs, &normalized);
+    Ok(())
 }
 
 pub(crate) fn first_existing_recent_markdown_file() -> Option<PathBuf> {
@@ -920,6 +955,54 @@ mod tests {
         let text =
             std::fs::read_to_string(dirs.app_config_file()).expect("config.toml should exist");
         assert!(text.contains("inline_code_system_terminal = true"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_returns_cached_value_until_save_updates_it() {
+        let root = std::env::temp_dir().join(format!(
+            "velotype-preferences-cache-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let dirs = MarkmanConfigDirs::from_root(&root);
+        let first = AppPreferences {
+            workspace_show_document_titles: true,
+            ..AppPreferences::default()
+        };
+        save_app_preferences_with_dirs(&first, &dirs).expect("first save");
+        assert!(
+            read_app_preferences_with_dirs(&dirs)
+                .expect("cached read")
+                .workspace_show_document_titles
+        );
+
+        // Bypass the save helper so only the on-disk file changes. The cache
+        // must keep serving the previous value until the next save API call.
+        std::fs::write(
+            dirs.app_config_file(),
+            r#"
+                [workspace]
+                show_document_titles = false
+            "#,
+        )
+        .expect("raw overwrite");
+        assert!(
+            read_app_preferences_with_dirs(&dirs)
+                .expect("stale-until-save read")
+                .workspace_show_document_titles,
+            "read must not re-hit disk while cache is warm"
+        );
+
+        let second = AppPreferences {
+            workspace_show_document_titles: false,
+            ..AppPreferences::default()
+        };
+        save_app_preferences_with_dirs(&second, &dirs).expect("second save");
+        assert!(
+            !read_app_preferences_with_dirs(&dirs)
+                .expect("cache refreshed by save")
+                .workspace_show_document_titles
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }
