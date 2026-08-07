@@ -1,6 +1,7 @@
 //! Editable block runtime and block-local state transitions.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -126,6 +127,10 @@ pub struct Block {
     pub(crate) search_highlight_active_range: Option<Range<usize>>,
     pub marked_range: Option<Range<usize>>,
     pub last_layout: Option<Vec<WrappedLine>>,
+    /// Cross-frame `shape_text` reuse keyed by text / wrap width / runs.
+    /// Avoids reshaping every block when the editor re-renders at the same width
+    /// (cursor blink, overlays, etc.).
+    pub(crate) shape_cache: Option<BlockShapeCache>,
     pub last_bounds: Option<Bounds<Pixels>>,
     pub(crate) interaction_bounds: Option<Bounds<Pixels>>,
     pub last_line_height: Pixels,
@@ -220,6 +225,112 @@ pub(crate) enum CollapsedCaretAffinity {
     OuterEnd,
 }
 
+/// Cached output of [`WindowTextSystem::shape_text`] for a block body.
+#[derive(Clone, Debug)]
+pub(crate) struct BlockShapeCache {
+    text: SharedString,
+    font_size_bits: u32,
+    /// Wrap width quantized to whole CSS pixels (`None` = no wrap).
+    wrap_width_px: Option<i32>,
+    runs_fingerprint: u64,
+    lines: Vec<WrappedLine>,
+}
+
+impl BlockShapeCache {
+    pub(crate) fn matches(
+        &self,
+        text: &SharedString,
+        font_size: Pixels,
+        wrap_width_px: Option<i32>,
+        runs_fingerprint: u64,
+    ) -> bool {
+        self.text.as_ref() == text.as_ref()
+            && self.font_size_bits == f32::from(font_size).to_bits()
+            && self.wrap_width_px == wrap_width_px
+            && self.runs_fingerprint == runs_fingerprint
+    }
+
+    pub(crate) fn lines(&self) -> &[WrappedLine] {
+        &self.lines
+    }
+}
+
+/// Quantize wrap width so sub-pixel layout jitter still hits the shape cache.
+pub(crate) fn quantize_wrap_width_px(wrap_width: Option<Pixels>) -> Option<i32> {
+    wrap_width.map(|width| f32::from(width).round() as i32)
+}
+
+/// Fingerprint `TextRun` styling so search/theme/color changes invalidate cache.
+pub(crate) fn fingerprint_text_runs(runs: &[TextRun]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    runs.len().hash(&mut hasher);
+    for run in runs {
+        run.len.hash(&mut hasher);
+        run.font.family.hash(&mut hasher);
+        run.font.weight.hash(&mut hasher);
+        std::mem::discriminant(&run.font.style).hash(&mut hasher);
+        hash_hsla(&run.color, &mut hasher);
+        match run.background_color {
+            Some(color) => {
+                1u8.hash(&mut hasher);
+                hash_hsla(&color, &mut hasher);
+            }
+            None => 0u8.hash(&mut hasher),
+        }
+        run.underline.is_some().hash(&mut hasher);
+        run.strikethrough.is_some().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_hsla(color: &Hsla, hasher: &mut impl Hasher) {
+    color.h.to_bits().hash(hasher);
+    color.s.to_bits().hash(hasher);
+    color.l.to_bits().hash(hasher);
+    color.a.to_bits().hash(hasher);
+}
+
+#[cfg(test)]
+mod shape_cache_tests {
+    use super::{fingerprint_text_runs, quantize_wrap_width_px};
+    use gpui::{Font, FontWeight, Hsla, TextRun, px};
+
+    fn run_with_color(len: usize, color: Hsla) -> TextRun {
+        TextRun {
+            len,
+            font: Font {
+                family: "Test".into(),
+                features: Default::default(),
+                fallbacks: None,
+                weight: FontWeight::NORMAL,
+                style: Default::default(),
+            },
+            color,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }
+    }
+
+    #[test]
+    fn quantize_wrap_width_rounds_to_whole_pixels() {
+        assert_eq!(quantize_wrap_width_px(Some(px(12.4))), Some(12));
+        assert_eq!(quantize_wrap_width_px(Some(px(12.6))), Some(13));
+        assert_eq!(quantize_wrap_width_px(None), None);
+    }
+
+    #[test]
+    fn fingerprint_text_runs_changes_when_color_changes() {
+        let a = fingerprint_text_runs(&[run_with_color(4, Hsla::from(gpui::rgb(0x111111)))]);
+        let b = fingerprint_text_runs(&[run_with_color(4, Hsla::from(gpui::rgb(0x222222)))]);
+        assert_ne!(a, b);
+        assert_eq!(
+            a,
+            fingerprint_text_runs(&[run_with_color(4, Hsla::from(gpui::rgb(0x111111)))])
+        );
+    }
+}
+
 impl Block {
     pub fn with_record(cx: &mut Context<Self>, record: BlockRecord) -> Self {
         let edit_mode = EditMode::for_kind(&record.kind);
@@ -243,6 +354,7 @@ impl Block {
             search_highlight_active_range: None,
             marked_range: None,
             last_layout: None,
+            shape_cache: None,
             last_bounds: None,
             interaction_bounds: None,
             last_line_height: px(20.0),
@@ -451,7 +563,29 @@ impl Block {
         let current = self.current_cache().visible_text();
         if self.cached_display_text.as_ref() != current {
             self.cached_display_text = SharedString::from(current.to_string());
+            self.shape_cache = None;
         }
+    }
+
+    pub(crate) fn clear_shape_cache(&mut self) {
+        self.shape_cache = None;
+    }
+
+    pub(crate) fn store_shape_cache(
+        &mut self,
+        text: SharedString,
+        font_size: Pixels,
+        wrap_width_px: Option<i32>,
+        runs_fingerprint: u64,
+        lines: Vec<WrappedLine>,
+    ) {
+        self.shape_cache = Some(BlockShapeCache {
+            text,
+            font_size_bits: f32::from(font_size).to_bits(),
+            wrap_width_px,
+            runs_fingerprint,
+            lines,
+        });
     }
 
     pub(crate) fn inline_tree_from_markdown_with_context(&self, markdown: &str) -> InlineTextTree {
