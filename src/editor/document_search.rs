@@ -225,19 +225,52 @@ impl Editor {
         entity_id: EntityId,
         cx: &App,
     ) {
-        if self.view_mode != ViewMode::Source {
-            if let Some(idx) = self.document.visible_index_for_entity_id(entity_id) {
-                self.scroll_handle.scroll_to_item(idx);
-            }
-        }
+        let visible_len = self.document.visible_blocks().len();
+        let virtualizing = super::virtualization::should_virtualize(visible_len)
+            && !self.virtual_row_extents.is_empty();
 
         let Some(block_entity) = self.document.block_entity_by_id(entity_id) else {
+            if virtualizing
+                && let Some(idx) = self.document.visible_index_for_entity_id(entity_id)
+            {
+                let mut offset = self.scroll_handle.offset();
+                offset.y = super::virtualization::scroll_offset_for_row_with_padding(
+                    &self.virtual_row_extents,
+                    idx,
+                    20.0,
+                );
+                let max_offset_y = self.scroll_handle.max_offset().height.max(px(0.0));
+                offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
+                self.scroll_handle.set_offset(offset);
+            } else if self.view_mode != ViewMode::Source
+                && let Some(idx) = self.document.visible_index_for_entity_id(entity_id)
+            {
+                self.scroll_handle.scroll_to_item(idx);
+            }
             self.search.state.scroll_entity_id = Some(entity_id);
             self.pending_scroll_recheck_after_layout = true;
             return;
         };
 
         let Some(bounds) = block_entity.read_with(cx, |block, _| block.last_bounds) else {
+            // Not laid out yet (common when virtualization left the match off-screen).
+            if virtualizing
+                && let Some(idx) = self.document.visible_index_for_entity_id(entity_id)
+            {
+                let mut offset = self.scroll_handle.offset();
+                offset.y = super::virtualization::scroll_offset_for_row_with_padding(
+                    &self.virtual_row_extents,
+                    idx,
+                    20.0,
+                );
+                let max_offset_y = self.scroll_handle.max_offset().height.max(px(0.0));
+                offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
+                self.scroll_handle.set_offset(offset);
+            } else if self.view_mode != ViewMode::Source
+                && let Some(idx) = self.document.visible_index_for_entity_id(entity_id)
+            {
+                self.scroll_handle.scroll_to_item(idx);
+            }
             self.search.state.scroll_entity_id = Some(entity_id);
             self.pending_scroll_recheck_after_layout = true;
             return;
