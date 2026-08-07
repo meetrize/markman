@@ -398,6 +398,10 @@ impl Editor {
             return;
         }
         self.bump_scrollbar_visibility(cx);
+        if super::virtualization::should_virtualize(self.document.visible_blocks().len()) {
+            // Viewport windowing must rebuild children when scroll offset changes.
+            cx.notify();
+        }
     }
 
     pub(crate) fn start_scrollbar_drag(

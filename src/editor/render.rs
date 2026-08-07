@@ -407,7 +407,20 @@ impl Editor {
             && let Some(focused_id) = self.focused_edit_target_entity_id(window, cx)
             && let Some(focused_idx) = self.document.visible_index_for_entity_id(focused_id)
         {
-            self.scroll_handle.scroll_to_item(focused_idx);
+            if super::virtualization::should_virtualize(self.document.visible_blocks().len())
+                && !self.virtual_row_extents.is_empty()
+            {
+                let mut offset = self.scroll_handle.offset();
+                offset.y = super::virtualization::scroll_offset_for_row(
+                    &self.virtual_row_extents,
+                    focused_idx,
+                );
+                let max_offset_y = self.scroll_handle.max_offset().height.max(px(0.0));
+                offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
+                self.scroll_handle.set_offset(offset);
+            } else {
+                self.scroll_handle.scroll_to_item(focused_idx);
+            }
         }
 
         let has_bounds = self.ensure_focused_caret_visible(window, cx);
@@ -1634,10 +1647,76 @@ impl Render for Editor {
                 .entity
                 .read_with(cx, |block, _cx| RenderedRowSpacingInfo::from_block(block))
         };
-        let mut previous_row_spacing = None;
+
+        let line_height = {
+            let t = &document_theme.typography;
+            t.text_size * body_line_height
+        };
+        let mut top_gaps = Vec::with_capacity(visible_blocks.len());
+        let mut previous_gap_spacing = None;
+        for index in 0..visible_blocks.len() {
+            let spacing = spacing_for(index);
+            top_gaps.push(rendered_row_top_gap(
+                previous_gap_spacing,
+                spacing,
+                doc_d.block_gap,
+            ));
+            previous_gap_spacing = Some(spacing);
+        }
+        let row_extents = super::virtualization::build_row_extents(
+            &visible_blocks,
+            &top_gaps,
+            line_height,
+            doc_d.block_min_height,
+            cx,
+        );
+        self.virtual_row_extents = row_extents.clone();
+
+        let block_window = if super::virtualization::should_virtualize(visible_blocks.len()) {
+            let mut window = super::virtualization::compute_block_window(
+                &row_extents,
+                current_scroll_y,
+                viewport_height,
+                super::virtualization::OVERSCAN_ROWS,
+            );
+            let callout_anchors: Vec<_> = (0..visible_blocks.len())
+                .map(|i| spacing_for(i).callout_anchor)
+                .collect();
+            let footnote_anchors: Vec<_> = (0..visible_blocks.len())
+                .map(|i| spacing_for(i).footnote_anchor)
+                .collect();
+            let (start, end) = super::virtualization::expand_window_for_spacing_groups(
+                window.start,
+                window.end,
+                &callout_anchors,
+                &footnote_anchors,
+            );
+            window.top_spacer = row_extents[..start].iter().sum();
+            window.bottom_spacer = row_extents[end..].iter().sum();
+            window.start = start;
+            window.end = end;
+            window
+        } else {
+            super::virtualization::BlockWindow::full(visible_blocks.len())
+        };
+
+        let mut previous_row_spacing = if block_window.start > 0 {
+            Some(spacing_for(block_window.start - 1))
+        } else {
+            None
+        };
         let mut block_rows = Vec::new();
-        let mut index = 0usize;
-        while index < visible_blocks.len() {
+        if block_window.top_spacer > 0.5 {
+            block_rows.push(
+                div()
+                    .w_full()
+                    .h(px(block_window.top_spacer))
+                    .flex_shrink_0()
+                    .into_any_element(),
+            );
+        }
+        let mut index = block_window.start;
+        while index < block_window.end {
             let first_visible = visible_blocks[index].clone();
             let first_spacing = spacing_for(index);
             let top_gap = rendered_row_top_gap(previous_row_spacing, first_spacing, doc_d.block_gap);
@@ -1808,6 +1887,15 @@ impl Render for Editor {
             block_rows.push(row.into_any_element());
             previous_row_spacing = Some(first_spacing);
             index += 1;
+        }
+        if block_window.bottom_spacer > 0.5 {
+            block_rows.push(
+                div()
+                    .w_full()
+                    .h(px(block_window.bottom_spacer))
+                    .flex_shrink_0()
+                    .into_any_element(),
+            );
         }
         self.arm_preview_freeze_if_needed(freeze_preview, cx);
 
