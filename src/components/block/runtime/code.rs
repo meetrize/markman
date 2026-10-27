@@ -48,6 +48,10 @@ impl Block {
         if !self.code_block_is_collapsible() {
             return false;
         }
+        // Document search keeps matching code blocks open while the find UI is active.
+        if self.search_force_expanded {
+            return false;
+        }
         match self.code_block_collapsed_override {
             Some(collapsed) => collapsed,
             None => {
@@ -61,6 +65,36 @@ impl Block {
                 }
             }
         }
+    }
+
+    /// Expand a folded code block so an in-document search match can be shown.
+    ///
+    /// Returns `true` when the collapsed state changed.
+    pub(crate) fn expand_code_block_for_search(&mut self) -> bool {
+        if !self.kind().is_code_block() {
+            return false;
+        }
+        // Always pin open while search highlights this block. Collapsible
+        // checks alone are not enough: a block may become collapsible after
+        // layout, and override-based expand can be cleared by focus clicks.
+        if self.search_force_expanded {
+            return false;
+        }
+        self.search_force_expanded = true;
+        // Also clear a manual "force collapsed" override so render expands.
+        if self.code_block_collapsed_override == Some(true) {
+            self.code_block_collapsed_override = Some(false);
+        }
+        true
+    }
+
+    /// Clear search-driven expand when find highlights are removed.
+    pub(crate) fn clear_search_force_expanded(&mut self) -> bool {
+        if !self.search_force_expanded {
+            return false;
+        }
+        self.search_force_expanded = false;
+        true
     }
 
     pub(crate) fn code_block_hidden_line_count(&self) -> usize {

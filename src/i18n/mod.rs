@@ -236,6 +236,7 @@ pub struct I18nStrings {
     pub preferences_shortcut_toggle_view_mode: String,
     pub preferences_shortcut_toggle_workspace: String,
     pub preferences_shortcut_toggle_application_visibility: String,
+    pub preferences_shortcut_toggle_document_search: String,
     pub preferences_shortcut_find_next_in_document: String,
     pub preferences_shortcut_find_previous_in_document: String,
     pub preferences_shortcut_quick_file_open: String,
@@ -744,6 +745,7 @@ struct I18nStringsDe {
     preferences_shortcut_toggle_view_mode: Option<String>,
     preferences_shortcut_toggle_workspace: Option<String>,
     preferences_shortcut_toggle_application_visibility: Option<String>,
+    preferences_shortcut_toggle_document_search: Option<String>,
     preferences_shortcut_find_next_in_document: Option<String>,
     preferences_shortcut_find_previous_in_document: Option<String>,
     preferences_shortcut_quick_file_open: Option<String>,
@@ -1069,6 +1071,7 @@ const I18N_STRING_KEYS: &[&str] = &[
     "preferences_shortcut_toggle_view_mode",
     "preferences_shortcut_toggle_workspace",
     "preferences_shortcut_toggle_application_visibility",
+    "preferences_shortcut_toggle_document_search",
     "preferences_shortcut_find_next_in_document",
     "preferences_shortcut_find_previous_in_document",
     "preferences_shortcut_quick_file_open",
@@ -1624,6 +1627,9 @@ impl I18nStringsDe {
             preferences_shortcut_toggle_application_visibility: self
                 .preferences_shortcut_toggle_application_visibility
                 .unwrap_or(defaults.preferences_shortcut_toggle_application_visibility),
+            preferences_shortcut_toggle_document_search: self
+                .preferences_shortcut_toggle_document_search
+                .unwrap_or(defaults.preferences_shortcut_toggle_document_search),
             preferences_shortcut_find_next_in_document: self
                 .preferences_shortcut_find_next_in_document
                 .unwrap_or(defaults.preferences_shortcut_find_next_in_document),
@@ -2327,6 +2333,7 @@ impl I18nStrings {
             preferences_shortcut_toggle_view_mode: "切换视图模式".into(),
             preferences_shortcut_toggle_workspace: "切换工作区".into(),
             preferences_shortcut_toggle_application_visibility: "显示/隐藏应用".into(),
+            preferences_shortcut_toggle_document_search: "搜索文档".into(),
             preferences_shortcut_find_next_in_document: "查找下一个".into(),
             preferences_shortcut_find_previous_in_document: "查找上一个".into(),
             preferences_shortcut_quick_file_open: "快速打开文件".into(),
@@ -2674,6 +2681,7 @@ impl I18nStrings {
             preferences_shortcut_toggle_view_mode: "Toggle View Mode".into(),
             preferences_shortcut_toggle_workspace: "Toggle Workspace".into(),
             preferences_shortcut_toggle_application_visibility: "Show/Hide Application".into(),
+            preferences_shortcut_toggle_document_search: "Find in Document".into(),
             preferences_shortcut_find_next_in_document: "Find Next".into(),
             preferences_shortcut_find_previous_in_document: "Find Previous".into(),
             preferences_shortcut_quick_file_open: "Quick File Open".into(),

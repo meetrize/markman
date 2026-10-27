@@ -179,6 +179,7 @@ pub(crate) enum ShortcutCommand {
     ToggleViewMode,
     ToggleWorkspace,
     ToggleApplicationVisibility,
+    ToggleDocumentSearch,
     FindNextInDocument,
     FindPreviousInDocument,
     QuickFileOpen,
@@ -520,6 +521,13 @@ const SHORTCUT_DEFINITIONS: &[ShortcutDefinition] = &[
         context: None,
     },
     ShortcutDefinition {
+        command: ShortcutCommand::ToggleDocumentSearch,
+        id: "toggle_document_search",
+        category: ShortcutCategory::Navigation,
+        default_keys: &["cmd-f", "ctrl-f"],
+        context: None,
+    },
+    ShortcutDefinition {
         command: ShortcutCommand::FindNextInDocument,
         id: "find_next_in_document",
         category: ShortcutCategory::Navigation,
@@ -742,6 +750,9 @@ fn key_binding_for(
         ShortcutCommand::ToggleApplicationVisibility => {
             KeyBinding::new(key, ToggleApplicationVisibility, context)
         }
+        ShortcutCommand::ToggleDocumentSearch => {
+            KeyBinding::new(key, ToggleDocumentSearch, context)
+        }
         ShortcutCommand::FindNextInDocument => KeyBinding::new(key, FindNextInDocument, context),
         ShortcutCommand::FindPreviousInDocument => {
             KeyBinding::new(key, FindPreviousInDocument, context)
@@ -819,6 +830,14 @@ mod tests {
                 ShortcutCommand::ToggleApplicationVisibility
             ),
             vec!["cmd-shift-alt-7".to_string(), "ctrl-shift-alt-7".to_string()]
+        );
+    }
+
+    #[test]
+    fn toggle_document_search_has_default_shortcuts() {
+        assert_eq!(
+            resolved_shortcut_keys(&BTreeMap::new(), ShortcutCommand::ToggleDocumentSearch),
+            vec!["cmd-f".to_string(), "ctrl-f".to_string()]
         );
     }
 

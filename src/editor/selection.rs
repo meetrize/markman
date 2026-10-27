@@ -603,7 +603,8 @@ impl Editor {
         let mut changed = had_source_range;
         for visible in self.document.visible_blocks().to_vec() {
             visible.entity.update(cx, |block, cx| {
-                if !block.search_highlight_ranges.is_empty() {
+                let cleared_expand = block.clear_search_force_expanded();
+                if !block.search_highlight_ranges.is_empty() || cleared_expand {
                     block.search_highlight_ranges.clear();
                     block.search_highlight_active_range = None;
                     changed = true;

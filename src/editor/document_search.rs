@@ -40,6 +40,10 @@ pub(super) struct DocumentSearchState {
     pub matches: Vec<DocumentSearchMatch>,
     pub match_index: Option<usize>,
     pub scroll_entity_id: Option<EntityId>,
+    /// Match byte range used for post-layout scroll fine-tuning.
+    pub scroll_range: Option<Range<usize>>,
+    /// Remaining paint-wait retries while bringing a match into view.
+    pub scroll_retries: u8,
 }
 
 impl Editor {
@@ -137,6 +141,8 @@ impl Editor {
         self.search.state.matches.clear();
         self.search.state.match_index = None;
         self.search.state.scroll_entity_id = None;
+        self.search.state.scroll_range = None;
+        self.search.state.scroll_retries = 0;
         self.clear_document_search_highlights(cx);
         self.close_single_line_input_context_menu(cx);
         cx.notify();
@@ -215,35 +221,80 @@ impl Editor {
         };
 
         self.search.state.match_index = Some(index);
+        self.expand_code_block_for_document_search_match(match_record.entity_id, cx);
         self.apply_document_search_highlights(cx);
-        self.scroll_document_search_match_into_view(match_record.entity_id, cx);
+        self.scroll_document_search_match_into_view(match_record.entity_id, match_record.range, cx);
         cx.notify();
     }
 
+    /// If the match lives in a folded code block, expand it so the hit is visible.
+    fn expand_code_block_for_document_search_match(
+        &mut self,
+        entity_id: EntityId,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block_entity) = self.document.block_entity_by_id(entity_id) else {
+            return;
+        };
+        block_entity.update(cx, |block, cx| {
+            if block.expand_code_block_for_search() {
+                cx.notify();
+            }
+        });
+    }
+
+    /// Bring a search match into view.
+    ///
+    /// Phase 1 (here): approximate scroll with content-space child bounds, then
+    /// wait one painted frame. Phase 2 ([`Self::retry_document_search_scroll`]):
+    /// fine-tune using the match's freshly painted window-space text bounds.
     fn scroll_document_search_match_into_view(
         &mut self,
         entity_id: EntityId,
-        cx: &App,
+        range: Range<usize>,
+        _cx: &App,
     ) {
-        if self.view_mode != ViewMode::Source {
-            if let Some(idx) = self.document.visible_index_for_entity_id(entity_id) {
+        self.search.state.scroll_entity_id = Some(entity_id);
+        self.search.state.scroll_range = Some(range);
+        self.search.state.scroll_retries = 4;
+        self.pending_scroll_recheck_after_layout = true;
+
+        // Content-space child bounds stay valid across scroll changes.
+        if self.view_mode != ViewMode::Source
+            && let Some(idx) = self.document.visible_index_for_entity_id(entity_id)
+        {
+            if let Some(child_bounds) = self.scroll_handle.bounds_for_item(idx) {
+                self.scroll_layout_bounds_into_view(child_bounds);
+            } else {
                 self.scroll_handle.scroll_to_item(idx);
             }
         }
+    }
 
-        let Some(block_entity) = self.document.block_entity_by_id(entity_id) else {
-            self.search.state.scroll_entity_id = Some(entity_id);
-            self.pending_scroll_recheck_after_layout = true;
-            return;
-        };
+    /// Adjust scroll using layout/content-space bounds (pre-offset).
+    fn scroll_layout_bounds_into_view(&mut self, bounds: Bounds<Pixels>) {
+        let viewport = self.scroll_handle.bounds();
+        let padding = px(20.0);
+        let mut offset = self.scroll_handle.offset();
+        let mut changed = false;
 
-        let Some(bounds) = block_entity.read_with(cx, |block, _| block.last_bounds) else {
-            self.search.state.scroll_entity_id = Some(entity_id);
-            self.pending_scroll_recheck_after_layout = true;
-            return;
-        };
+        if bounds.top() + offset.y < viewport.top() + padding {
+            offset.y = viewport.top() + padding - bounds.top();
+            changed = true;
+        } else if bounds.bottom() + offset.y > viewport.bottom() - padding {
+            offset.y = viewport.bottom() - padding - bounds.bottom();
+            changed = true;
+        }
 
-        self.search.state.scroll_entity_id = None;
+        if changed {
+            let max_offset_y = self.scroll_handle.max_offset().height.max(px(0.0));
+            offset.y = offset.y.min(px(0.0)).max(-max_offset_y);
+            self.scroll_handle.set_offset(offset);
+        }
+    }
+
+    /// Adjust scroll using window-space bounds from the latest paint.
+    fn scroll_window_bounds_into_view(&mut self, bounds: Bounds<Pixels>) {
         let viewport = self.scroll_handle.bounds();
         let padding = px(20.0);
         let top_limit = viewport.top() + padding;
@@ -266,19 +317,48 @@ impl Editor {
         }
     }
 
+    /// Phase 2: fine-tune scroll to the match range after layout/paint.
     pub(super) fn retry_document_search_scroll(&mut self, cx: &App) {
         let Some(entity_id) = self.search.state.scroll_entity_id else {
             return;
         };
-        self.scroll_document_search_match_into_view(entity_id, cx);
+        let Some(range) = self.search.state.scroll_range.clone().or_else(|| {
+            self.search
+                .state
+                .match_index
+                .and_then(|index| self.search.state.matches.get(index))
+                .map(|record| record.range.clone())
+        }) else {
+            self.search.state.scroll_entity_id = None;
+            return;
+        };
+
+        let Some(block_entity) = self.document.block_entity_by_id(entity_id) else {
+            return;
+        };
+
+        let Some(bounds) = block_entity.read_with(cx, |block, _| {
+            block
+                .visible_range_bounds(range.clone())
+                .or(block.last_bounds)
+        }) else {
+            return;
+        };
+
+        self.scroll_window_bounds_into_view(bounds);
+        self.search.state.scroll_entity_id = None;
+        self.search.state.scroll_range = None;
+        self.search.state.scroll_retries = 0;
     }
 
     pub(super) fn clear_document_search_highlights(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
         for visible in self.document.visible_blocks().to_vec() {
             visible.entity.update(cx, |block, cx| {
+                let cleared_expand = block.clear_search_force_expanded();
                 if !block.search_highlight_ranges.is_empty()
                     || block.search_highlight_active_range.is_some()
+                    || cleared_expand
                 {
                     block.search_highlight_ranges.clear();
                     block.search_highlight_active_range = None;
@@ -369,9 +449,18 @@ impl Editor {
                 .as_ref()
                 .filter(|record| record.entity_id == entity_id)
                 .map(|record| record.range.clone());
+            let has_matches = !ranges.is_empty();
             visible.entity.update(cx, |block, cx| {
+                // Expand folded code blocks that contain hits so yellow
+                // highlights are not clipped by the collapsed max-height.
+                let expanded = if has_matches {
+                    block.expand_code_block_for_search()
+                } else {
+                    block.clear_search_force_expanded()
+                };
                 if block.search_highlight_ranges != ranges
                     || block.search_highlight_active_range != active
+                    || expanded
                 {
                     block.search_highlight_ranges = ranges;
                     block.search_highlight_active_range = active;

@@ -25,6 +25,20 @@ const LINK_ACTION_ICON_BG_RADIUS: f32 = 3.0;
 const LINK_ACTION_ICON_VISUAL_INSET: f32 = 1.5;
 const LINK_ACTION_ICON_BG_OPACITY: f32 = 0.14;
 
+/// Document-search match background (yellow).
+fn search_match_background(active: bool) -> Hsla {
+    if active {
+        Hsla::from(rgba(0xffd400e6))
+    } else {
+        Hsla::from(rgba(0xffe566cc))
+    }
+}
+
+/// Document-search match text (red).
+fn search_match_text_color() -> Hsla {
+    Hsla::from(rgba(0xd32f2fff))
+}
+
 fn source_line_count(text: &str) -> usize {
     text.split('\n').count().max(1)
 }
@@ -118,6 +132,7 @@ fn build_text_runs(
     code_bg: Hsla,
     search_highlight_bg: Hsla,
     search_highlight_active_bg: Hsla,
+    search_highlight_fg: Hsla,
     show_inline_code_backgrounds: bool,
 ) -> Vec<TextRun> {
     let spans = input.inline_spans();
@@ -174,7 +189,9 @@ fn build_text_runs(
             font.style = FontStyle::Italic;
         }
 
-        let mut run_color = if is_link || is_footnote {
+        let mut run_color = if is_active_search_highlight || is_search_highlight {
+            search_highlight_fg
+        } else if is_link || is_footnote {
             link_color
         } else if is_tag {
             tag_text_color
@@ -183,6 +200,8 @@ fn build_text_runs(
         };
         if let Some(style) = html_style
             && let Some(color) = style.color
+            && !is_active_search_highlight
+            && !is_search_highlight
         {
             run_color = html_css_color_to_hsla(color, run_color);
         }
@@ -272,6 +291,7 @@ fn build_code_text_runs(
     colors: &ThemeColors,
     search_highlight_bg: Hsla,
     search_highlight_active_bg: Hsla,
+    search_highlight_fg: Hsla,
 ) -> Vec<TextRun> {
     let highlight_spans = input
         .code_highlight_result()
@@ -313,9 +333,13 @@ fn build_code_text_runs(
         let is_active_search_highlight = search_highlight_active_range
             .is_some_and(|range| segment_overlaps_range(start, end, range));
         let highlight_class = code_highlight_class_at(highlight_spans, start);
-        let run_color = highlight_class
-            .map(|class| code_highlight_color(colors, class))
-            .unwrap_or(base_run.color);
+        let run_color = if is_active_search_highlight || is_search_highlight {
+            search_highlight_fg
+        } else {
+            highlight_class
+                .map(|class| code_highlight_color(colors, class))
+                .unwrap_or(base_run.color)
+        };
         let mut font = base_run.font.clone();
         if let Some(class) = highlight_class {
             apply_code_highlight_font_style(class, &mut font);
@@ -1693,8 +1717,9 @@ fn shape_block_display_lines(
         strikethrough: None,
     };
 
-    let search_highlight_bg = theme.colors.selection.opacity(0.35);
-    let search_highlight_active_bg = theme.colors.selection.opacity(0.7);
+    let search_highlight_bg = search_match_background(false);
+    let search_highlight_active_bg = search_match_background(true);
+    let search_highlight_fg = search_match_text_color();
 
     let runs: Vec<TextRun> = if !is_placeholder {
         if input.kind().is_code_block() {
@@ -1706,6 +1731,7 @@ fn shape_block_display_lines(
                 &theme.colors,
                 search_highlight_bg,
                 search_highlight_active_bg,
+                search_highlight_fg,
             )
         } else {
             build_text_runs(
@@ -1719,6 +1745,7 @@ fn shape_block_display_lines(
                 theme.colors.code_bg,
                 search_highlight_bg,
                 search_highlight_active_bg,
+                search_highlight_fg,
                 show_inline_code_backgrounds,
             )
         }
@@ -1845,8 +1872,9 @@ impl Element for BlockTextElement {
             strikethrough: None,
         };
 
-        let search_highlight_bg = theme.colors.selection.opacity(0.35);
-        let search_highlight_active_bg = theme.colors.selection.opacity(0.7);
+        let search_highlight_bg = search_match_background(false);
+        let search_highlight_active_bg = search_match_background(true);
+        let search_highlight_fg = search_match_text_color();
 
         let runs: Vec<TextRun> = if !is_placeholder {
             if input.kind().is_code_block() {
@@ -1858,6 +1886,7 @@ impl Element for BlockTextElement {
                     &theme.colors,
                     search_highlight_bg,
                     search_highlight_active_bg,
+                    search_highlight_fg,
                 )
             } else {
                 build_text_runs(
@@ -1871,6 +1900,7 @@ impl Element for BlockTextElement {
                     theme.colors.code_bg,
                     search_highlight_bg,
                     search_highlight_active_bg,
+                    search_highlight_fg,
                     show_inline_code_backgrounds,
                 )
             }
@@ -2151,8 +2181,8 @@ impl Element for BlockTextElement {
         let mut search_quads = Vec::new();
         let mut search_active_quads = Vec::new();
         if !self.is_placeholder {
-            let search_bg = theme.colors.selection.opacity(0.35);
-            let search_active_bg = theme.colors.selection.opacity(0.7);
+            let search_bg = search_match_background(false);
+            let search_active_bg = search_match_background(true);
             if !input.search_highlight_ranges.is_empty() {
                 for range in &input.search_highlight_ranges {
                     for segment in range_segment_bounds_with_link_insets(
@@ -3277,6 +3307,7 @@ mod tests {
                 Hsla::from(rgba(0x111111ff)),
                 Hsla::from(rgba(0xffff0033)),
                 Hsla::from(rgba(0xffff0066)),
+                Hsla::from(rgba(0xd32f2fff)),
                 true,
             );
             let marked_run = runs.last().expect("styled text should create a final run");

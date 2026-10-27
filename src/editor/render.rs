@@ -398,6 +398,33 @@ impl Editor {
             return;
         }
 
+        // Document search keeps focus on the search field, so its scroll path
+        // must not depend on pending_scroll_active_block_into_view.
+        //
+        // Two-phase: (1) wait one painted frame after approximate scroll,
+        // (2) fine-tune to the match range with fresh window-space bounds.
+        if self.search.state.open && self.search.state.scroll_entity_id.is_some() {
+            if self.pending_scroll_recheck_after_layout {
+                self.pending_scroll_recheck_after_layout = false;
+                cx.notify();
+            } else {
+                self.retry_document_search_scroll(cx);
+                if self.search.state.scroll_entity_id.is_some() {
+                    if self.search.state.scroll_retries > 0 {
+                        self.search.state.scroll_retries -= 1;
+                        self.pending_scroll_recheck_after_layout = true;
+                        cx.notify();
+                    } else {
+                        self.search.state.scroll_entity_id = None;
+                        self.search.state.scroll_range = None;
+                    }
+                }
+            }
+            if !self.pending_scroll_active_block_into_view {
+                return;
+            }
+        }
+
         if !self.pending_scroll_active_block_into_view {
             return;
         }
@@ -413,9 +440,6 @@ impl Editor {
         let has_bounds = self.ensure_focused_caret_visible(window, cx);
         if self.pending_scroll_recheck_after_layout {
             self.pending_scroll_recheck_after_layout = false;
-            if self.search.state.open {
-                self.retry_document_search_scroll(cx);
-            }
             cx.notify();
             return;
         }

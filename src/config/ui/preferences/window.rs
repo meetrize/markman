@@ -1882,6 +1882,9 @@ impl PreferencesWindow {
             ShortcutCommand::ToggleApplicationVisibility => {
                 strings.preferences_shortcut_toggle_application_visibility.clone()
             }
+            ShortcutCommand::ToggleDocumentSearch => {
+                strings.preferences_shortcut_toggle_document_search.clone()
+            }
             ShortcutCommand::FindNextInDocument => {
                 strings.preferences_shortcut_find_next_in_document.clone()
             }

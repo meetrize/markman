@@ -119,6 +119,8 @@ pub struct Block {
     pub(crate) code_language_marked_range: Option<Range<usize>>,
     pub(crate) code_language_menu_open: bool,
     pub(crate) code_block_collapsed_override: Option<bool>,
+    /// When true, keep this code block expanded so document-search hits stay visible.
+    pub(crate) search_force_expanded: bool,
     pub selected_range: Range<usize>,
     pub selection_reversed: bool,
     pub(crate) editor_selection_range: Option<Range<usize>>,
@@ -236,6 +238,7 @@ impl Block {
             code_language_marked_range: None,
             code_language_menu_open: false,
             code_block_collapsed_override: None,
+            search_force_expanded: false,
             selected_range: 0..0,
             selection_reversed: false,
             editor_selection_range: None,
